@@ -87,7 +87,7 @@ import Debug.Trace
  BACKSPACE 		{ Key "backspace" }
  BLOCK 			{ Key "block" }
  CALL 			{ Key "call" }
--- CASE 		{ Key "case" }
+ CASE 		{ Key "case" }            -- GAV UNCOMMENTED
  CHARACTER 		{ Key "character" }
  CLOSE 			{ Key "close" }
  COMMON 		{ Key "common" }
@@ -159,7 +159,7 @@ import Debug.Trace
  RETURN 		{ Key "return" }
  REWIND 		{ Key "rewind" }
  SAVE 			{ Key "save" }
--- SELECT 		{ Key "select" }
+ SELECT 		{ Key "select" }            -- GAV UNCOMMENTED
  SEQUENCE 		{ Key "sequence" }
 -- SIZE 		{ Key "size" }
  SOMETYPE               { Key "sometype" }
@@ -793,7 +793,7 @@ id2 :: { String } -- hack len
 id2 : ID  { $1 }
     | id_keywords { $1 }
 
-id_keywords :: { String } -- identifiers which became keywords, but can still be used as variables
+id_keywords :: { String } -- identifiers which became keywords, but can still be used variables
 id_keywords : COMMON { "common" } -- allow common as a subname (can happen)
             | ALLOCATE { "allocate " }
 	    | id_keywords_2 { $1 }
