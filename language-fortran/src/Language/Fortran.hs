@@ -212,6 +212,7 @@ data Fortran  p = Assg p SrcSpan (Expr p) (Expr p)
                 | ReadS p SrcSpan [Spec p] [(Expr p)]
                 | TextStmt p SrcSpan String     -- cpp switches to carry over
                 | NullStmt p SrcSpan
+                | SelectStmt p SrcSpan (Expr p) [((Expr p), (Fortran p))]   -- GAV ADDED
                   deriving (Show, Functor, Typeable, Data, Eq)
 
 -- type Bound    = ((Expr p),(Expr p))
@@ -368,6 +369,7 @@ instance Span (Fortran a) where
     srcSpan (ReadS x sp s e)         = sp
     srcSpan (TextStmt x sp s)        = sp
     srcSpan (NullStmt x sp)          = sp
+    srcSpan (SelectStmt x sp e fes)  = sp       -- GAV ADDED
 
 -- Extract the tag 
 

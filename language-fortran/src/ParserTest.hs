@@ -5,7 +5,7 @@ import Language.Fortran.Parser
 main :: IO ()
 -- main = return ()
 main = do
-	a <- parseTest "if_ex.f95"
+	a <- parseTest "select_ex.f95"
 	putStr $ show a
 
 parseTest s = do f <- readFile s

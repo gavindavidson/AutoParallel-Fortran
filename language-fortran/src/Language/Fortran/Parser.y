@@ -1,6 +1,7 @@
 {
 module Language.Fortran.Parser (
     parser
+  , parse         -- GAV ADDED
   , include_parser
     -- * Helpers
   , fst3
@@ -1178,7 +1179,29 @@ executable_constructP
 :   do_construct                                  { $1 }
   | if_construct                                  { $1 }
   | action_stmt                                   { $1 }
+  | select_construct                              { $1 }
 
+select_construct :: { Fortran A0 }                        -- GAV ADDED
+select_construct
+:   srcloc select_stmt case_list end_select_stmt
+                {% getSrcSpan $1 >>= (\s -> return $ SelectStmt () s $2 $3) }
+
+select_stmt :: { Expr A0 }                                -- GAV ADDED
+select_stmt
+  : SELECT case_stmt                              { $2 }
+
+end_select_stmt :: {}                                     -- GAV ADDED
+end_select_stmt
+  : END SELECT                                    {}
+
+case_list :: { [(Expr A0, Fortran A0)] }                  -- GAV ADDED
+case_list
+  : case_list case_stmt block                     { $1++[($2,$3)] }
+  | {- empty -}                                   { [] }
+
+case_stmt :: { Expr A0 }                                  -- GAV ADDED
+case_stmt
+  : CASE '(' expr ')' newline                     { $3 }
  
 equivalence_stmt :: { Decl A0 }
 equivalence_stmt 
