@@ -3,5 +3,6 @@ Gavin Davidson's Masters computing science project. Domain specific, automatical
 
 Language-Fortran, a Haskell based Fortran parser, is used by this project. The original parser is available at https://github.com/dagit/language-fortran
 
-==	EXTENSIONS TO LANGUAGE-FORTRAN 	==
-	- SELECT CASE statements are now supported. However, there is a bug whereby the first CASE statement must have whitespace in front of it.
+Extensions to Language-Fortran
+------
+- SELECT CASE statements are now supported. However, there is a bug whereby the first CASE statement must have whitespace in front of it.
