@@ -98,7 +98,7 @@ import Debug.Trace
  CYCLE 			{ Key "cycle" }
  DATA 			{ Key "data" }
  DEALLOCATE 		{ Key "deallocate" }
--- DEFAULT 		{ Key "default" }
+ DEFAULT 		{ Key "default" }      -- GAV UNCOMMENTED
  DIMENSION 		{ Key "dimension" }
  DO 			{ Key "do" }
 -- DOUBLE 		{ Key "double" }
@@ -1202,6 +1202,7 @@ case_list
 case_stmt :: { Expr A0 }                                  -- GAV ADDED
 case_stmt
   : CASE '(' expr ')' newline                     { $3 }
+  | CASE DEFAULT newline                          {% getSrcSpanNull >>= (\s -> return $ Null () s) }                 
  
 equivalence_stmt :: { Decl A0 }
 equivalence_stmt 

@@ -1,0 +1,15 @@
+THINGS THAT LANGUAGE-FORTRAN CAN'T DEAL WITH:
+
+- Contains
+	It needs there to be whitepsace in front of contains
+	
+- Select case
+	Does not have code to parse select case statements
+	
+- & operator
+
+- .or. must have whitespace either side
+
+- 7000 format(37e20.10) in module_timseris.f95
+
+- Case mismatch between subroutine <name> and end subroutine <name>
