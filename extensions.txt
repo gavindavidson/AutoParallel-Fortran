@@ -1,15 +1,17 @@
-THINGS THAT LANGUAGE-FORTRAN CAN'T DEAL WITH:
+Language-Fortran problems to solve:
 
-- Contains
-	It needs there to be whitepsace in front of contains
+- CONTAINS must have whitespace before it
+	(PreParser.hs will add whitespace)
 	
-- Select case
-	Does not have code to parse select case statements
+- No SELECT CASE support
+	(Added code to parse and represent select case statements)
 	
 - & operator
 
 - .or. must have whitespace either side
+	(PreParser.hs will add whitesapce)
 
 - 7000 format(37e20.10) in module_timseris.f95
 
 - Case mismatch between subroutine <name> and end subroutine <name>
+	(Check in Parser.hs checks lowercase versions of subroutine names now)

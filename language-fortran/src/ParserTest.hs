@@ -1,6 +1,8 @@
 module Main where
 
 import Language.Fortran.Parser
+import Data.Char
+import PreParser
 
 main :: IO ()
 -- main = return ()
@@ -9,4 +11,4 @@ main = do
 	putStr $ show a
 
 parseTest s = do f <- readFile s
-                 return $ parse f
+                 return $ parse $ preParse f

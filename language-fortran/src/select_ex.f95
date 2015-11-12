@@ -4,8 +4,8 @@ program select_ex
   INTEGER :: test
   Class = 12
 
-SELECT CASE (Class)
-CASE (1)
+SELECT CASE (Class) 
+ CASE (1)
 test = 1
 WRITE(*,*)  'Freshman'
 CASE (2)
