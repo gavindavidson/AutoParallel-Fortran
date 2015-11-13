@@ -5,8 +5,8 @@ program select_ex
   Class = 12
 
 SELECT CASE (Class) 
- CASE (1)
-test = 1
+CASE (1)
+teSCAPt = 1
 WRITE(*,*)  'Freshman'
 CASE (2)
 test = 3

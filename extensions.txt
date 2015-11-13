@@ -1,7 +1,7 @@
 Language-Fortran problems to solve:
 
 - CONTAINS must have whitespace before it
-	(PreParser.hs will add whitespace)
+	(PreProcessor.hs will add whitespace)
 	
 - No SELECT CASE support
 	(Added code to parse and represent select case statements)
@@ -9,7 +9,7 @@ Language-Fortran problems to solve:
 - & operator
 
 - .or. must have whitespace either side
-	(PreParser.hs will add whitesapce)
+	(PreProcessor.hs will add whitesapce)
 
 - 7000 format(37e20.10) in module_timseris.f95
 
