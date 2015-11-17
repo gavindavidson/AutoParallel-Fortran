@@ -8,7 +8,8 @@ main :: IO ()
 -- main = return ()
 main = do
 	--a <- parseTest "continuation.f95"
-	a <- parseTest "../../F95Sources/timseris.f95"
+	--a <- parseTest "../../F95Sources/timseris.f95"
+	a <- parseTest "if_ex.f95"
 	--f <- readFile "continuation.f95"
 	--let a = preProcess f
 	putStr (show a)
