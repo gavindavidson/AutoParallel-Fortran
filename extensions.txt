@@ -7,11 +7,13 @@ Language-Fortran problems to solve:
 	(Added code to parse and represent select case statements)
 	
 - & operator
+	(Limited support. Adequate for the needs of the project at the moment)
 
 - .or. must have whitespace either side
 	(PreProcessor.hs will add whitesapce)
 
 - 7000 format(37e20.10) in module_timseris.f95
+	(Limited support for format specifiers without the 'e'. Later review will perhaps be needed, however this does not hold up the project)
 
 - Case mismatch between subroutine <name> and end subroutine <name>
 	(Check in Parser.hs checks lowercase versions of subroutine names now)
