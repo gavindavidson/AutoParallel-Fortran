@@ -1,6 +1,9 @@
+
+
 module Main where
 
 import Data.Generics
+import Data.Generics.Aliases
 import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
@@ -13,18 +16,35 @@ main = do
 	a <- parseTest "../language-fortran/src/if_ex.f95"
 	--f <- readFile "continuation.f95"
 	--let a = preProcess f
-	putStr (show a)
+	let b = map getVariables a
+	putStr (show b)
 
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
 
-getFortran :: Data a => a -> Fortran p
-getFortran t = getFortran_default 	'extQ getFortran_ProgUnit
 
-getFortran_ProgUnit :: ProgUnit p -> Fortran p
-getFortran_ProgUnit progUnit = case progUnit of
-								Main _ _ _ block _ prog_list -> getFortran block
+-- Increase salary by percentage
+increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
+increase = everywhere (mkT incS)
 
-getFortran_default :: Data a => a -> Fortran p
-getFortran_default input_data = case input_data of
-								Block _ _ _ _ _ fortran -> fortran
+getVariables :: (Typeable p, Data p) => p -> [(SubName p)]
+getVariables inp = listify (\ ( _ :: (SubName a)) -> False) inp
+
+-- "interesting" code for increase
+incS :: SrcSpan -> SrcSpan
+incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
+
+---- Increase salary by percentage
+--increase :: Float -> Company -> Company
+--increase k = everywhere (mkT (incS k))
+
+---- "interesting" code for increase
+--incS :: Float -> Salary -> Salary
+--incS k (S s) = S (s * (1+k))
+
+--data Company  = C [Dept]               deriving (Eq, Show, Typeable, Data)
+--data Dept     = D Name Manager [Unit]  deriving (Eq, Show, Typeable, Data)
+--data Unit     = PU Employee | DU Dept  deriving (Eq, Show, Typeable, Data)
+--data Employee = E Person Salary        deriving (Eq, Show, Typeable, Data)
+--data Person   = P Name Address         deriving (Eq, Show, Typeable, Data)
+--data Salary   = S Float                deriving (Eq, Show, Typeable, Data)
