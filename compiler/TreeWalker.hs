@@ -1,9 +1,12 @@
-
+{-# LANGUAGE DeriveDataTypeable #-}
 
 module Main where
 
-import Data.Generics
+import Data.Generics (Data, Typeable, mkQ, mkT, everything, everywhere)
 import Data.Generics.Aliases
+import Data.Generics.Builders
+--import Data.List
+--import Data.Set
 import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
@@ -13,10 +16,10 @@ import PreProcessor
 main :: IO ()
 -- main = return ()
 main = do
-	a <- parseTest "../language-fortran/src/if_ex.f95"
+	a <- parseTest "../language-fortran/test.f90"
 	--f <- readFile "continuation.f95"
 	--let a = preProcess f
-	let b = map getVariables a
+	let b = Prelude.map getVariables a
 	putStr (show b)
 	putStr "\n"
 
@@ -28,12 +31,34 @@ parseTest s = do f <- readFile s
 increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
 increase = everywhere (mkT incS)
 
-getVariables :: (Typeable p, Data p) => p -> [(Block p)]
-getVariables p a = listify (\ ( _ :: (Block a)) -> False) p
+<<<<<<< HEAD
+=======
+getVariables :: (Typeable p, Data p, Ord p) => ProgUnit p -> [VarName p]
+getVariables inp =
+	everything
+		(++)
+		(mkQ empty (\variable@(VarName _ _) -> [variable]))
+		--(mkQ empty (\loop@(For a b c d e f g) -> [loop]))
+		inp
+
+--getVars' :: Data d => d -> Set Var
+--getVars' code =
+--    everything
+--        union
+--        (mkQ empty (\var@(Var _) -> singleton var))
+--        code
+>>>>>>> f29279c59a8c1d8f5b805eaea6d81f7456b8242f
 
 -- "interesting" code for increase
 incS :: SrcSpan -> SrcSpan
 incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
+
+-- Names declared in an equation
+--decsEqua :: Equation -> [Name]
+--decsEqua (E ps _ _) = everything union ([] `mkQ` pvar) ps
+--  where
+--    pvar (PVar n) = [n]
+--    pvar _        = []
 
 ---- Increase salary by percentage
 --increase :: Float -> Company -> Company

@@ -2,6 +2,7 @@ program if_ex
 
   INTEGER :: x
   INTEGER :: y
+  INTEGER :: gg
   x = -1
 
 IF (x > 0) THEN 

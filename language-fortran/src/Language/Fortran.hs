@@ -55,7 +55,7 @@ data SubName p  = SubName p String
                  deriving (Show, Functor, Typeable, Data, Eq)
  
 data VarName  p = VarName p Variable 
-                  deriving (Show, Functor, Typeable, Data, Eq, Read)
+                  deriving (Show, Functor, Typeable, Data, Eq, Read, Ord)
 
 data ArgName  p = ArgName p String
                 | ASeq p (ArgName p) (ArgName p)
