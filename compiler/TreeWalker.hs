@@ -18,6 +18,7 @@ main = do
 	--let a = preProcess f
 	let b = map getVariables a
 	putStr (show b)
+	putStr "\n"
 
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
@@ -27,8 +28,8 @@ parseTest s = do f <- readFile s
 increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
 increase = everywhere (mkT incS)
 
-getVariables :: (Typeable p, Data p) => p -> [(SubName p)]
-getVariables inp = listify (\ ( _ :: (SubName a)) -> False) inp
+getVariables :: (Typeable p, Data p) => p -> [(Block p)]
+getVariables p a = listify (\ ( _ :: (Block a)) -> False) p
 
 -- "interesting" code for increase
 incS :: SrcSpan -> SrcSpan
