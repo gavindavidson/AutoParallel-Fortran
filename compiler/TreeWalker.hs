@@ -16,11 +16,11 @@ import PreProcessor
 main :: IO ()
 -- main = return ()
 main = do
-	a <- parseTest "../language-fortran/test.f90"
+	a <- parseTest "../testFiles/arrayLoop.f95"
 	--f <- readFile "continuation.f95"
 	--let a = preProcess f
-	let b = Prelude.map getVariables a
-	putStr (show b)
+	--let b = Prelude.map getVariables a
+	putStr (show a)
 	putStr "\n"
 
 parseTest s = do f <- readFile s
@@ -31,8 +31,6 @@ parseTest s = do f <- readFile s
 increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
 increase = everywhere (mkT incS)
 
-<<<<<<< HEAD
-=======
 getVariables :: (Typeable p, Data p, Ord p) => ProgUnit p -> [VarName p]
 getVariables inp =
 	everything
@@ -47,7 +45,6 @@ getVariables inp =
 --        union
 --        (mkQ empty (\var@(Var _) -> singleton var))
 --        code
->>>>>>> f29279c59a8c1d8f5b805eaea6d81f7456b8242f
 
 -- "interesting" code for increase
 incS :: SrcSpan -> SrcSpan
