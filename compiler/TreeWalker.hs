@@ -19,25 +19,52 @@ main = do
 	a <- parseTest "../testFiles/arrayLoop.f95"
 	--f <- readFile "continuation.f95"
 	--let a = preProcess f
-	--let b = Prelude.map getVariables a
-	putStr (show a)
+	let b = Prelude.map identifyParallelLoops a
+	putStr (show b)
 	putStr "\n"
 
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
 
 
--- Increase salary by percentage
-increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
-increase = everywhere (mkT incS)
-
-getVariables :: (Typeable p, Data p, Ord p) => ProgUnit p -> [VarName p]
-getVariables inp =
+identifyParallelLoops :: (Typeable p, Data p, Ord p) => ProgUnit p -> [Fortran p]
+identifyParallelLoops program =
 	everything
 		(++)
-		(mkQ empty (\variable@(VarName _ _) -> [variable]))
-		--(mkQ empty (\loop@(For a b c d e f g) -> [loop]))
-		inp
+		(mkQ empty checkLoop)
+		program
+
+checkLoop inp = case inp of
+		For _ _ _ _ _ _ _ -> checkLoopMap inp
+		_ -> []
+
+checkLoopMap :: (Typeable p, Data p, Ord p) =>  Fortran p -> [Fortran p]
+checkLoopMap loop = 
+	everything 
+		(++) 
+		(mkQ empty checkAssignments) 
+		loop
+
+--checkAssignments :: Fortran p -> [Fortran p]
+checkAssignments assignment = case assignment of
+		Assg _ _ (Var _ _ lst) expr2 -> case lst!!0 of
+								((VarName _ _), []) -> []
+								_ -> [True]
+		_	-> []
+
+
+
+-- Increase salary by percentage
+--increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
+--increase = everywhere (mkT incS)
+
+--getVariables :: (Typeable p, Data p, Ord p) => ProgUnit p -> [VarName p]
+--getVariables inp =
+--	everything
+--		(++)
+--		(mkQ empty (\variable@(VarName _ _) -> [variable]))
+--		--(mkQ empty (\loop@(For a b c d e f g) -> [loop]))
+--		inp
 
 --getVars' :: Data d => d -> Set Var
 --getVars' code =
@@ -47,8 +74,8 @@ getVariables inp =
 --        code
 
 -- "interesting" code for increase
-incS :: SrcSpan -> SrcSpan
-incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
+--incS :: SrcSpan -> SrcSpan
+--incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
 
 -- Names declared in an equation
 --decsEqua :: Equation -> [Name]
