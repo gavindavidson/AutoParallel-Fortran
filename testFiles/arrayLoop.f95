@@ -8,7 +8,9 @@ program arrayLoop
    total = 0
 
    do 15 i=0,10
-    total = i
+!     total = i
+!      j = 6
+    arr(i) = i
   15 continue
 
   do 20 i=0,10

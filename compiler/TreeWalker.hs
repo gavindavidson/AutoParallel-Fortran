@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 module Main where
 
 import Data.Generics (Data, Typeable, mkQ, mkT, everything, everywhere)
@@ -19,44 +17,69 @@ main = do
 	a <- parseTest "../testFiles/arrayLoop.f95"
 	--f <- readFile "continuation.f95"
 	--let a = preProcess f
-	let b = Prelude.map identifyParallelLoops a
-	putStr (show b)
+	let loops = identifyLoops (a!!0)
+	putStr (show (loops!!0))
 	putStr "\n"
+	putStr (show (parallelisableLoop_map (loops!!0)))
+	--let assignments = Prelude.map getAssigments loops
+	--let assignmentsCheck = Prelude.map checkAssignments (assignments!!0)
+	--putStr (show (assignments!!0))
+	--putStr "\n"
+	--putStr (show assignmentsCheck)
+	--putStr "\n"
+	--putStr (show $ all (== True) assignmentsCheck)
+	--putStr "\n"
 
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
 
+parallelisableLoop_map ::(Typeable p, Data p) => Fortran p -> Bool
+parallelisableLoop_map loop = all (== True) assignmentsCheck
+	where
+		assignmentsCheck = Prelude.map checkAssignments assignments
+		assignments = getAssigments loop
 
-identifyParallelLoops :: (Typeable p, Data p, Ord p) => ProgUnit p -> [Fortran p]
-identifyParallelLoops program =
+
+-- (Typeable p, Data p, Ord p)
+identifyLoops :: (Typeable p, Data p) => ProgUnit p -> [Fortran p]
+identifyLoops program =
 	everything
 		(++)
 		(mkQ empty checkLoop)
 		program
 
 checkLoop inp = case inp of
-		For _ _ _ _ _ _ _ -> checkLoopMap inp
+		For _ _ _ _ _ _ _ -> [inp]
 		_ -> []
 
-checkLoopMap :: (Typeable p, Data p, Ord p) =>  Fortran p -> [Fortran p]
-checkLoopMap loop = 
-	everything 
-		(++) 
-		(mkQ empty checkAssignments) 
-		loop
+getAssigments :: (Typeable p, Data p) =>  Fortran p -> [Fortran p] -- [Fortran p]
+getAssigments loop = everything (++) (mkQ empty checkForAssignment) loop
 
---checkAssignments :: Fortran p -> [Fortran p]
+	-- everything (++) (mkQ empty checkForAssignment) loop
+
+checkForAssignment :: (Typeable p, Data p) => Fortran p -> [Fortran p]
+checkForAssignment codeSeg = case codeSeg of
+		Assg _ _ _ _ -> [codeSeg]
+		_ -> []
+
+--checkAssignments :: (Typeable p, Data p, Ord p) => Fortran p -> Bool
 checkAssignments assignment = case assignment of
 		Assg _ _ (Var _ _ lst) expr2 -> case lst!!0 of
-								((VarName _ _), []) -> []
-								_ -> [True]
-		_	-> []
+								((VarName _ _), []) -> False
+								_ -> True
+		_	-> False
 
+--checkAssignments :: (Typeable p, Data p) => Bool -> Fortran p -> Bool
+--checkAssignments accum assignment = case assignment of
+--		Assg _ _ (Var _ _ lst) expr2 -> case lst!!0 of
+--								((VarName _ _), []) -> accum
+--								_ -> False
+--		_	-> False
 
 
 -- Increase salary by percentage
---increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
---increase = everywhere (mkT incS)
+increase :: (Typeable p, Data p) => Fortran p -> Fortran p
+increase = everywhere (mkT incS)
 
 --getVariables :: (Typeable p, Data p, Ord p) => ProgUnit p -> [VarName p]
 --getVariables inp =
@@ -74,8 +97,8 @@ checkAssignments assignment = case assignment of
 --        code
 
 -- "interesting" code for increase
---incS :: SrcSpan -> SrcSpan
---incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
+incS :: SrcSpan -> SrcSpan
+incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
 
 -- Names declared in an equation
 --decsEqua :: Equation -> [Name]
