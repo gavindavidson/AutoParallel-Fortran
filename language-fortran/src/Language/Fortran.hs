@@ -20,7 +20,8 @@ module Language.Fortran where
 -- IMPORTS
 ---------------------------------------------------------------------------
 
-import Data.Generics -- Typeable class and boilerplate generic functions
+import Data.Generics
+                    -- Typeable class and boilerplate generic functions
                      -- All AST nodes are members of 'Data' and 'Typeable' so that
                      -- data type generic programming can be done with the AST
 

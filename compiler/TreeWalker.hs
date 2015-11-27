@@ -1,4 +1,5 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Main where
 
@@ -12,6 +13,22 @@ import Language.Fortran
 import Data.Char
 import PreProcessor
 
+-- suggestion: foo = (\(@ iType) _ -> undefined @ iType, HiddenType...)
+
+	--module Foo where
+	--import Data.Proxy
+	--import Data.Typeable
+	--data HiddenType where
+	--Hidden :: (Typeable a) => Proxy a -> HiddenType
+	--foo :: (i,HiddenType)
+	--foo = (undefined, Hidden (Proxy::Proxy Int))
+	--data Foo where
+	--Foo :: i -> Foo
+	--bar :: Foo
+	--bar =
+	--let (x,h) = foo
+	--in case h of
+	--(Hidden (p::Proxy i)) -> Foo (x :: i)
 
 main :: IO ()
 -- main = return ()
@@ -26,9 +43,9 @@ main = do
 	--putStr "\n"
 	--putStr (show a)
 
-	let edit = increase (a!!0)
-	putStr "\n"
-	putStr (show edit)
+	--let edit = increase (a!!0)
+	--putStr "\n"
+	--putStr (show edit)
 	putStr "\n"
 
 	--let assignments = Prelude.map getAssigments loops
@@ -42,6 +59,9 @@ main = do
 
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
+
+editFunction :: Data p => [ProgUnit p] -> ProgUnit p
+editFunction a = increase (a!!0)
 
 paralleliseLoop :: (Typeable p, Data p) => Fortran p -> Fortran p
 paralleliseLoop loop 	| parallelisableLoop_map loop = loop
@@ -92,8 +112,9 @@ checkAssignments assignment = case assignment of
 
 
 -- Increase salary by percentage
-increase ::ProgUnit p -> ProgUnit p
-increase = everywhere (mkT forEdit)
+--increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
+increase :: Data p => p -> p
+increase = everywhere (mkT (forEdit))
 
 --getVariables :: (Typeable p, Data p, Ord p) => ProgUnit p -> [VarName p]
 --getVariables inp =
@@ -112,10 +133,14 @@ increase = everywhere (mkT forEdit)
 
 -- "interesting" code for increase
 incS :: SrcSpan -> SrcSpan
-incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
+--incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
+incS (a, b) = (a, b)
 
-forEdit :: Arg p -> Arg p
-forEdit something = something 
+forEdit :: Expr a -> Expr a
+forEdit b = b
+--forEdit (UseBlock a b) = UseBlock a b
+
+--forEdit (Main p srcspan subname arg block progs) = (Main p srcspan subname arg block progs) 
 
 
 -- Names declared in an equation
@@ -124,18 +149,3 @@ forEdit something = something
 --  where
 --    pvar (PVar n) = [n]
 --    pvar _        = []
-
----- Increase salary by percentage
---increase :: Float -> Company -> Company
---increase k = everywhere (mkT (incS k))
-
----- "interesting" code for increase
---incS :: Float -> Salary -> Salary
---incS k (S s) = S (s * (1+k))
-
---data Company  = C [Dept]               deriving (Eq, Show, Typeable, Data)
---data Dept     = D Name Manager [Unit]  deriving (Eq, Show, Typeable, Data)
---data Unit     = PU Employee | DU Dept  deriving (Eq, Show, Typeable, Data)
---data Employee = E Person Salary        deriving (Eq, Show, Typeable, Data)
---data Person   = P Name Address         deriving (Eq, Show, Typeable, Data)
---data Salary   = S Float                deriving (Eq, Show, Typeable, Data)
