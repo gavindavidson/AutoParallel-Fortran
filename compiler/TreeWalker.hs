@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE GADTs #-}
 
 module Main where
 
@@ -12,6 +13,7 @@ import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
 import PreProcessor
+
 
 -- suggestion: foo = (\(@ iType) _ -> undefined @ iType, HiddenType...)
 
@@ -38,15 +40,17 @@ main = do
 	--let a = preProcess f
 	--let loops = identifyLoops (a!!0)
 	--putStr (show (loops!!0))
-	--putStr "\n"
+	let firstProg = increase (a!!0)
 	--putStr (show (paralleliseLoop (loops!!0)))
-	--putStr "\n"
+	putStr "\n"
+	putStr $ show $ (a!!0)
+	putStr "\n"
+	putStr $ show $ firstProg
 	--putStr (show a)
 
 	--let edit = increase (a!!0)
 	--putStr "\n"
 	--putStr (show edit)
-	putStr "\n"
 
 	--let assignments = Prelude.map getAssigments loops
 	--let assignmentsCheck = Prelude.map checkAssignments (assignments!!0)
@@ -60,11 +64,11 @@ main = do
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
 
-editFunction :: Data p => [ProgUnit p] -> ProgUnit p
-editFunction a = increase (a!!0)
+--editFunction :: Data p => [ProgUnit p] -> ProgUnit p
+--editFunction a = increase (a!!0)
 
 paralleliseLoop :: (Typeable p, Data p) => Fortran p -> Fortran p
-paralleliseLoop loop 	| parallelisableLoop_map loop = loop
+paralleliseLoop loop 	| parallelisableLoop_map loop = arbitraryChange loop
 						|	otherwise = loop
 
 --parallelisableLoop_map ::(Typeable p, Data p) => Fortran p -> Bool
@@ -113,8 +117,11 @@ checkAssignments assignment = case assignment of
 
 -- Increase salary by percentage
 --increase :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
-increase :: Data p => p -> p
-increase = everywhere (mkT (forEdit))
+increase :: (Data a, Typeable a) => ProgUnit a -> ProgUnit a
+increase = everywhere (mkT (forEdit)) 
+
+arbitraryChange :: (Data a, Typeable a) => Fortran a -> Fortran a
+arbitraryChange = everywhere (mkT (incS)) 
 
 --getVariables :: (Typeable p, Data p, Ord p) => ProgUnit p -> [VarName p]
 --getVariables inp =
@@ -133,11 +140,12 @@ increase = everywhere (mkT (forEdit))
 
 -- "interesting" code for increase
 incS :: SrcSpan -> SrcSpan
---incS (a, b) = (SrcLoc {srcFilename = "test", srcLine = 10, srcColumn = -1}, b)
-incS (a, b) = (a, b)
+incS (a, b) = (SrcLoc {srcFilename = "CHANGE", srcLine = 10, srcColumn = -1}, b)
 
-forEdit :: Expr a -> Expr a
-forEdit b = b
+forEdit ::  Fortran () -> Fortran ()
+forEdit inp = case inp of
+		For _ _ _ _ _ _ _ -> paralleliseLoop inp
+		_ -> inp
 --forEdit (UseBlock a b) = UseBlock a b
 
 --forEdit (Main p srcspan subname arg block progs) = (Main p srcspan subname arg block progs) 
