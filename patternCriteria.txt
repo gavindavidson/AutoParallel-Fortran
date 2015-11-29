@@ -1,0 +1,62 @@
+This document details the criteria that the source to source compiler will use to determine whether a code block may be parallelised. 
+
+PATTERN: MAP
+	
+	A map is the simplest possible parallel pattern. Essentially, the same operation is performed on all of or a set of values in an array.
+
+	CRITERIA
+
+		1)	Assignments to arrays must be 
+
+	EXAMPLES
+
+		Extremely simple addition of elements:
+			
+			arrayA[arrayLength]
+			arrayB[arrayLength]
+			arrayC[arrayLength]
+			for i in range(arrayLength):
+				arrayA[i] = arrayB[i] + arrayC[i]
+
+		Additions over multi dimensional arrays:
+
+			arrayA[dimensionA][dimensionB]
+			arrayB[dimensionA][dimensionB]
+			arrayC[dimensionA][dimensionB]
+			for i in range(dimensionA):
+				for j in range(dimensionB):
+					arrayA[i][j] = arrayB[i][j] + arrayC[i][j]
+
+		Extremely simple addition of elements, involving use of scalar factor:
+			
+			arrayA[arrayLength]
+			arrayB[arrayLength]
+			arrayC[arrayLength]
+			factor
+			for i in range(arrayLength):
+				arrayA[i] = (arrayB[i] + arrayC[i])*factor
+
+		Extremely simple addition of elements, involving assignment temporary value:
+			
+			arrayA[arrayLength]
+			arrayB[arrayLength]
+			arrayC[arrayLength]
+			temp
+			for i in range(arrayLength):
+				temp = arrayB[i] + arrayC[i]
+				arrayA[i] = temp
+
+		Value of element depends on a call to a function
+			
+			arrayA[arrayLength]
+			for i in range(arrayLength):
+				arrayA[i] = function(i)
+
+		Elements that are accessed are linear functions of the loop variable
+			
+			arrayA[arrayLength]
+			arrayB[arrayLength]
+			arrayC[arrayLength]
+			temp
+			for i in range(arrayLength):
+				arrayA[i*3] = arrayB[i+17] + arrayC[i/2]
