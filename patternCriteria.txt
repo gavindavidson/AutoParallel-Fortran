@@ -6,7 +6,9 @@ PATTERN: MAP
 
 	CRITERIA
 
-		1)	Assignments to arrays must be 
+		1)	Assignments and accesses to arrays must be to elements that are linear functions of the loop variable.
+		2) 	Where the loop is nested, the loop variable of an outer loop may be considered part of the loop variable.
+		3)	Assignments to scalar values, that were declared before the start of the loop, must be temporary and therefore never accessed after the loop has finished.
 
 	EXAMPLES
 
