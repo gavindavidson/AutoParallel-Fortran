@@ -10,12 +10,19 @@ program arrayLoop
    do 15 i=0,10
     total = i
      j = 6
+     j = 7
+     j = 9
+       do 20 j=0,10
+        arr(j) = i
+        j = 6
+        j = 7
+      20 continue
     arr(i) = i
   15 continue
 
-  do 20 i=0,10
-    arr(i) = i
-  20 continue
+!   do 20 i=0,10
+!     arr(i) = i
+!   20 continue
 !    integer j
 !    integer nplots
 !    integer nspp
