@@ -27,8 +27,12 @@ main = do
 
 	let loops = identifyLoops (a!!0)
 	let test = Prelude.map (paralleliseLoop []) loops
-	putStr $ show $ test
+	let gmapTest = gmapQ (checkAssignments []) ((loops!!0))
+	putStr $ show $ gmapTest
 	putStr "\n"
+	--let mkQ_test = gmapQ getSrcSpan ((loops!!0))
+	--putStr $ show $ mkQ_test
+	--putStr "\n"
 
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
@@ -64,7 +68,7 @@ paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p
 paralleliseProgram = everywhere (mkT (forTransform))
 
 -- (Typeable p, Data p, Ord p)
-identifyLoops :: (Typeable p, Data p) => ProgUnit p -> [Fortran p]
+identifyLoops :: (Typeable p, Data p) => ProgUnit p -> [Fortran ()]
 identifyLoops program =
 	everything
 		(++)
@@ -94,6 +98,10 @@ checkForAssignment codeSeg = case codeSeg of
 		Assg _ _ _ _ -> [codeSeg]
 		_ -> []
 
+getSrcSpan :: Data a => a -> SrcSpan
+getSrcSpan codeSeg = (SrcLoc {srcFilename = "comment", srcLine = 10, srcColumn = -1}, 
+							SrcLoc {srcFilename = "comment", srcLine = 10, srcColumn = -1})
+
 checkForVarName :: (Typeable p, Data p) =>  VarName p -> [VarName p]
 checkForVarName exp = [exp]
 
@@ -102,11 +110,11 @@ checkForVarName exp = [exp]
 --		Assg _ _ _ _ -> True
 --		_ -> []
 
---checkAssignments :: (Typeable p, Data p, Eq p) => [VarName p] -> Fortran p -> Bool
---checkAssignments loopVars codeSeg = case codeSeg of
---		Assg _ _ (Var _ _ lst) expr2 -> contains_list loopVars (foldl (getArrayElementVariables_foldl) [] lst)
---		For _ _ var _ _ _ _ -> all (== True) (gmapQ (checkAssignments (loopVars ++ [var])) codeSeg)
---		_ -> all (== True) (gmapQ (checkAssignments loopVars) codeSeg)
+checkAssignments :: (Data a) => [VarName ()] -> a -> Bool
+checkAssignments loopVars codeSeg = case codeSeg of
+		Assg _ _ (Var _ _ lst) expr2 -> contains_list loopVars (foldl (getArrayElementVariables_foldl) [] lst)
+		For _ _ var _ _ _ _ -> all (== True) (gmapQ (checkAssignments (loopVars ++ [var])) codeSeg)
+		_ -> all (== True) (gmapQ (checkAssignments loopVars) codeSeg)
 
 checkArrayAssignments :: (Typeable p, Data p, Eq p) => [VarName p] -> Fortran p -> Bool
 checkArrayAssignments loopVars assignment = case assignment of
