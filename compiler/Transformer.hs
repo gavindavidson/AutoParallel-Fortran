@@ -27,12 +27,14 @@ main = do
 
 	let loops = identifyLoops (a!!0)
 	let test = Prelude.map (paralleliseLoop []) loops
-	let gmapTest = gmapQ (checkAssignments []) ((loops!!0))
-	putStr $ show $ gmapTest
-	putStr "\n"
+	--let gmapTest = gmapQ (mkQ True (checkAssignments [])) (loops!!0)
+	--putStr $ show $ gmapTest
+	--putStr "\n"
 	--let mkQ_test = gmapQ getSrcSpan ((loops!!0))
 	--putStr $ show $ mkQ_test
-	--putStr "\n"
+	let varname_test = getVarNames_tst (loops!!0)
+	putStr $ show $ varname_test
+	putStr "\n"
 
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
@@ -91,6 +93,10 @@ getAssigments loop = everything (++) (mkQ [] checkForAssignment) loop
 getVarNames :: (Typeable p, Data p) =>  [Expr p] -> [VarName p]
 getVarNames exp = everything (++) (mkQ [] checkForVarName) exp
 
+getVarNames_tst :: (Typeable p, Data p) =>  Fortran p -> [VarName p]
+getVarNames_tst exp = everything (++) (mkQ [] checkForVarName) exp
+
+
 	-- everything (++) (mkQ empty checkForAssignment) loop
 
 checkForAssignment :: (Typeable p, Data p) => Fortran p -> [Fortran p]
@@ -110,11 +116,11 @@ checkForVarName exp = [exp]
 --		Assg _ _ _ _ -> True
 --		_ -> []
 
-checkAssignments :: (Data a) => [VarName ()] -> a -> Bool
+checkAssignments :: [VarName ()] -> Fortran () -> Bool
 checkAssignments loopVars codeSeg = case codeSeg of
 		Assg _ _ (Var _ _ lst) expr2 -> contains_list loopVars (foldl (getArrayElementVariables_foldl) [] lst)
-		For _ _ var _ _ _ _ -> all (== True) (gmapQ (checkAssignments (loopVars ++ [var])) codeSeg)
-		_ -> all (== True) (gmapQ (checkAssignments loopVars) codeSeg)
+		For _ _ var _ _ _ _ -> all (== True) (gmapQ (mkQ True (checkAssignments (loopVars ++ [var]))) codeSeg)
+		_ -> all (== True) (gmapQ (mkQ True (checkAssignments loopVars)) codeSeg)
 
 checkArrayAssignments :: (Typeable p, Data p, Eq p) => [VarName p] -> Fortran p -> Bool
 checkArrayAssignments loopVars assignment = case assignment of
