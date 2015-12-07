@@ -1,7 +1,7 @@
 program arrayLoop
 !    implicit none
-   integer i
-   integer arr(2:10, 18)
+!    integer i
+   integer arr(12)
    integer spew(10)
    integer total
    integer j
@@ -11,15 +11,16 @@ program arrayLoop
 
    do 15 i=0,10
 !     total = i
-     j = 6
+!      i = 1
 !      j = 7
 !      j = 9
        do 20 g=0,10
 !         arr(g,g) = i
 !         j = 6
-!         j = 7
+!           j = 7
+          arr(k) = 10
       20 continue
-    arr(i,i) = i
+    arr(i) = 10
   15 continue
 
 !   do 20 i=0,10
