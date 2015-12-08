@@ -25,6 +25,14 @@ main = do
 	putStr $ show $ parallelisedProg
 	putStr "\n"
 
+	--let assignments = getAssigments (a!!0)
+	--putStr $ show $ assignments
+	--putStr "\n\n"
+
+	--let arrayAccess = Prelude.map arrayAccessesQuery assignments
+	--putStr $ show $ arrayAccess
+	--putStr "\n"
+
 	--let loops = identifyLoops (a!!0)
 	--let test = Prelude.map (paralleliseLoop []) loops
 	--let gmapTest = gmapQ (mkQ True (checkAssignments_map [])) (loops!!0)
@@ -59,24 +67,47 @@ getArrayElement_test codeSeg = case codeSeg of
 	Assg _ _ (Var _ _ lst) expr2 -> foldl (getArrayElementVariables_foldl) [] lst
 	_ -> []
 
-paralleliseLoop :: [Variable] -> Fortran () -> Fortran ()
+--paralleliseLoop :: [Variable] -> Fortran () -> Fortran ()
+--paralleliseLoop loopVars loop = case paralleliseLoop_map loop newLoopVars of 
+--									Just a -> a
+--									Nothing -> loop
+--								where
+--									newLoopVars = case getLoopVar loop of
+--										Just a -> loopVars ++ checkForVariable a
+--										Nothing -> loopVars
+
+--paralleliseLoop_map :: Fortran () -> [Variable] -> Maybe (Fortran ())
+--paralleliseLoop_map loop loopVars	|	checkAssignments_map loopVars loop= Just (arbitraryChange_allChildren "PARALLEL" loop)
+--									|	otherwise		= Nothing
+
+paralleliseLoop :: [VarName ()] -> Fortran () -> Fortran ()
 paralleliseLoop loopVars loop = case paralleliseLoop_map loop newLoopVars of 
 									Just a -> a
 									Nothing -> loop
 								where
 									newLoopVars = case getLoopVar loop of
-										Just a -> loopVars ++ checkForVariable a
+										Just a -> loopVars ++ [a]
 										Nothing -> loopVars
 
-paralleliseLoop_map :: Fortran () -> [Variable] -> Maybe (Fortran ())
-paralleliseLoop_map loop loopVars	|	checkAssignments_map loopVars loop= Just (arbitraryChange_allChildren "PARALLEL" loop)
+paralleliseLoop_map :: Fortran () -> [VarName ()] -> Maybe (Fortran ())
+paralleliseLoop_map loop loopVars	|	checkAssignments_map_alpha loopVars loop= Just (arbitraryChange_allChildren "PARALLEL" loop)
 									|	otherwise		= Nothing
 
-checkAssignments_map :: [Variable] -> Fortran () -> Bool
-checkAssignments_map loopVars codeSeg = case codeSeg of
-		Assg _ _ (Var _ _ lst) expr2 -> contains_list_rejectEmpty loopVars (foldl (getArrayElementVariables_foldl) [] lst)
-		For _ _ var _ _ _ _ -> all (== True) (gmapQ (mkQ True (checkAssignments_map (loopVars ++ (checkForVariable var) ))) codeSeg)
-		_ -> all (== True) (gmapQ (mkQ True (checkAssignments_map loopVars)) codeSeg)
+--checkAssignments_map :: [Variable] -> Fortran () -> Bool
+--checkAssignments_map loopVars codeSeg = case codeSeg of
+--		Assg _ _ (Var _ _ rec_list) expr2 -> contains_list_rejectEmpty loopVars (foldl (getArrayElementVariables_foldl) [] rec_list)
+--		For _ _ var _ _ _ _ -> all (== True) (gmapQ (mkQ True (checkAssignments_map (loopVars ++ (checkForVariable var) ))) codeSeg)
+--		_ -> all (== True) (gmapQ (mkQ True (checkAssignments_map loopVars)) codeSeg)
+
+checkAssignments_map_alpha :: [VarName ()] -> Fortran () -> Bool
+checkAssignments_map_alpha loopVars codeSeg = case codeSeg of
+		Assg _ _ expr1 expr2 -> (assignments /= [])	&& (exprListContainsVarNames assignments loopVars) 	&& (constantCheckQuery assignments) 
+													&& (exprListContainsVarNames accesses loopVars) 	-- && (constantCheckQuery accesses)
+			where
+				assignments = arrayAccessesQuery expr1
+				accesses = arrayAccessesQuery expr2
+		For _ _ var _ _ _ _ -> all (== True) (gmapQ (mkQ True (checkAssignments_map_alpha (loopVars ++ [var]) )) codeSeg)
+		_ -> all (== True) (gmapQ (mkQ True (checkAssignments_map_alpha loopVars)) codeSeg)
 
 parallelisableLoop_reduce ::(Typeable p, Data p) => Fortran p -> Bool
 parallelisableLoop_reduce loop = False
@@ -107,7 +138,7 @@ getAssigments_scoped loop = gmapQ (dummy) loop
 dummy :: Data d => d -> Bool
 dummy inp = True
 
-getAssigments :: (Typeable p, Data p) =>  Fortran p -> [Fortran p] -- [Fortran p]
+getAssigments :: (Typeable p, Data p) =>  ProgUnit p -> [Fortran p] -- [Fortran p]
 getAssigments loop = everything (++) (mkQ [] checkForAssignment) loop
 
 getVarNames :: (Typeable p, Data p) =>  [Expr p] -> [VarName p]
@@ -137,31 +168,37 @@ checkForVarName expr = [expr]
 checkForVariable :: VarName () -> [Variable]
 checkForVariable (VarName () var) = [var]
 
---checkAssignments_map :: [Variable] -> Fortran () -> Bool
---checkAssignments_map loopVars codeSeg = case codeSeg of
---		Assg _ _ (Var _ _ lst) expr2 -> contains_list loopVars (foldl (getArrayElementVariables_foldl) [] lst)
---		For _ _ var _ _ _ _ -> all (== True) (gmapQ (mkQ True (checkAssignments_map (loopVars ++ (checkForVariable var)))) codeSeg)
---		_ -> all (== True) (gmapQ (mkQ True (checkAssignments_map loopVars)) codeSeg)
+arrayAccessesQuery :: (Typeable p, Data p) =>  Expr p -> [Expr p]
+arrayAccessesQuery = everything (++) (mkQ [] getArrayAccesses)
 
---checkArrayAssignments :: (Typeable p, Data p, Eq p) => [VarName p] -> Fortran p -> Bool
---checkArrayAssignments loopVars assignment = case assignment of
---		Assg _ _ (Var _ _ lst) expr2 -> contains_list loopVars (foldl (getArrayElementVariables_foldl) [] lst)
+getArrayAccesses :: (Typeable p, Data p) => Expr p -> [Expr p]
+getArrayAccesses codeSeg = case codeSeg of
+	Var _ _ lst -> foldl concatExprList_foldl [] lst
+	_ -> []
 
---		-- all (== True) (Prelude.map (contains_list loopVars) (getVarNames lst))
+concatExprList_foldl :: (Typeable p, Data p) => [Expr p] -> (VarName p, [Expr p]) -> [Expr p]
+concatExprList_foldl prev (var, exprs) = prev ++ exprs 
 
---		--case lst!!0 of
---		--						((VarName _ _), []) -> False
---		--						_ -> True
---		_	-> False
+exprListContainsVarNames :: (Typeable p, Data p, Eq p) =>  [Expr p] -> [VarName p] -> Bool
+exprListContainsVarNames contains container = all (== True) (everything (++) (mkQ [] (varNameCheck container)) contains)
 
--- foldl :: (a -> b -> a) -> a -> [b] -> a
---getArrayElementVariables_foldl :: [Expr p] -> (VarName p, [Expr p]) -> [Expr p]
---getArrayElementVariables_foldl prevList (varname, xs) = 
+varNameCheck :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [Bool]
+varNameCheck container contains = [elem contains container]
 
---getArrayElementVariables_foldl :: (Typeable p, Data p) => [VarName p] -> (VarName p, [Expr p]) -> [VarName p]
---getArrayElementVariables_foldl prev (var, exps) = prev ++ (getVarNames exps)
+constantCheckQuery :: (Typeable p, Data p) => [Expr p] -> Bool
+constantCheckQuery exprList = all (== False) (everything (++) (mkQ [] (constantCheck)) exprList)
 
-getArrayElementVariables_foldl :: (Typeable p, Data p) => [Variable] -> (VarName p, [Expr p]) -> [Variable]
+constantCheck :: Expr () -> [Bool]
+constantCheck (Con _ _ _) = [True]
+constantCheck _ = [False]
+
+accessVarCheckQuery :: (Typeable p, Data p, Eq p) => [VarName p] -> [[Expr p]] -> Bool
+accessVarCheckQuery loopVars exprList = all (== True) (everything (++) (mkQ [] (accessVarCheck loopVars)) exprList)
+
+accessVarCheck :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [Bool]
+accessVarCheck loopVars varname = [elem varname loopVars]
+
+getArrayElementVariables_foldl :: (Typeable p, Data p , Eq p) => [Variable] -> (VarName p, [Expr p]) -> [Variable]
 getArrayElementVariables_foldl prev (var, exps) = prev ++ (getVariables exps)
 
 --getArrayElementVariables :: (VarName p, [Expr p]) -> [VarName p]
