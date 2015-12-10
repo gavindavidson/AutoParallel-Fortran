@@ -25,12 +25,12 @@ program arrayLoop
 !           arr(k) = spew(k)
 !           arr(k) = spew(k)*g
 !           arr(123) = 12
-          do 25 j = 0, 230
-            arr(j) = 12
-        25 continue
+!           do 25 j = 0, 230
+!             g = 12
+!           25 continue
       20 continue
-!     arr(i) = i
-    j = 1
+    arr(i) = i
+!     total = 1
   15 continue
 
 end program arrayLoop
