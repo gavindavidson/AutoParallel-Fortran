@@ -11,7 +11,6 @@ program arrayLoop
    total = 0
 
 !    i = g_id/(25*15)
-
    do 15 i=0,10
 !     total = i
 !      i = 1

@@ -1,55 +1,25 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE GADTs #-}
-
 module Main where
 
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
---import Data.Generics.Aliases
---import Data.Generics.Builders
---import Data.List
---import Data.Set
 import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
 import PreProcessor
 
-import System.Random
-
 main :: IO ()
--- main = return ()
 main = do
 	--a <- parseTest "../testFiles/arrayLoop.f95"
 	a <- parseTest "../testFiles/arrayLoop.f95"
 	let parallelisedProg = paralleliseProgram (a!!0)
-	let loops = identifyLoops (a!!0)
-	--putStr "\n"
-	--putStr $ show $ (loops!!0)
-	--putStr "\n\n\n"
+
 	putStr $ show $ (a!!0)
 	putStr "\n\n\n"
-	--let noLoops = removeLoopConstructs_trans(loops!!0)
-	--putStr $ show $ noLoops
-	--putStr "\n\n\n"
 
 	putStr $ show $ parallelisedProg
 	putStr "\n"
-	--putStr $ show $ loopConditions_query_recursive (loops!!0)
-	--let flattened = flattenLoopConditions Nothing (VarName () "g_id") (loopConditions_query_recursive (loops!!0))
-	--putStr "\n\n"
-	--putStr $ show $ flattened
-	--putStr "\n"
 
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
-
-arrayElemTest :: (Typeable p, Data p) => Fortran p -> [Variable]
-arrayElemTest codeSeg = everything (++) (mkQ [] getArrayElement_test) codeSeg
-
-getArrayElement_test :: Fortran () -> [Variable]
-getArrayElement_test codeSeg = case codeSeg of
-	Assg _ _ (Var _ _ lst) expr2 -> foldl (getArrayElementVariables_foldl) [] lst
-	_ -> []
 
 paralleliseLoop :: [VarName ()] -> Fortran () -> Fortran ()
 paralleliseLoop loopVars loop = case paralleliseLoop_map loop newLoopVars of 
@@ -99,9 +69,6 @@ getLoopConditions codeSeg = case codeSeg of
 checkLoop inp = case inp of
 		For _ _ _ _ _ _ _ -> [inp]
 		_ -> []
-
-dummy :: Data d => d -> Bool
-dummy inp = True
 
 flattenLoopConditions :: Maybe (VarName p) -> (VarName p) -> [(VarName p, Expr p, Expr p, Expr p)] -> Fortran p
 flattenLoopConditions prev globalId ((var, start, end, step):[]) = Assg 
@@ -209,40 +176,17 @@ appendFortran newFortran codeSeg = case codeSeg of
  	(FSeq () _ fortran1 fortran2) -> FSeq () dummySrcSpan fortran1 (FSeq () dummySrcSpan fortran2 newFortran)
  	_ -> codeSeg
 
-getAssigments :: (Typeable p, Data p) =>  ProgUnit p -> [Fortran p] -- [Fortran p]
-getAssigments loop = everything (++) (mkQ [] checkForAssignment) loop
-
 getVarNames_query :: (Typeable p, Data p) =>  Fortran p -> [VarName p]
 getVarNames_query fortran = everything (++) (mkQ [] getVarNames) fortran
 
 getVarNames :: (Typeable p, Data p) =>  VarName p -> [VarName p]
 getVarNames expr = [expr]
 
-getVariables :: (Typeable p, Data p) =>  [Expr p] -> [Variable]
-getVariables expr = everything (++) (mkQ [] checkForVariable) expr
-
 listSubtract :: Eq a => [a] -> [a] -> [a]
 listSubtract a b = filter (\x -> notElem x b) a
 
 listRemoveDuplications :: Eq a => [a] -> [a]
 listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a
-
---getVarNames_tst :: (Typeable p, Data p) =>  Fortran p -> [VarName p]
---getVarNames_tst expr = everything (++) (mkQ [] getVarNames) expr
-
-
-	-- everything (++) (mkQ empty checkForAssignment) loop
-
-checkForAssignment :: (Typeable p, Data p) => Fortran p -> [Fortran p]
-checkForAssignment codeSeg = case codeSeg of
-		Assg _ _ _ _ -> [codeSeg]
-		_ -> []
-
-getSrcSpan :: Data a => a -> SrcSpan
-getSrcSpan codeSeg = (SrcLoc {srcFilename = "comment", srcLine = 10, srcColumn = -1}, 
-							SrcLoc {srcFilename = "comment", srcLine = 10, srcColumn = -1})
-checkForVariable :: VarName () -> [Variable]
-checkForVariable (VarName () var) = [var]
 
 arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [Expr p]
 arrayAccesses_query = everything (++) (mkQ [] getArrayAccesses)
@@ -274,17 +218,14 @@ accessVarCheck_query loopVars exprList = all (== True) (everything (++) (mkQ [] 
 accessVarCheck :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [Bool]
 accessVarCheck loopVars varname = [elem varname loopVars]
 
-getArrayElementVariables_foldl :: (Typeable p, Data p , Eq p) => [Variable] -> (VarName p, [Expr p]) -> [Variable]
-getArrayElementVariables_foldl prev (var, exps) = prev ++ (getVariables exps)
-
---getArrayElementVariables :: (VarName p, [Expr p]) -> [VarName p]
---getArrayElementVariables inp = []
-
 getLoopVar :: Fortran p -> Maybe(VarName p)
 getLoopVar (For _ _ var _ _ _ _) = Just var
 getLoopVar _ = Nothing
 
--- (Typeable p, Data p, Ord p)
+
+
+-- FUNCTIONS FOR DEBUGGING AND DEVELOPMENT
+
 identifyLoops :: (Typeable p, Data p) => ProgUnit p -> [Fortran ()]
 identifyLoops program =
 	everything
