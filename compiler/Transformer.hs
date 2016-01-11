@@ -21,7 +21,7 @@ main = do
 parseTest s = do f <- readFile s
                  return $ parse $ preProcess f
 
-paralleliseLoop :: [VarName ()] -> Fortran () -> Fortran ()
+paralleliseLoop :: [VarName [String]] -> Fortran [String] -> Fortran [String]
 paralleliseLoop loopVars loop = case paralleliseLoop_map loop newLoopVars of 
 									Just a -> a
 									Nothing -> loop
@@ -30,14 +30,14 @@ paralleliseLoop loopVars loop = case paralleliseLoop_map loop newLoopVars of
 										Just a -> loopVars ++ [a]
 										Nothing -> loopVars
 
-paralleliseLoop_map :: Fortran () -> [VarName ()] -> Maybe (Fortran ())
-paralleliseLoop_map loop loopVars	|	checkAssignments_map loopVars loop = Just (OpenCLMap () dummySrcSpan 
+paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> Maybe (Fortran [String])
+paralleliseLoop_map loop loopVars	|	checkAssignments_map loopVars loop = Just (OpenCLMap [] dummySrcSpan 
 																	 				(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopConditions_query_recursive loop))) ) 
-																					(flattenLoopConditions Nothing (VarName () "g_id") (loopConditions_query_recursive loop))   
+																					(flattenLoopConditions Nothing (VarName [] "g_id") (loopConditions_query_recursive loop))   
 																					(removeLoopConstructs_trans loop)) -- Just (arbitraryChange_allChildren "PARALLEL" loop)
 									|	otherwise		= Nothing
 
-checkAssignments_map :: [VarName ()] -> Fortran () -> Bool
+checkAssignments_map :: [VarName [String]] -> Fortran [String] -> Bool
 checkAssignments_map loopVars codeSeg = case codeSeg of
 		Assg _ _ expr1 expr2 -> (assignments /= [])	&& (exprListContainsVarNames assignments loopVars) 	&& (constantCheck_query assignments) 
 													&& (exprListContainsVarNames accesses loopVars) 	-- && (constantCheck_query accesses)
@@ -53,7 +53,7 @@ parallelisableLoop_reduce loop = False
 paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
 paralleliseProgram = everywhere (mkT (transformForLoop))
 
-transformForLoop :: Fortran () -> Fortran ()
+transformForLoop :: Fortran [String] -> Fortran [String]
 transformForLoop inp = case inp of
 		For _ _ _ _ _ _ _ -> paralleliseLoop [] inp
 		_ -> inp
@@ -159,21 +159,21 @@ multiplyLoopConditions ((var, start, end, step):xs) = Bin (tag var) dummySrcSpan
 removeLoopConstructs_trans :: (Typeable p, Data p) => Fortran p -> Fortran p
 removeLoopConstructs_trans = everywhere (mkT (removeLoopConstructs))
 
-removeLoopConstructs :: Fortran () -> Fortran ()
-removeLoopConstructs (FSeq () _ (For _ _ _ _ _ _ (FSeq () _ fortran11 fortran12)) fortran02) = FSeq () dummySrcSpan fortran11 (appendFortran_trans fortran02 fortran12)
-removeLoopConstructs (FSeq () _ (For _ _ _ _ _ _ fortran1) fortran2 ) = FSeq () dummySrcSpan fortran1 fortran2
-removeLoopConstructs (FSeq () _ fortran1 (For _ _ _ _ _ _ fortran2)) = FSeq () dummySrcSpan fortran1 fortran2
-removeLoopConstructs (FSeq () _ fortran1 (NullStmt () _)) = fortran1
+removeLoopConstructs :: Fortran [String] -> Fortran [String]
+removeLoopConstructs (FSeq [] _ (For _ _ _ _ _ _ (FSeq [] _ fortran11 fortran12)) fortran02) = FSeq [] dummySrcSpan fortran11 (appendFortran_trans fortran02 fortran12)
+removeLoopConstructs (FSeq [] _ (For _ _ _ _ _ _ fortran1) fortran2 ) = FSeq [] dummySrcSpan fortran1 fortran2
+removeLoopConstructs (FSeq [] _ fortran1 (For _ _ _ _ _ _ fortran2)) = FSeq [] dummySrcSpan fortran1 fortran2
+removeLoopConstructs (FSeq [] _ fortran1 (NullStmt [] _)) = fortran1
 removeLoopConstructs (For _ _ _ _ _ _ fortran) = fortran
 removeLoopConstructs codeSeg = codeSeg
 
-appendFortran_trans :: Fortran () -> Fortran () -> Fortran ()
+appendFortran_trans :: Fortran [String] -> Fortran [String] -> Fortran [String]
 appendFortran_trans newFortran codeSeg = everywhere (mkT (appendFortran newFortran)) codeSeg
 
-appendFortran :: Fortran () -> Fortran () -> Fortran ()
+appendFortran :: Fortran [String] -> Fortran [String] -> Fortran [String]
 appendFortran newFortran codeSeg = case codeSeg of
-	(FSeq () _ _ (FSeq () _ _ _)) -> codeSeg 
- 	(FSeq () _ fortran1 fortran2) -> FSeq () dummySrcSpan fortran1 (FSeq () dummySrcSpan fortran2 newFortran)
+	(FSeq [] _ _ (FSeq [] _ _ _)) -> codeSeg 
+ 	(FSeq [] _ fortran1 fortran2) -> FSeq [] dummySrcSpan fortran1 (FSeq [] dummySrcSpan fortran2 newFortran)
  	_ -> codeSeg
 
 getVarNames_query :: (Typeable p, Data p) =>  Fortran p -> [VarName p]
@@ -208,7 +208,7 @@ varNameCheck container contains = [elem contains container]
 constantCheck_query :: (Typeable p, Data p) => [Expr p] -> Bool
 constantCheck_query exprList = all (== False) (everything (++) (mkQ [] (constantCheck)) exprList)
 
-constantCheck :: Expr () -> [Bool]
+constantCheck :: Expr [String] -> [Bool]
 constantCheck (Con _ _ _) = [True]
 constantCheck _ = [False]
 
@@ -226,7 +226,7 @@ getLoopVar _ = Nothing
 
 -- FUNCTIONS FOR DEBUGGING AND DEVELOPMENT
 
-identifyLoops :: (Typeable p, Data p) => ProgUnit p -> [Fortran ()]
+identifyLoops :: (Typeable p, Data p) => ProgUnit p -> [Fortran [String]]
 identifyLoops program =
 	everything
 		(++)
