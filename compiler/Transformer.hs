@@ -5,20 +5,28 @@ import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
 import PreProcessor
+import System.Environment
 
 main :: IO ()
 main = do
-	--a <- parseTest "../testFiles/arrayLoop.f95"
-	a <- parseTest "../testFiles/arrayLoop.f95"
-	let parallelisedProg = paralleliseProgram (a!!0)
+	--a <- parseFile "../testFiles/arrayLoop.f95"
+	
+	args <- getArgs
+	let filename = args!!0
+	--a <- parseFile "../testFiles/arrayLoop.f95"
+	parsedProgram <- parseFile filename
+	let parallelisedProg = paralleliseProgram (parsedProgram!!0)
 
-	putStr $ show $ (a!!0)
-	putStr "\n\n\n"
+	--putStr $ show $ (parsedProgram!!0)
+	--putStr "\n\n\n"
 
 	putStr $ show $ parallelisedProg
 	putStr "\n"
 
-parseTest s = do f <- readFile s
+	putStr $ compileErrorListing parallelisedProg
+	--putStr "\n"
+
+parseFile s = do f <- readFile s
                  return $ parse $ preProcess f
 
 paralleliseLoop :: [VarName [String]] -> Fortran [String] -> Fortran [String]
@@ -35,17 +43,43 @@ paralleliseLoop_map loop loopVars	|	checkAssignments_map loopVars loop = Just (O
 																	 				(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopConditions_query_recursive loop))) ) 
 																					(flattenLoopConditions Nothing (VarName [] "g_id") (loopConditions_query_recursive loop))   
 																					(removeLoopConstructs_trans loop)) -- Just (arbitraryChange_allChildren "PARALLEL" loop)
-									|	otherwise		= Nothing
+									|	otherwise		= Just (addAnnotation loop ("  Cannot map due to:\n" ++ (getErrors_map loopVars loop)))
+									
+									-- |	otherwise		= Nothing
 
 checkAssignments_map :: [VarName [String]] -> Fortran [String] -> Bool
 checkAssignments_map loopVars codeSeg = case codeSeg of
-		Assg _ _ expr1 expr2 -> (assignments /= [])	&& (exprListContainsVarNames assignments loopVars) 	&& (constantCheck_query assignments) 
-													&& (exprListContainsVarNames accesses loopVars) 	-- && (constantCheck_query accesses)
+		Assg _ srcspan expr1 expr2 -> 		(assignments /= [])	
+										&& 	(exprListContainsVarNames assignments loopVars) 	
+										&& 	(constantCheck_query assignments) 
+										&& 	(exprListContainsVarNames accesses loopVars) 	-- && (constantCheck_query accesses)
 			where
 				assignments = arrayAccesses_query expr1
 				accesses = arrayAccesses_query expr2
 		For _ _ var _ _ _ _ -> all (== True) (gmapQ (mkQ True (checkAssignments_map (loopVars ++ [var]) )) codeSeg)
 		_ -> all (== True) (gmapQ (mkQ True (checkAssignments_map loopVars)) codeSeg)
+
+getErrors_map :: [VarName [String]] -> Fortran [String] -> String
+getErrors_map loopVars codeSeg = case codeSeg of
+		Assg _ srcspan expr1 expr2 -> 	(if assignments == [] then "    " ++ (errorLocationFormatting srcspan) ++ ": assignment to scalar variable\n" else "") ++
+									(if not (exprListContainsVarNames assignments loopVars) then "    " ++ (errorLocationFormatting srcspan) ++ ": assignment to array element at non-loop variable position\n" else "") ++
+									(if not (constantCheck_query assignments) then "    " ++ (errorLocationFormatting srcspan) ++ ": assignment to constant array element\n" else "") ++
+									(if not (exprListContainsVarNames accesses loopVars) then "    " ++ (errorLocationFormatting srcspan) ++ ": access to an array element not related to the loop current loop variable scope\n" else "")
+		--(assignments /= [])	&& (exprListContainsVarNames assignments loopVars) 	&& (constantCheck_query assignments) 
+		--											&& (exprListContainsVarNames accesses loopVars) 	-- && (constantCheck_query accesses)
+			where
+				assignments = arrayAccesses_query expr1
+				accesses = arrayAccesses_query expr2
+		For _ _ var _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map (loopVars ++ [var]) )) codeSeg)
+		_ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
+
+addAnnotation :: Fortran [String] -> String -> Fortran [String]
+addAnnotation original appendage = case original of
+		For anno srcspan var expr1 expr2 expr3 fortran -> For (anno ++ [appendage]) srcspan var expr1 expr2 expr3 fortran
+		_ -> original		
+
+errorLocationFormatting :: SrcSpan -> String
+errorLocationFormatting ((SrcLoc filename line column), srcEnd) = "line " ++ show line -- ++ ", column " ++ show column
 
 parallelisableLoop_reduce ::(Typeable p, Data p) => Fortran p -> Bool
 parallelisableLoop_reduce loop = False
@@ -160,10 +194,10 @@ removeLoopConstructs_trans :: (Typeable p, Data p) => Fortran p -> Fortran p
 removeLoopConstructs_trans = everywhere (mkT (removeLoopConstructs))
 
 removeLoopConstructs :: Fortran [String] -> Fortran [String]
-removeLoopConstructs (FSeq [] _ (For _ _ _ _ _ _ (FSeq [] _ fortran11 fortran12)) fortran02) = FSeq [] dummySrcSpan fortran11 (appendFortran_trans fortran02 fortran12)
-removeLoopConstructs (FSeq [] _ (For _ _ _ _ _ _ fortran1) fortran2 ) = FSeq [] dummySrcSpan fortran1 fortran2
-removeLoopConstructs (FSeq [] _ fortran1 (For _ _ _ _ _ _ fortran2)) = FSeq [] dummySrcSpan fortran1 fortran2
-removeLoopConstructs (FSeq [] _ fortran1 (NullStmt [] _)) = fortran1
+removeLoopConstructs (FSeq _ _ (For _ _ _ _ _ _ (FSeq _ _ fortran11 fortran12)) fortran02) = FSeq [] dummySrcSpan fortran11 (appendFortran_trans fortran02 fortran12)
+removeLoopConstructs (FSeq _ _ (For _ _ _ _ _ _ fortran1) fortran2 ) = FSeq [] dummySrcSpan fortran1 fortran2
+removeLoopConstructs (FSeq _ _ fortran1 (For _ _ _ _ _ _ fortran2)) = FSeq [] dummySrcSpan fortran1 fortran2
+removeLoopConstructs (FSeq _ _ fortran1 (NullStmt _ _)) = fortran1
 removeLoopConstructs (For _ _ _ _ _ _ fortran) = fortran
 removeLoopConstructs codeSeg = codeSeg
 
@@ -172,9 +206,20 @@ appendFortran_trans newFortran codeSeg = everywhere (mkT (appendFortran newFortr
 
 appendFortran :: Fortran [String] -> Fortran [String] -> Fortran [String]
 appendFortran newFortran codeSeg = case codeSeg of
-	(FSeq [] _ _ (FSeq [] _ _ _)) -> codeSeg 
- 	(FSeq [] _ fortran1 fortran2) -> FSeq [] dummySrcSpan fortran1 (FSeq [] dummySrcSpan fortran2 newFortran)
+	(FSeq _ _ _ (FSeq _ _ _ _)) -> codeSeg 
+ 	(FSeq _ _ fortran1 fortran2) -> FSeq [] dummySrcSpan fortran1 (FSeq [] dummySrcSpan fortran2 newFortran)
  	_ -> codeSeg
+
+compileErrorListing :: ProgUnit [String] -> String
+compileErrorListing codeSeg = everything (++) (mkQ [] getErrors) codeSeg
+
+getErrors :: Fortran [String] -> String
+getErrors codeSeg = case tag codeSeg of
+	[] -> ""
+	_ -> "Loop at " ++ (errorLocationFormatting (srcSpan codeSeg)) ++ " cannot be parallelised.\n" ++ (foldl (++) "" (tag codeSeg)) ++ "\n"
+
+--getErrors (For tag srcspan _ _ _ _ _) = "For loop at " ++ (errorLocationFormatting srcspan) ++ " cannot be parallelised." ++ (foldl (++) "" tag) ++ "\n"
+--getErrors codeSeg = "Loop at " ++ (errorLocationFormatting (srcSpan codeSeg)) ++ " cannot be parallelised." ++ (foldl (++) "" (tag codeSeg)) ++ "\n"
 
 getVarNames_query :: (Typeable p, Data p) =>  Fortran p -> [VarName p]
 getVarNames_query fortran = everything (++) (mkQ [] getVarNames) fortran

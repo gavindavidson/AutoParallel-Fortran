@@ -376,6 +376,7 @@ instance Span (Fortran a) where
     srcSpan (TextStmt x sp s)        = sp
     srcSpan (NullStmt x sp)          = sp
     srcSpan (SelectStmt x sp e fes)  = sp       -- GAV ADDED
+    srcSpan (OpenCLMap x sp e1 f1 f2) = sp       -- GAV ADDED
 
 -- Extract the tag 
 
@@ -500,6 +501,9 @@ instance Tagged Fortran where
     tag (ReadS x sp s e)        = x
     tag (TextStmt x sp s)       = x
     tag (NullStmt x sp)         = x
+    tag (SelectStmt x sp e fes)  = x       -- GAV ADDED
+    tag (OpenCLMap x sp e1 f1 f2) = x       -- GAV ADDED
+
 
 instance Tagged Expr where
    tag (Con x sp _)        = x

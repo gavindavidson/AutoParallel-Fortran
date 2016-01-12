@@ -6,7 +6,7 @@ PATTERN: MAP
 
 	CRITERIA
 
-		1)	Assignments and accesses to arrays must be to elements that are linear functions of the loop variable.
+		1)	Assignments and accesses to arrays must be to elements with at least one dimension that are linear functions of the loop variable.
 		2) 	Where the loop is nested, the loop variable of an outer loop may be considered part of the loop variable.
 		3)	Assignments to scalar values, that were declared before the start of the loop, must be temporary and therefore never accessed after the loop has finished.
 
@@ -28,6 +28,17 @@ PATTERN: MAP
 			for i in range(dimensionA):
 				for j in range(dimensionB):
 					arrayA[i][j] = arrayB[i][j] + arrayC[i][j]
+
+		Additions and subtractions over multi dimensional arrays, showing rules for multi dimensional accesses:
+
+			arrayA[dimensionA][dimensionB]
+			arrayB[dimensionA][dimensionB]
+			arrayC[dimensionA][dimensionB]
+			
+			for i in range(dimensionB):
+				arrayA[0][i] = arrayB[0][i] + arrayC[0][i]
+			for i in range(dimensionB):
+				arrayA[1][i] = arrayB[1][i] - arrayC[1][i]
 
 		Extremely simple addition of elements, involving use of scalar factor:
 			
