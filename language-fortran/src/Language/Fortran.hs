@@ -215,10 +215,10 @@ data Fortran  p = Assg p SrcSpan (Expr p) (Expr p)
                 | NullStmt p SrcSpan
 
                 | SelectStmt p SrcSpan (Expr p) [((Expr p), (Fortran p))]   -- GAV ADDED
-                | OpenCLMap p SrcSpan -- Node to represent the data needed for an OpenCL map kernel
-                  [VarName p]         -- List of arguments to kernel
-                  (Fortran p)         -- Initialisers for kernel
-                  (Fortran p)         -- Body of kernel code
+                | OpenCLMap p SrcSpan                   -- Node to represent the data needed for an OpenCL map kernel
+                  [VarName p]                           -- List of arguments to kernel
+                  [(VarName p, Expr p, Expr p, Expr p)] -- Loop variables of nested maps
+                  (Fortran p)                           -- Body of kernel code
                   deriving (Show, Functor, Typeable, Data, Eq)
 
 -- type Bound    = ((Expr p),(Expr p))
@@ -376,7 +376,7 @@ instance Span (Fortran a) where
     srcSpan (TextStmt x sp s)        = sp
     srcSpan (NullStmt x sp)          = sp
     srcSpan (SelectStmt x sp e fes)  = sp       -- GAV ADDED
-    srcSpan (OpenCLMap x sp e1 f1 f2) = sp       -- GAV ADDED
+    srcSpan (OpenCLMap x sp e1 _ f2) = sp       -- GAV ADDED
 
 -- Extract the tag 
 
@@ -502,7 +502,7 @@ instance Tagged Fortran where
     tag (TextStmt x sp s)       = x
     tag (NullStmt x sp)         = x
     tag (SelectStmt x sp e fes)  = x       -- GAV ADDED
-    tag (OpenCLMap x sp e1 f1 f2) = x       -- GAV ADDED
+    tag (OpenCLMap x sp e1 _ f2) = x       -- GAV ADDED
 
 
 instance Tagged Expr where
