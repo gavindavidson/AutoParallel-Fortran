@@ -17,3 +17,9 @@ Language-Fortran problems to solve:
 
 - Case mismatch between subroutine <name> and end subroutine <name>
 	(Check in Parser.hs checks lowercase versions of subroutine names now)
+
+Language-Fortran changes made:
+
+-	Annotations are now string lists rather than empty tuples
+
+-	Added OpenCLMap node that represents a loop that has been shown to be a candidate for applying a map pattern.
