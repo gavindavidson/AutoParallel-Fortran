@@ -7,7 +7,8 @@
 -- The AST is parameterised by type variable p which allows all nodes
 -- of the AST to be annotated. The default annotation is (). This is
 -- useful for analysis.  The 'Tagged' type class provides the function
--- @tag :: d a -> a@ to extract these annotations.
+-- @tag :: d a -> a@ to extract these annotations. 
+-- EDIT: In this version annotations are lists of Strings.
 --
 -- Furthermore, many nodes of the tree have a 'SrcSpan' which is the
 -- start and end locations of the syntax in the source file (including

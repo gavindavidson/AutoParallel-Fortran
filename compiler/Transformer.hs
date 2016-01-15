@@ -91,6 +91,16 @@ paralleliseLoop_map loop loopVars 	|	errors_map == "" 	=	(True,
 --		For _ _ var _ _ _ _ -> all (== True) (gmapQ (mkQ True (checkAssignments_map (loopVars ++ [var]) )) codeSeg)
 --		_ -> all (== True) (gmapQ (mkQ True (checkAssignments_map loopVars)) codeSeg)
 
+--	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
+--	original sub-tree annotated with reasons why the loop is not a reduction
+paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> (Bool, Fortran [String])
+paralleliseLoop_reduce loop loopVars 	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "REDUCTION POSSIBLE:\n"))
+										|	otherwise	=				(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
+									where
+										errors_reduce = getErrors_reduce loopVars loop 
+
+--(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ outputTab ++ outputTab ++ "Reduction is not implemented\n"))
+
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
 getErrors_map :: [VarName [String]] -> Fortran [String] -> String
@@ -100,7 +110,7 @@ getErrors_map loopVars codeSeg = case codeSeg of
 										
 										-- ++ (if not (constantCheck_query assignments) then 
 										--		outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to constant array element\n" else "") ++
-										
+
 										++ (if not (all (== True) (map (exprListContainsAllVarNames loopVars) assignments)) then 
 												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to array element with non-loop variable dimensions\n" else "")
 
@@ -121,6 +131,9 @@ getErrors_map loopVars codeSeg = case codeSeg of
 		OpenCLMap _ _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
 		_ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
 
+getErrors_reduce :: [VarName [String]] -> Fortran [String] -> String
+getErrors_reduce loopVars codeSeg = outputTab ++ outputTab ++ "Reduction not implemented"
+
 --	Appends a new item to the list of annotations already associated to a particular node
 addAnnotation :: Fortran [String] -> String -> Fortran [String]
 addAnnotation original appendage = case original of
@@ -131,11 +144,6 @@ addAnnotation original appendage = case original of
 --	output to the user
 errorLocationFormatting :: SrcSpan -> String
 errorLocationFormatting ((SrcLoc filename line column), srcEnd) = "line " ++ show line -- ++ ", column " ++ show column
-
---	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
---	original sub-tree annotated with reasons why the loop is not a reduction
-paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> (Bool, Fortran [String])
-paralleliseLoop_reduce loop loopVars = (False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ outputTab ++ outputTab ++ "Reduction is not implemented\n"))
 
 --	Top level function that is called on the AST of a program. Function traverses the program unit and applies transformForLoop when a
 --	Fortran node is encountered. The function performs a transformation of the input AST and so returns a version whose loops are either
@@ -340,18 +348,25 @@ listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accu
 -- 	of the original expression
 arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [[Expr p]]
 arrayAccesses_query codeSeg = case codeSeg of
-	Var _ _ lst -> [foldl concatExprList_foldl [] lst]
+	Var _ _ lst -> everything (++) (mkQ [] getArrayAccesses) lst
 	Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
+	_ -> []
+
+getArrayAccesses :: (Typeable p, Data p) => Expr p -> [[Expr p]]
+getArrayAccesses codeSeg = case codeSeg of
+	Var _ _ lst -> [foldl concatExprList_foldl [] lst]
+	--Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
 	_ -> []
 
 -- (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
 
---arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [Expr p]
+--arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [[Expr p]]
 --arrayAccesses_query = everything (++) (mkQ [] getArrayAccesses)
 
---getArrayAccesses :: (Typeable p, Data p) => Expr p -> [Expr p]
+--getArrayAccesses :: (Typeable p, Data p) => Expr p -> [[Expr p]]
 --getArrayAccesses codeSeg = case codeSeg of
---	Var _ _ lst -> foldl concatExprList_foldl [] lst
+--	Var _ _ lst -> [foldl concatExprList_foldl [] lst]
+--	Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
 --	_ -> []
 
 --	Used as part of a foldl to concatentate expressions taken from 
