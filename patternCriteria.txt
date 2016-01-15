@@ -6,7 +6,7 @@ PATTERN: MAP
 
 	CRITERIA
 
-		1)	Assignments and accesses to arrays must be to elements with where all dimension are linear functions of the loop variable.
+		1)	Assignments and accesses to arrays must be to elements where all dimension are linear functions of the loop variable.
 		2) 	Where the loop is nested, the loop variable of an outer loop may be considered part of the loop variable.
 		3)	Assignments to scalar values, that were declared before the start of the loop, must be temporary and therefore never accessed after the loop has finished.
 
@@ -73,3 +73,80 @@ PATTERN: MAP
 			temp
 			for i in range(arrayLength):
 				arrayA[i*3] = arrayB[i+17] + arrayC[i/2]
+
+PATTERN: REDUCTION
+	
+	A reduction involves the idea that a set of values are combined and reduce into one aggregating value. Conceptually, the pattern removes at least one dimension from an input array. 
+
+	CRITERIA
+
+		1)	Assignments and accesses to arrays can be to elements where all dimension are linear functions of the loop variable.
+		2) 	Where the loop is nested, the loop variable of an outer loop may be considered part of the loop variable.
+		3)	Assignments to variables with lesser dimensions must involve an access to that variable in the assignment or previously as part of a conditional statement.
+
+	EXAMPLES
+
+		Averaging elements in an array
+
+			arrayA[arrayLength]
+			average
+			sum = 0
+			for i in range(arrayLength):
+				sum = sum + arrayA[i]
+
+			average = sum / arrayLength
+
+		Averaging rows in a two dimensional array (matrix)
+
+			arrayA[rows][columns]
+			averages[rows]
+			
+			for i in range(rows):
+				sum = 0
+				for k in range(columns):
+					sum = sum + arrayA[i][k]
+				averages[i] = sum / rows
+
+		Sum of the multiples of array element pairs
+
+			arrayA[arrayLength]
+			arrayB[arrayLength]
+			arrayC[arrayLength]
+			sum = 0
+
+			for i in range(arrayLength):
+				arrayC[i] = arrayA[i] * arrayB[i]
+				sum = sum + arrayC[i] 
+
+		Sum of all elements of a 3 dimensional array
+
+			arrayA[arrayLength][arrayLength][arrayLength]
+			sum = 0
+
+			for i in range(arrayLength):
+				for j in range(arrayLength):
+					for k in range(arrayLength):
+						sum = sum + arrayA[i][j][k]
+
+		Maximum value of all elements of a 3 dimensional array
+
+			arrayA[arrayLength][arrayLength][arrayLength]
+			max = 0
+
+			for i in range(arrayLength):
+				for j in range(arrayLength):
+					for k in range(arrayLength):
+						if max < arrayA[i][j][k]:
+							max = array[i][j][k]
+
+		Maximum of each row in a two dimensional array (matrix)
+
+			arrayA[rows][columns]
+			maximums[rows]
+			
+			for i in range(rows):
+				for k in range(columns):
+					if maximums[i] < arrayA[i][k]:
+						maximums[i] = arrayA[i][k]
+
+		
