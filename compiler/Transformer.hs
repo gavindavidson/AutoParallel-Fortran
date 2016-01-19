@@ -97,9 +97,7 @@ paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> (Bool, Fortra
 paralleliseLoop_reduce loop loopVars 	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "REDUCTION POSSIBLE:\n"))
 										|	otherwise	=				(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
-										errors_reduce = getErrors_reduce loopVars loop 
-
---(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ outputTab ++ outputTab ++ "Reduction is not implemented\n"))
+										errors_reduce = getErrors_reduce loopVars [] [] loop 
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
@@ -114,9 +112,11 @@ getErrors_map loopVars codeSeg = case codeSeg of
 										++ (if not (all (== True) (map (exprListContainsAllVarNames loopVars) assignments)) then 
 												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to array element with non-loop variable dimensions\n" else "")
 
-										++ (if (not (all (== True) (map (exprListContainsAllVarNames loopVars) accesses))) && accesses /= [] then 
+										++ (if (not (all (== True) (map (exprListContainsAllVarNames loopVars) (filter (\x -> x /= []) accesses) ))) then 
 												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": access to array element with non-loop variable dimensions\n" else "")
 
+										-- ++ "ASSIGNMENTS: " ++ show assignments 
+										-- ++ "\nACCESSES: " ++ show accesses ++ "\n"
 										-- ++ (if not (exprListContainsVarNames assignments loopVars) then 
 										--		outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to array element at non-loop variable position\n" else "") ++
 										
@@ -131,8 +131,15 @@ getErrors_map loopVars codeSeg = case codeSeg of
 		OpenCLMap _ _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
 		_ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
 
-getErrors_reduce :: [VarName [String]] -> Fortran [String] -> String
-getErrors_reduce loopVars codeSeg = outputTab ++ outputTab ++ "Reduction not implemented"
+getErrors_reduce :: [VarName [String]] -> [Expr [String]] ->  [Expr [String]] -> Fortran [String] -> String
+getErrors_reduce loopVars approvedAssignors approvedAssignees codeSeg = case codeSeg of
+		Assg _ srcspan expr1 expr2 ->	""
+			where
+				assignments = arrayAccesses_query expr1
+				accesses = arrayAccesses_query expr2
+		--For _ _ var _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_reduce (loopVars ++ [var]) )) codeSeg)
+		--OpenCLMap _ _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_reduce loopVars)) codeSeg)
+		_ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_reduce loopVars [] [])) codeSeg)
 
 --	Appends a new item to the list of annotations already associated to a particular node
 addAnnotation :: Fortran [String] -> String -> Fortran [String]
@@ -346,15 +353,15 @@ listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accu
 
 --	Function takes an AST reprenting an expression and returns a nested list representing the elements that are accessed by each term
 -- 	of the original expression
-arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [[Expr p]]
+arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [[Expr p ]]
 arrayAccesses_query codeSeg = case codeSeg of
-	Var _ _ lst -> everything (++) (mkQ [] getArrayAccesses) lst
+	Var _ _ lst -> [everything (++) (mkQ [] getArrayAccesses) codeSeg]
 	Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
 	_ -> []
 
-getArrayAccesses :: (Typeable p, Data p) => Expr p -> [[Expr p]]
+getArrayAccesses :: (Typeable p, Data p) => Expr p -> [Expr p]
 getArrayAccesses codeSeg = case codeSeg of
-	Var _ _ lst -> [foldl concatExprList_foldl [] lst]
+	Var _ _ lst -> foldl concatExprList_foldl [] lst
 	--Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
 	_ -> []
 
@@ -371,7 +378,7 @@ getArrayAccesses codeSeg = case codeSeg of
 
 --	Used as part of a foldl to concatentate expressions taken from 
 concatExprList_foldl :: (Typeable p, Data p) => [Expr p] -> (VarName p, [Expr p]) -> [Expr p]
-concatExprList_foldl prev (var, exprs) = prev ++ exprs 
+concatExprList_foldl prev (var, exprs) = prev ++ exprs
 
 --exprListContainsVarNames accesses loopVars
 
@@ -385,6 +392,9 @@ varNameCheck container contains = [elem contains container]
 --	Function checks whether every VarName in a list appears at least once in a list of Expr
 exprListContainsAllVarNames :: (Typeable p, Data p, Eq p) => [VarName p] -> [Expr p] -> Bool
 exprListContainsAllVarNames contains container = (foldl delete_foldl (listRemoveDuplications contains) (everything (++) (mkQ [] getVarNames) container)) == []
+
+exprListContainsAllVarNames_debug :: (Typeable p, Data p, Eq p) => [VarName p] -> [Expr p] -> [VarName p]
+exprListContainsAllVarNames_debug contains container = (everything (++) (mkQ [] getVarNames) container)
 
 delete_foldl :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [VarName p]
 delete_foldl accum item = delete item accum
