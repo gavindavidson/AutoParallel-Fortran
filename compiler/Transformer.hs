@@ -62,34 +62,16 @@ paralleliseLoop loopVars loop 	=	case mapAttempt_bool of
 paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> (Bool, Fortran [String])
 paralleliseLoop_map loop loopVars 	|	errors_map == "" 	=	(True,
 																	OpenCLMap [] generatedSrcSpan 
-													 				(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
+													 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
+													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
+													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
 																	--(flattenLoopConditions Nothing (VarName [] "g_id") 
 																	(loopCondtions_query loop) --)   
 																	--(removeLoopConstructs_trans loop))
 																	(removeLoopConstructs_recursive loop))
 									|	otherwise	=			(False, addAnnotation loop (outputTab ++ "Cannot map due to:\n" ++ errors_map))
 									where
-										errors_map = getErrors_map loopVars loop
-
---paralleliseLoop_map loop loopVars	|	checkAssignments_map loopVars loop = Just (OpenCLMap [] generatedSrcSpan 
---																	 				(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
---																					(flattenLoopConditions Nothing (VarName [] "g_id") (loopCondtions_query loop))   
---																					(removeLoopConstructs_trans loop)) -- Just (arbitraryChange_allChildren "PARALLEL" loop)
---									|	otherwise		= Just (addAnnotation loop ("  Cannot map due to:\n" ++ (getErrors_map loopVars loop)))
-									
-									-- |	otherwise		= Nothing
-
---checkAssignments_map :: [VarName [String]] -> Fortran [String] -> Bool
---checkAssignments_map loopVars codeSeg = case codeSeg of
---		Assg _ srcspan expr1 expr2 -> 		(assignments /= [])	
---										&& 	(exprListContainsVarNames assignments loopVars) 	
---										&& 	(constantCheck_query assignments) 
---										&& 	(exprListContainsVarNames accesses loopVars) 	-- && (constantCheck_query accesses)
---			where
---				assignments = arrayAccesses_query expr1
---				accesses = arrayAccesses_query expr2
---		For _ _ var _ _ _ _ -> all (== True) (gmapQ (mkQ True (checkAssignments_map (loopVars ++ [var]) )) codeSeg)
---		_ -> all (== True) (gmapQ (mkQ True (checkAssignments_map loopVars)) codeSeg)
+										(errors_map, reads_map, writes_map) = analyseLoop_map loopVars loop
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
@@ -97,13 +79,14 @@ paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> (Bool, Fortra
 paralleliseLoop_reduce loop loopVars 	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "REDUCTION POSSIBLE:\n"))
 										|	otherwise	=				(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
-										errors_reduce = getErrors_reduce loopVars [] [] loop 
+										(errors_reduce, reads_reduce, writes_reduce) = analyseLoop_reduce loopVars loop 
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
-getErrors_map :: [VarName [String]] -> Fortran [String] -> String
-getErrors_map loopVars codeSeg = case codeSeg of
-		Assg _ srcspan expr1 expr2 ->	(if assignments == [] then 
+analyseLoop_map :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
+analyseLoop_map loopVars codeSeg = case codeSeg of
+		Assg _ srcspan expr1 expr2 ->	(
+										(if assignments == [] then 
 												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to scalar variable\n" else "")
 										
 										-- ++ (if not (constantCheck_query assignments) then 
@@ -114,7 +97,9 @@ getErrors_map loopVars codeSeg = case codeSeg of
 
 										++ (if (not (all (== True) (map (exprListContainsAllVarNames loopVars) (filter (\x -> x /= []) accesses) ))) then 
 												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": access to array element with non-loop variable dimensions\n" else "")
-
+										,
+										extractOperands expr2,
+										[expr1])
 										-- ++ "ASSIGNMENTS: " ++ show assignments 
 										-- ++ "\nACCESSES: " ++ show accesses ++ "\n"
 										-- ++ (if not (exprListContainsVarNames assignments loopVars) then 
@@ -127,19 +112,34 @@ getErrors_map loopVars codeSeg = case codeSeg of
 			where
 				assignments = arrayAccesses_query expr1
 				accesses = arrayAccesses_query expr2
-		For _ _ var _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map (loopVars ++ [var]) )) codeSeg)
-		OpenCLMap _ _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
-		_ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo ("",[],[]) (gmapQ (mkQ ("",[],[]) (analyseLoop_map (loopVars ++ [var]) )) codeSeg)
+		_ -> foldl combineAnalysisInfo ("",[],[]) (gmapQ (mkQ ("",[],[]) (analyseLoop_map loopVars)) codeSeg)
 
-getErrors_reduce :: [VarName [String]] -> [Expr [String]] ->  [Expr [String]] -> Fortran [String] -> String
-getErrors_reduce loopVars approvedAssignors approvedAssignees codeSeg = case codeSeg of
-		Assg _ srcspan expr1 expr2 ->	""
+--analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> String
+analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
+analyseLoop_reduce loopVars codeSeg = case codeSeg of
+		Assg _ srcspan expr1 expr2 -> 	(
+										(if not $ hasOperand expr2 expr1 then 
+												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" ++ errorExprFormatting expr1 ++ ") is not accessed before assignment\n" else "") --(show (extractOperands expr1)) ++ "\n\n"++ (show (extractOperands expr2))
+										,
+										extractOperands expr2,
+										[expr1])
 			where
 				assignments = arrayAccesses_query expr1
 				accesses = arrayAccesses_query expr2
-		--For _ _ var _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_reduce (loopVars ++ [var]) )) codeSeg)
-		--OpenCLMap _ _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_reduce loopVars)) codeSeg)
-		_ -> foldl (++) "" (gmapQ (mkQ "" (getErrors_reduce loopVars [] [])) codeSeg)
+		--For _ _ var _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (analyseLoop_reduce (loopVars ++ [var]) )) codeSeg)
+		--OpenCLMap _ _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (analyseLoop_reduce loopVars)) codeSeg)
+		_ -> foldl combineAnalysisInfo ("",[],[]) (gmapQ (mkQ ("",[],[]) (analyseLoop_reduce loopVars)) codeSeg)
+
+combineAnalysisInfo :: (String, [Expr [String]], [Expr [String]]) -> (String, [Expr [String]], [Expr [String]]) -> (String, [Expr [String]], [Expr [String]])
+combineAnalysisInfo accum item = (accumErrors ++ itemErrors, accumReads ++ itemReads, accumWrites ++ itemWrites)
+								where
+									(accumErrors, accumReads, accumWrites) = accum
+									(itemErrors, itemReads, itemWrites) = item
+
+
+hasOperand :: Expr [String] -> Expr [String] -> Bool
+hasOperand container contains = all (== True) $ map (\x -> elem x (extractOperands $ standardiseSrcSpan_trans container)) (extractOperands $ standardiseSrcSpan_trans contains)
 
 --	Appends a new item to the list of annotations already associated to a particular node
 addAnnotation :: Fortran [String] -> String -> Fortran [String]
@@ -147,10 +147,17 @@ addAnnotation original appendage = case original of
 		For anno srcspan var expr1 expr2 expr3 fortran -> For (anno ++ [appendage]) srcspan var expr1 expr2 expr3 fortran
 		_ -> original		
 
---	Used by getErrors_map to format the information on the position of a particular piece of code that is used as the information
+--	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
 errorLocationFormatting :: SrcSpan -> String
 errorLocationFormatting ((SrcLoc filename line column), srcEnd) = "line " ++ show line -- ++ ", column " ++ show column
+
+errorExprFormatting :: Expr [String] -> String
+errorExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) -> ((\(VarName _ str) -> str) varname) ++ 
+															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
+																++ item) "" (map (errorExprFormatting) exprList)) ++ ")" else "")) list)
+errorExprFormatting (Con _ _ str) = str
+errorExprFormatting codeSeg = show codeSeg
 
 --	Top level function that is called on the AST of a program. Function traverses the program unit and applies transformForLoop when a
 --	Fortran node is encountered. The function performs a transformation of the input AST and so returns a version whose loops are either
@@ -174,7 +181,7 @@ loopCondtions_query = everything (++) (mkQ [] getLoopConditions)
 getLoopConditions :: (Typeable p, Data p) => Fortran p -> [(VarName p, Expr p, Expr p, Expr p)]
 getLoopConditions codeSeg = case codeSeg of
 		For _ _ var start end step _ -> [(var, start, end, step)]
-		OpenCLMap _ _ _ loopVars _ -> loopVars
+		OpenCLMap _ _ _ _ loopVars _ -> loopVars
 		_ -> []
 
 --	Returns an AST representing a set of assignments that determine the values of the loop variables that are being parallelised for a
@@ -280,11 +287,11 @@ removeLoopConstructs_recursive :: Fortran [String] -> Fortran [String]
 removeLoopConstructs_recursive (FSeq _ _ (For _ _ _ _ _ _ (FSeq anno srcspan fortran11 fortran12)) fortran02) = FSeq anno srcspan fortran11 
 																															(appendFortran_recursive 	(removeLoopConstructs_recursive fortran02) 
 																																						(removeLoopConstructs_recursive fortran12))
-removeLoopConstructs_recursive (FSeq _ _ (OpenCLMap _ _ _ _ (FSeq anno srcspan fortran11 fortran12)) fortran02) = FSeq anno srcspan fortran11 
+removeLoopConstructs_recursive (FSeq _ _ (OpenCLMap _ _ _ _ _ (FSeq anno srcspan fortran11 fortran12)) fortran02) = FSeq anno srcspan fortran11 
 																															(appendFortran_recursive 	(removeLoopConstructs_recursive fortran02) 
 																																						(removeLoopConstructs_recursive fortran12))
 removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
-removeLoopConstructs_recursive (OpenCLMap _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
+removeLoopConstructs_recursive (OpenCLMap _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
 removeLoopConstructs_recursive (NullStmt anno srcspan) = NullStmt anno srcspan
 removeLoopConstructs_recursive codeSeg = gmapT (mkT removeLoopConstructs_recursive) codeSeg
 
@@ -343,6 +350,10 @@ getVarNames_query fortran = everything (++) (mkQ [] getVarNames) fortran
 getVarNames :: (Typeable p, Data p) =>  VarName p -> [VarName p]
 getVarNames expr = [expr]
 
+--getVarNameExprList :: (Typeable p, Data p) =>  Expr p -> [(VarName p, [Expr p])]
+--getVarNameExprList (Var _ _ lst) = lst
+--getVarNameExprList _ = []
+
 --	Generic function that takes two lists a and b and returns a list c that is all of the elements of a that do not appear in b.
 listSubtract :: Eq a => [a] -> [a] -> [a]
 listSubtract a b = filter (\x -> notElem x b) a
@@ -350,6 +361,19 @@ listSubtract a b = filter (\x -> notElem x b) a
 --	Generic function that removes all duplicate elements from a list.
 listRemoveDuplications :: Eq a => [a] -> [a]
 listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a
+
+--extractOperands :: (Typeable p, Data p) => Expr p -> [(VarName p, [Expr p])]
+--extractOperands (Bin _ _ _ expr1 expr2) = extractOperands expr1 ++ extractOperands expr2
+--extractOperands expr 					= getVarNameExprList expr
+
+extractOperands :: (Typeable p, Data p) => Expr p -> [Expr p]
+extractOperands (Bin _ _ _ expr1 expr2) = extractOperands expr1 ++ extractOperands expr2
+extractOperands expr 					= [expr]
+
+extractVarNames :: (Typeable p, Data p) => Expr p -> [VarName p]
+extractVarNames (Var _ _ lst) = map (\(x, _) -> x) lst
+extractVarNames _ = []
+
 
 --	Function takes an AST reprenting an expression and returns a nested list representing the elements that are accessed by each term
 -- 	of the original expression
@@ -365,7 +389,7 @@ getArrayAccesses codeSeg = case codeSeg of
 	--Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
 	_ -> []
 
--- (gmapQ (mkQ "" (getErrors_map loopVars)) codeSeg)
+-- (gmapQ (mkQ "" (analyseLoop_map loopVars)) codeSeg)
 
 --arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [[Expr p]]
 --arrayAccesses_query = everything (++) (mkQ [] getArrayAccesses)
@@ -423,6 +447,16 @@ getLoopVar :: Fortran p -> Maybe(VarName p)
 getLoopVar (For _ _ var _ _ _ _) = Just var
 getLoopVar _ = Nothing
 
+--	Generates a SrcSpan that is attached to nodes that have been generated by this program
+generatedSrcSpan :: SrcSpan
+generatedSrcSpan = (SrcLoc {srcFilename = "GENERATED", srcLine = -1, srcColumn = -1}, SrcLoc {srcFilename = "GENERATED", srcLine = -1, srcColumn = -1})
+
+standardiseSrcSpan_trans ::(Data a, Typeable a) =>  Expr a -> Expr a
+standardiseSrcSpan_trans = everywhere (mkT (standardiseSrcSpan))
+
+standardiseSrcSpan :: SrcSpan -> SrcSpan
+standardiseSrcSpan src = generatedSrcSpan
+
 --	Value used as a global spacing measure. Used for output formatting.
 outputTab :: String
 outputTab = "  "
@@ -453,9 +487,6 @@ arbitraryChange_allChildren comment = everywhere (mkT (modifySrcSpan_allChildren
 
 modifySrcSpan_allChildren :: String -> SrcSpan -> SrcSpan
 modifySrcSpan_allChildren comment (a, b) = (SrcLoc {srcFilename = comment, srcLine = 10, srcColumn = -1}, b)
-
-generatedSrcSpan :: SrcSpan
-generatedSrcSpan = (SrcLoc {srcFilename = "GENERATED", srcLine = -1, srcColumn = -1}, SrcLoc {srcFilename = "GENERATED", srcLine = -1, srcColumn = -1})
 
 test_exprListContainsAllVarNames :: (Typeable p, Data p, Eq p) =>  [Expr p] -> [VarName p] -> [VarName p]
 test_exprListContainsAllVarNames container contains = (foldl delete_foldl (listRemoveDuplications contains) (everything (++) (mkQ [] getVarNames) container))

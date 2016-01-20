@@ -19,11 +19,11 @@ program arrayLoop
       reduce(i) = 0
        do 20 g=0,15
 !         arr(i,g) = arr(i,g) + spew(i,g)
-        reduce(i,g) = arr(i,g)
-        reduce(i,g) = arr(i,g)
+        reduce(i,g) = arr(i,g) + arr(i,g)
+        reduce(i,g) = j
 !         j = 6
 !           j = 7
-!           arr(k) = 10
+!         arr(k) = 10
 !           arr(k) = spew(k)
 !           arr(k) = spew(k)*g
 !           arr(123) = 12
