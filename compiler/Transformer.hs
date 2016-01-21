@@ -79,7 +79,7 @@ paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> (Bool, Fortra
 paralleliseLoop_reduce loop loopVars 	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "REDUCTION POSSIBLE:\n"))
 										|	otherwise	=				(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
-										(errors_reduce, reads_reduce, writes_reduce) = analyseLoop_reduce loopVars loop 
+										(errors_reduce, reducionVariable, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loop 
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
@@ -112,30 +112,57 @@ analyseLoop_map loopVars codeSeg = case codeSeg of
 			where
 				assignments = arrayAccesses_query expr1
 				accesses = arrayAccesses_query expr2
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo ("",[],[]) (gmapQ (mkQ ("",[],[]) (analyseLoop_map (loopVars ++ [var]) )) codeSeg)
-		_ -> foldl combineAnalysisInfo ("",[],[]) (gmapQ (mkQ ("",[],[]) (analyseLoop_map loopVars)) codeSeg)
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo_map analysisInfoBaseCase_map (gmapQ (mkQ analysisInfoBaseCase_map (analyseLoop_map (loopVars ++ [var]) )) codeSeg)
+		_ -> foldl combineAnalysisInfo_map analysisInfoBaseCase_map (gmapQ (mkQ analysisInfoBaseCase_map (analyseLoop_map loopVars)) codeSeg)
 
---analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> String
-analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
-analyseLoop_reduce loopVars codeSeg = case codeSeg of
+analysisInfoBaseCase_map :: (String, [Expr [String]], [Expr [String]])
+analysisInfoBaseCase_map = ("",[],[])
+
+combineAnalysisInfo_map :: (String, [Expr [String]], [Expr [String]]) -> (String, [Expr [String]], [Expr [String]]) -> (String, [Expr [String]], [Expr [String]])
+combineAnalysisInfo_map accum item = (accumErrors ++ itemErrors, accumReads ++ itemReads, accumWrites ++ itemWrites)
+								where
+									(accumErrors, accumReads, accumWrites) = accum
+									(itemErrors, itemReads, itemWrites) = item
+
+--analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
+analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> Fortran [String] -> (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]])
+analyseLoop_reduce condExprs loopVars codeSeg = case codeSeg of
 		Assg _ srcspan expr1 expr2 -> 	(
-										(if not $ hasOperand expr2 expr1 then 
-												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" ++ errorExprFormatting expr1 ++ ") is not accessed before assignment\n" else "") --(show (extractOperands expr1)) ++ "\n\n"++ (show (extractOperands expr2))
+										(if not potentialReductionVar then 
+											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" 
+												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" else "") 
 										,
+										if potentialReductionVar then Just expr1 else Nothing,
 										extractOperands expr2,
 										[expr1])
 			where
 				assignments = arrayAccesses_query expr1
 				accesses = arrayAccesses_query expr2
-		--For _ _ var _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (analyseLoop_reduce (loopVars ++ [var]) )) codeSeg)
-		--OpenCLMap _ _ _ _ _ -> foldl (++) "" (gmapQ (mkQ "" (analyseLoop_reduce loopVars)) codeSeg)
-		_ -> foldl combineAnalysisInfo ("",[],[]) (gmapQ (mkQ ("",[],[]) (analyseLoop_reduce loopVars)) codeSeg)
+				potentialReductionVar = (hasOperand expr2 expr1) || (foldl (\accum item -> if item then item else accum) False $ map (\x -> hasOperand x expr1) condExprs) 
+		If _ _ expr _ _ _ -> foldl combineAnalysisInfo_reduce analysisInfoBaseCase_reduce (gmapQ (mkQ analysisInfoBaseCase_reduce (analyseLoop_reduce (condExprs ++ [expr]) loopVars)) codeSeg)
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo_reduce analysisInfoBaseCase_reduce (gmapQ (mkQ analysisInfoBaseCase_reduce (analyseLoop_reduce condExprs (loopVars ++ [var]) )) codeSeg)
+		_ -> foldl combineAnalysisInfo_reduce analysisInfoBaseCase_reduce (gmapQ (mkQ analysisInfoBaseCase_reduce (analyseLoop_reduce condExprs loopVars)) codeSeg)
 
-combineAnalysisInfo :: (String, [Expr [String]], [Expr [String]]) -> (String, [Expr [String]], [Expr [String]]) -> (String, [Expr [String]], [Expr [String]])
-combineAnalysisInfo accum item = (accumErrors ++ itemErrors, accumReads ++ itemReads, accumWrites ++ itemWrites)
+analysisInfoBaseCase_reduce :: (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]])
+analysisInfoBaseCase_reduce = ("",Nothing, [],[])
+
+combineAnalysisInfo_reduce :: (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]]) -> (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]]) -> (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]])
+combineAnalysisInfo_reduce accum item = (accumErrors ++ itemErrors ++ reductionVarError, resultantReductionVar, accumReads ++ itemReads, accumWrites ++ itemWrites)
 								where
-									(accumErrors, accumReads, accumWrites) = accum
-									(itemErrors, itemReads, itemWrites) = item
+									(accumErrors, accumReductionVar, accumReads, accumWrites) = accum
+									(itemErrors, itemReductionVar, itemReads, itemWrites) = item
+									resultantReductionVar = case accumReductionVar of
+																Just a -> accumReductionVar
+																Nothing -> itemReductionVar
+									reductionVarError = case accumReductionVar of
+																Nothing -> ""
+																Just itemVar -> case itemReductionVar of
+																		--Just a -> if isInfixOf multipleReductionVarError itemErrors then "" else multipleReductionVarError
+																		Just accumVar -> multipleReductionVarError ++ ": " ++ errorExprFormatting itemVar ++ " clashes with " ++ errorExprFormatting accumVar ++ "\n"
+																		Nothing -> ""
+									--multipleReductionVarError = outputTab ++ outputTab ++ "Multiple possible reduction variables"
+									multipleReductionVarError = outputTab ++ outputTab ++ "Multiple possible reduction variables"
+
 
 
 hasOperand :: Expr [String] -> Expr [String] -> Bool
