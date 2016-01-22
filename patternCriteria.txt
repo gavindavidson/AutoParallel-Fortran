@@ -6,7 +6,7 @@ PATTERN: MAP
 
 	CRITERIA
 
-		1)	Assignments and accesses to arrays must be to elements where all dimension are linear functions of the loop variable.
+		1)	Writes to arrays must be to elements where all dimension are linear functions of the loop variable.
 		2) 	Where the loop is nested, the loop variable of an outer loop may be considered part of the loop variable.
 		3)	Assignments to scalar values must be temporary and therefore never accessed after the loop has finished.
 
@@ -80,9 +80,9 @@ PATTERN: REDUCTION
 
 	CRITERIA
 
-		1)	Assignments and accesses to arrays can be to elements where all dimension are linear functions of the loop variable.
+		1)	Write accesses to arrays can be to elements where all dimension are linear functions of the loop variable.
 		2) 	Where the loop is nested, the loop variable of an outer loop may be considered part of the loop variable.
-		3)	Assignments to variables with lesser dimensions must involve an access to that variable in the assignment or previously as part of a conditional statement or be temporary scalar variables (never accessed after the loop has finished).
+		3)	Writes to variables with lesser dimensions must involve a read of that variable in the assignment or previously as part of a conditional statement or be temporary scalar variables (never accessed after the loop has finished).
 
 	EXAMPLES
 

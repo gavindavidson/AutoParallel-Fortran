@@ -8,6 +8,10 @@ import Data.List
 import PreProcessor
 import System.Environment
 
+--	Type used to standardise loop analysis functions
+--					errors 		reduction variables read variables		written variables		
+type AnalysisInfo = (String, 	[Expr [String]], 	[Expr [String]], 	[Expr [String]])
+
 main :: IO ()
 main = do
 	--a <- parseFile "../testFiles/arrayLoop.f95"
@@ -30,8 +34,8 @@ main = do
 	--putStr "\n"
 
 --	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
-parseFile s = do delete_foldl <- readFile s
-                 return $ parse $ preProcess delete_foldl
+parseFile s = do inp <- readFile s
+                 return $ parse $ preProcess inp
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
@@ -49,18 +53,27 @@ paralleliseLoop loopVars loop 	=	case mapAttempt_bool of
 										Just a -> loopVars ++ [a]
 										Nothing -> loopVars
 
-									mapAttempt = paralleliseLoop_map loop newLoopVars
+									loopWrites = extractWrites_query loop
+
+									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
-									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars
+									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
 
+extractWrites_query :: (Typeable p, Data p) => Fortran p -> [VarName p]
+extractWrites_query = everything (++) (mkQ [] extractWrites)
+
+extractWrites :: (Typeable p, Data p) => Fortran p -> [VarName p]
+extractWrites (Assg _ _ (Var _ _ list) _) = map (\(varname, exprs) -> varname) list
+extractWrites _ = []
+
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
-paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> (Bool, Fortran [String])
-paralleliseLoop_map loop loopVars 	|	errors_map == "" 	=	(True,
+paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> (Bool, Fortran [String])
+paralleliseLoop_map loop loopVars loopWrites 	|	errors_map == "" 	=	(True,
 																	OpenCLMap [] generatedSrcSpan 
 													 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
@@ -71,97 +84,83 @@ paralleliseLoop_map loop loopVars 	|	errors_map == "" 	=	(True,
 																	(removeLoopConstructs_recursive loop))
 									|	otherwise	=			(False, addAnnotation loop (outputTab ++ "Cannot map due to:\n" ++ errors_map))
 									where
-										(errors_map, reads_map, writes_map) = analyseLoop_map loopVars loop
+										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVars loopWrites loop
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
-paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> (Bool, Fortran [String])
-paralleliseLoop_reduce loop loopVars 	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "REDUCTION POSSIBLE:\n"))
+paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName p] -> (Bool, Fortran [String])
+paralleliseLoop_reduce loop loopVars loopWrites 	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "REDUCTION POSSIBLE:\n"))
 										|	otherwise	=				(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
-										(errors_reduce, reducionVariable, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loop 
+										(errors_reduce, reducionVariable, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loopWrites loop 
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
-analyseLoop_map :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
-analyseLoop_map loopVars codeSeg = case codeSeg of
-		Assg _ srcspan expr1 expr2 ->	(
-										(if assignments == [] then 
-												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to scalar variable\n" else "")
+analyseLoop_map :: [VarName [String]] -> [VarName [String]] -> Fortran [String] -> AnalysisInfo
+analyseLoop_map loopVars loopWrites codeSeg = case codeSeg of
+		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo (analyseAccess_map loopVars loopWrites expr1) (analyseAccess_map loopVars loopWrites expr2)) ("",[],[],[expr1])
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites)) codeSeg)
+		_ -> foldl combineAnalysisInfo analysisInfoBaseCase ((gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites)) codeSeg) ++ (gmapQ (mkQ analysisInfoBaseCase (analyseAccess_map loopVars loopWrites)) codeSeg))
+
+
+--analyseLoop_map loopVars loopWrites codeSeg = case codeSeg of
+--		Assg _ srcspan expr1 expr2 ->	(
+--										(if assignments == [] then 
+--												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to scalar variable\n" else "")
 										
-										-- ++ (if not (constantCheck_query assignments) then 
-										--		outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to constant array element\n" else "") ++
+--										-- ++ (if not (constantCheck_query assignments) then 
+--										--		outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to constant array element\n" else "") ++
 
-										++ (if not (all (== True) (map (exprListContainsAllVarNames loopVars) assignments)) then 
-												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to array element with non-loop variable dimensions\n" else "")
+--										++ (if not (all (== True) (map (exprListContainsAllVarNames loopVars) assignments)) then 
+--												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to array element with non-loop variable dimensions\n" else "")
 
-										++ (if (not (all (== True) (map (exprListContainsAllVarNames loopVars) (filter (\x -> x /= []) accesses) ))) then 
-												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": access to array element with non-loop variable dimensions\n" else "")
-										,
-										extractOperands expr2,
-										[expr1])
-										-- ++ "ASSIGNMENTS: " ++ show assignments 
-										-- ++ "\nACCESSES: " ++ show accesses ++ "\n"
-										-- ++ (if not (exprListContainsVarNames assignments loopVars) then 
-										--		outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to array element at non-loop variable position\n" else "") ++
+--										++ (if (not (all (== True) (map (exprListContainsAllVarNames loopVars) (filter (\x -> x /= []) accesses) ))) then 
+--												outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": access to array element with non-loop variable dimensions\n" else "")
+--										,
+--										extractOperands expr2,
+--										[expr1])
+--										-- ++ "ASSIGNMENTS: " ++ show assignments 
+--										-- ++ "\nACCESSES: " ++ show accesses ++ "\n"
+--										-- ++ (if not (exprListContainsVarNames assignments loopVars) then 
+--										--		outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": assignment to array element at non-loop variable position\n" else "") ++
 										
-										-- ++ (if not (exprListContainsVarNames accesses loopVars) then 
-										--		outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": access to an array element not related to the loop current loop variable scope\n" else "")
-		--(assignments /= [])	&& (exprListContainsVarNames assignments loopVars) 	&& (constantCheck_query assignments) 
-		--											&& (exprListContainsVarNames accesses loopVars) 	-- && (constantCheck_query accesses)
-			where
-				assignments = arrayAccesses_query expr1
-				accesses = arrayAccesses_query expr2
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo_map analysisInfoBaseCase_map (gmapQ (mkQ analysisInfoBaseCase_map (analyseLoop_map (loopVars ++ [var]) )) codeSeg)
-		_ -> foldl combineAnalysisInfo_map analysisInfoBaseCase_map (gmapQ (mkQ analysisInfoBaseCase_map (analyseLoop_map loopVars)) codeSeg)
-
-analysisInfoBaseCase_map :: (String, [Expr [String]], [Expr [String]])
-analysisInfoBaseCase_map = ("",[],[])
-
-combineAnalysisInfo_map :: (String, [Expr [String]], [Expr [String]]) -> (String, [Expr [String]], [Expr [String]]) -> (String, [Expr [String]], [Expr [String]])
-combineAnalysisInfo_map accum item = (accumErrors ++ itemErrors, accumReads ++ itemReads, accumWrites ++ itemWrites)
-								where
-									(accumErrors, accumReads, accumWrites) = accum
-									(itemErrors, itemReads, itemWrites) = item
+--										-- ++ (if not (exprListContainsVarNames accesses loopVars) then 
+--										--		outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": access to an array element not related to the loop current loop variable scope\n" else "")
+--		--(assignments /= [])	&& (exprListContainsVarNames assignments loopVars) 	&& (constantCheck_query assignments) 
+--		--											&& (exprListContainsVarNames accesses loopVars) 	-- && (constantCheck_query accesses)
+--			where
+--				assignments = arrayAccesses_query expr1
+--				accesses = arrayAccesses_query expr2
+--		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites)) codeSeg)
+--		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites)) codeSeg)
 
 --analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
-analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> Fortran [String] -> (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]])
-analyseLoop_reduce condExprs loopVars codeSeg = case codeSeg of
+analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName p] -> Fortran [String] -> AnalysisInfo
+analyseLoop_reduce condExprs loopVars loopWrites codeSeg = case codeSeg of
 		Assg _ srcspan expr1 expr2 -> 	(
 										(if not potentialReductionVar then 
 											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" 
 												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" else "") 
 										,
-										if potentialReductionVar then Just expr1 else Nothing,
+										if potentialReductionVar then [expr1] else [],
 										extractOperands expr2,
 										[expr1])
 			where
-				assignments = arrayAccesses_query expr1
-				accesses = arrayAccesses_query expr2
+				--assignments = arrayAccesses_query expr1
+				--accesses = arrayAccesses_query expr2
 				potentialReductionVar = (hasOperand expr2 expr1) || (foldl (\accum item -> if item then item else accum) False $ map (\x -> hasOperand x expr1) condExprs) 
-		If _ _ expr _ _ _ -> foldl combineAnalysisInfo_reduce analysisInfoBaseCase_reduce (gmapQ (mkQ analysisInfoBaseCase_reduce (analyseLoop_reduce (condExprs ++ [expr]) loopVars)) codeSeg)
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo_reduce analysisInfoBaseCase_reduce (gmapQ (mkQ analysisInfoBaseCase_reduce (analyseLoop_reduce condExprs (loopVars ++ [var]) )) codeSeg)
-		_ -> foldl combineAnalysisInfo_reduce analysisInfoBaseCase_reduce (gmapQ (mkQ analysisInfoBaseCase_reduce (analyseLoop_reduce condExprs loopVars)) codeSeg)
+		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites)) codeSeg)
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites )) codeSeg)
+		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs loopVars loopWrites )) codeSeg)
 
-analysisInfoBaseCase_reduce :: (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]])
-analysisInfoBaseCase_reduce = ("",Nothing, [],[])
+analysisInfoBaseCase :: AnalysisInfo
+analysisInfoBaseCase = ("",[],[],[])
 
-combineAnalysisInfo_reduce :: (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]]) -> (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]]) -> (String, Maybe (Expr [String]), [Expr [String]], [Expr [String]])
-combineAnalysisInfo_reduce accum item = (accumErrors ++ itemErrors ++ reductionVarError, resultantReductionVar, accumReads ++ itemReads, accumWrites ++ itemWrites)
+combineAnalysisInfo :: AnalysisInfo -> AnalysisInfo -> AnalysisInfo
+combineAnalysisInfo accum item = (accumErrors ++ itemErrors, accumReductionVars ++ itemReductionVars, accumReads ++ itemReads, accumWrites ++ itemWrites)
 								where
-									(accumErrors, accumReductionVar, accumReads, accumWrites) = accum
-									(itemErrors, itemReductionVar, itemReads, itemWrites) = item
-									resultantReductionVar = case accumReductionVar of
-																Just a -> accumReductionVar
-																Nothing -> itemReductionVar
-									reductionVarError = case accumReductionVar of
-																Nothing -> ""
-																Just itemVar -> case itemReductionVar of
-																		--Just a -> if isInfixOf multipleReductionVarError itemErrors then "" else multipleReductionVarError
-																		Just accumVar -> multipleReductionVarError ++ ": " ++ errorExprFormatting itemVar ++ " clashes with " ++ errorExprFormatting accumVar ++ "\n"
-																		Nothing -> ""
-									--multipleReductionVarError = outputTab ++ outputTab ++ "Multiple possible reduction variables"
-									multipleReductionVarError = outputTab ++ outputTab ++ "Multiple possible reduction variables"
+									(accumErrors, accumReductionVars, accumReads, accumWrites) = accum
+									(itemErrors, itemReductionVars, itemReads, itemWrites) = item
 
 
 
@@ -173,6 +172,18 @@ addAnnotation :: Fortran [String] -> String -> Fortran [String]
 addAnnotation original appendage = case original of
 		For anno srcspan var expr1 expr2 expr3 fortran -> For (anno ++ [appendage]) srcspan var expr1 expr2 expr3 fortran
 		_ -> original		
+
+analyseAccess_map :: [VarName [String]] -> [VarName [String]] -> Expr [String] -> AnalysisInfo
+analyseAccess_map loopVars loopWrites expr = (errors, [],[expr],[])
+								where
+									operands = extractOperands expr
+									writtenOperands = filter (hasVarName loopWrites) operands
+									errors = foldl (++) "" $ map (\item -> if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractArrayAccesses item)) 
+																/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
+																	++ ": Non read only (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") writtenOperands
+
+hasVarName :: [VarName [String]] -> Expr [String] -> Bool
+hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
 
 --	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
@@ -189,16 +200,24 @@ errorExprFormatting codeSeg = show codeSeg
 --	Top level function that is called on the AST of a program. Function traverses the program unit and applies transformForLoop when a
 --	Fortran node is encountered. The function performs a transformation of the input AST and so returns a version whose loops are either
 --	annotated or made parallel
-paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
-paralleliseProgram = everywhere (mkT (transformForLoop))
+--paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
+--paralleliseProgram = everywhere (mkT (transformForLoop))
 
 --	When a Fortran node is encountered by paralleliseProgram, this function is used. It's functionality is to differentiate between nodes
 --	that represent for loops and those that do not. When a for loop is encountered, it is attempted to be parallelised using the 
 -- 	paralleliseLoop function
+--transformForLoop :: Fortran [String] -> Fortran [String]
+--transformForLoop inp = case inp of
+--		For _ _ _ _ _ _ _ -> paralleliseLoop [] inp
+--		_ -> inp
+
+paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
+paralleliseProgram = gmapT (mkT (transformForLoop))
+
 transformForLoop :: Fortran [String] -> Fortran [String]
 transformForLoop inp = case inp of
 		For _ _ _ _ _ _ _ -> paralleliseLoop [] inp
-		_ -> inp
+		_ -> gmapT (mkT (transformForLoop)) inp
 
 --	Function uses a SYB query to get all of the loop condtions contained within a particular AST. loopCondtions_query traverses the AST
 --	and calls getLoopConditions when a Fortran node is encountered.
@@ -401,20 +420,23 @@ extractVarNames :: (Typeable p, Data p) => Expr p -> [VarName p]
 extractVarNames (Var _ _ lst) = map (\(x, _) -> x) lst
 extractVarNames _ = []
 
+extractArrayAccesses :: (Typeable p, Data p) => Expr p -> [Expr p]
+extractArrayAccesses (Var _ _ lst) = foldl (\accumExprs (itemVar, itemExprs) -> accumExprs ++ itemExprs) [] lst
+extractArrayAccesses _ = []
 
 --	Function takes an AST reprenting an expression and returns a nested list representing the elements that are accessed by each term
 -- 	of the original expression
-arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [[Expr p ]]
-arrayAccesses_query codeSeg = case codeSeg of
-	Var _ _ lst -> [everything (++) (mkQ [] getArrayAccesses) codeSeg]
-	Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
-	_ -> []
+--arrayAccesses_query :: (Typeable p, Data p) =>  Expr p -> [[Expr p]]
+--arrayAccesses_query codeSeg = case codeSeg of
+--	Var _ _ lst -> [everything (++) (mkQ [] getArrayAccesses) codeSeg]
+--	Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
+--	_ -> []
 
-getArrayAccesses :: (Typeable p, Data p) => Expr p -> [Expr p]
-getArrayAccesses codeSeg = case codeSeg of
-	Var _ _ lst -> foldl concatExprList_foldl [] lst
-	--Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
-	_ -> []
+--getArrayAccesses :: (Typeable p, Data p) => Expr p -> [Expr p]
+--getArrayAccesses codeSeg = case codeSeg of
+--	Var _ _ lst -> foldl concatExprList_foldl [] lst
+--	--Bin _ _ _ expr1 expr2 -> arrayAccesses_query expr1 ++ arrayAccesses_query expr2
+--	_ -> []
 
 -- (gmapQ (mkQ "" (analyseLoop_map loopVars)) codeSeg)
 
