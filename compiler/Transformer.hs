@@ -20,12 +20,12 @@ main = do
 	let filename = args!!0
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile filename
-	let parallelisedProg = paralleliseProgram (parsedProgram!!0)
+	let parallelisedProg = paralleliseProgram (parsedProgram)
 
 	putStr $ compileErrorListing parallelisedProg
-	putStr "\n\n\n"
+	putStr "\n"
 
-	putStr $ show $ (parsedProgram!!0)
+	putStr $ show $ parsedProgram
 	putStr "\n\n\n"
 
 	putStr $ show $ parallelisedProg
@@ -39,8 +39,8 @@ parseFile s = do inp <- readFile s
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
-paralleliseLoop :: [VarName [String]] -> Fortran [String] -> Fortran [String]
-paralleliseLoop loopVars loop 	=	case mapAttempt_bool of
+paralleliseLoop :: [VarName [String]] -> [VarName [String]] ->  Fortran [String] -> Fortran [String]
+paralleliseLoop loopVars tempVars loop 	=	case mapAttempt_bool of
 										True	-> mapAttempt_ast
 										False 	-> case reduceAttempt_bool of
 													True 	-> reduceAttempt_ast
@@ -182,8 +182,45 @@ analyseAccess_map loopVars loopWrites expr = (errors, [],[expr],[])
 																/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
 																	++ ": Non read only (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") writtenOperands
 
+--	This function takes two nodes where one is parent of the other. It producces a list of VarNames that represent variables that are temporary within the
+--	non-parent node. For example, the nodes may be a For loop that is contained within an FSeq. The function returns a list of VarNames that appear in the
+--	loop whose values are not read after the loop without being previously reassigned. This is done by finding a list of reads (VarNames) in the parent 
+--	node (not including the child's children) whose values do not come from code within the node and matching it against a list of writes in the child node.
+--	The child's writes that do not match any of the parent's reads are temporary variables within the child node. 
+getTempVariables :: Fortran[String] -> Fortran [String] -> [VarName [String]]
+getTempVariables codeSegParent codeSeg = listSubtract loopWrites followingReads
+									where
+										followingReads = foldl (++) [] $ gmapQ (mkQ [] $ extractUnassignedReads_skip codeSeg) codeSegParent
+										loopWrites = extractWrites_query codeSeg
+
+--	Function is used to process the parent node (see getTempVariables) without processing the child node in question.
+extractUnassignedReads_skip :: Fortran[String] -> Fortran[String] -> [VarName [String]]
+extractUnassignedReads_skip codeSegSkip codeSeg |	codeSegSkip == codeSeg = []
+												|	otherwise = fst (extractUnassignedReads ([],[]) codeSeg )
+
+--	This recursive function takes a node returns a tuple containing a list of VarNames that are written to and a list of VarNames that are read without being written
+--	to previously within that node. The first element of the returned tuple is the important one for the overall functionality as it represents the variables
+--	whose values are not accounted for in this node, as in they receive their value from elsewhere.
+extractUnassignedReads :: ([VarName [String]], [VarName [String]]) -> Fortran[String] -> ([VarName [String]], [VarName [String]])
+extractUnassignedReads (prevRead,prevWritten)  (Assg _ _ writeExpr readExpr) = (newRead, newWritten)
+							where 
+								writtenVars = foldl (\accum item -> accum ++ extractVarNames item) [] (extractOperands writeExpr)
+								readVars = foldl (\accum item -> accum ++ extractVarNames item) [] (extractOperands readExpr)
+								newWritten = foldl (\accum item -> if not $ elem item accum then accum ++ [item] else accum) prevWritten writtenVars
+								newRead = filter (\item -> not $ elem item newWritten) readVars
+extractUnassignedReads (prevRead, prevWritten) codeSeg = (newRead ++ nextResultRead, prevWritten)
+							where
+								extractedExprs = gmapQ (mkQ (Null [] generatedSrcSpan) extractExprs) codeSeg
+								extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
+								readVars = listRemoveDuplications $ foldl (\accum item -> accum ++ extractVarNames item) [] extractedOperands
+								newRead = (filter (\item -> not $ elem item prevWritten) readVars) ++ prevRead
+
+								(nextResultRead, nextResultWritten) = foldl (\(accumR, accumW) (itemR, itemW) -> (accumR ++ itemR, accumW ++ itemW)) ([], []) (gmapQ (mkQ ([],[]) (extractUnassignedReads (newRead,prevWritten))) codeSeg)
+								-- foldl (\accum item -> accum ++ extractVarNames item) [] (extractOperands readExpr)
+
 hasVarName :: [VarName [String]] -> Expr [String] -> Bool
 hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
+hasVarName loopWrites _ = False
 
 --	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
@@ -211,13 +248,21 @@ errorExprFormatting codeSeg = show codeSeg
 --		For _ _ _ _ _ _ _ -> paralleliseLoop [] inp
 --		_ -> inp
 
-paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
-paralleliseProgram = gmapT (mkT (transformForLoop))
+--paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
+paralleliseProgram :: (Typeable p, Data p) => Program p -> Program p 
+paralleliseProgram = map (gmapT (mkT (transformBlock))) 
 
-transformForLoop :: Fortran [String] -> Fortran [String]
-transformForLoop inp = case inp of
-		For _ _ _ _ _ _ _ -> paralleliseLoop [] inp
-		_ -> gmapT (mkT (transformForLoop)) inp
+transformBlock :: Block [String] -> Block [String]
+transformBlock = gmapT (mkT (transformForLoop Nothing))
+
+transformForLoop :: Maybe(Fortran [String]) -> Fortran [String] -> Fortran [String]
+transformForLoop parent inp = case inp of
+		For _ _ _ _ _ _ _ -> case parent of
+								Just a -> paralleliseLoop [] tempVars $ gmapT (mkT (transformForLoop (Just inp) )) inp
+									where
+										tempVars = getTempVariables a inp
+								Nothing -> paralleliseLoop [] [] $ gmapT (mkT (transformForLoop (Just inp) )) inp
+		_ -> gmapT (mkT (transformForLoop (Just inp))) inp
 
 --	Function uses a SYB query to get all of the loop condtions contained within a particular AST. loopCondtions_query traverses the AST
 --	and calls getLoopConditions when a Fortran node is encountered.
@@ -377,7 +422,7 @@ appendFortran_recursive newFortran codeSeg = FSeq [] generatedSrcSpan codeSeg ne
 --	Traverses the AST and prooduces a single string that contains all of the parallelising errors for this particular run of the compiler.
 --	compileErrorListing traverses the AST and applies getErrors to Fortran nodes (as currently they are the only nodes that have
 --	ever have annotations applied. The resulting string is then output to the user.
-compileErrorListing :: ProgUnit [String] -> String
+compileErrorListing :: Program [String] -> String
 compileErrorListing codeSeg = everything (++) (mkQ [] getErrors) codeSeg
 
 getErrors :: Fortran [String] -> String
@@ -411,6 +456,10 @@ listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accu
 --extractOperands :: (Typeable p, Data p) => Expr p -> [(VarName p, [Expr p])]
 --extractOperands (Bin _ _ _ expr1 expr2) = extractOperands expr1 ++ extractOperands expr2
 --extractOperands expr 					= getVarNameExprList expr
+
+--extractExprs :: (Typeable p, Data p) => Expr p -> Expr p
+extractExprs :: Expr [String] -> Expr [String] 
+extractExprs expr = expr
 
 extractOperands :: (Typeable p, Data p) => Expr p -> [Expr p]
 extractOperands (Bin _ _ _ expr1 expr2) = extractOperands expr1 ++ extractOperands expr2
