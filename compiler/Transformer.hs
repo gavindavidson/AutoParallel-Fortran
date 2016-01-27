@@ -9,8 +9,11 @@ import PreProcessor
 import System.Environment
 
 --	Type used to standardise loop analysis functions
---					errors 		reduction variables read variables		written variables		
-type AnalysisInfo = (String, 	[Expr [String]], 	[Expr [String]], 	[Expr [String]])
+--						errors 		reduction variables read variables		written variables		
+type AnalysisInfo = 	(String, 	[Expr [String]], 	[Expr [String]], 	[Expr [String]])
+--	Type used to colate data on variable accesses throughout a program.
+--							Name of variable 	All reads 	All writes
+type VarAccessAnalysis = 	[(VarName [String], [SrcSpan], 	[SrcSpan])]
 
 main :: IO ()
 main = do
@@ -25,11 +28,11 @@ main = do
 	putStr $ compileErrorListing parallelisedProg
 	putStr "\n"
 
-	putStr $ show $ parsedProgram
-	putStr "\n\n\n"
+	--putStr $ show $ parsedProgram
+	--putStr "\n\n\n"
 
-	putStr $ show $ parallelisedProg
-	putStr "\n"
+	--putStr $ show $ parallelisedProg
+	--putStr "\n"
 
 	--putStr "\n"
 
@@ -39,8 +42,8 @@ parseFile s = do inp <- readFile s
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
-paralleliseLoop :: [VarName [String]] -> [VarName [String]] ->  Fortran [String] -> Fortran [String]
-paralleliseLoop loopVars tempVars loop 	=	case mapAttempt_bool of
+paralleliseLoop :: [VarName [String]] -> VarAccessAnalysis ->Fortran [String] -> Fortran [String]
+paralleliseLoop loopVars accessAnalysis loop 	=	case mapAttempt_bool of
 										True	-> mapAttempt_ast
 										False 	-> case reduceAttempt_bool of
 													True 	-> reduceAttempt_ast
@@ -53,13 +56,16 @@ paralleliseLoop loopVars tempVars loop 	=	case mapAttempt_bool of
 										Just a -> loopVars ++ [a]
 										Nothing -> loopVars
 
+									tempVars = []
+									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
+
 									loopWrites = extractWrites_query loop
 
-									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites
+									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites tempVars
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
-									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites
+									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites tempVars
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
 
@@ -72,8 +78,8 @@ extractWrites _ = []
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
-paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> (Bool, Fortran [String])
-paralleliseLoop_map loop loopVars loopWrites 	|	errors_map == "" 	=	(True,
+paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> (Bool, Fortran [String])
+paralleliseLoop_map loop loopVars loopWrites tempVars 	|	errors_map == "" 	=	(True,
 																	OpenCLMap [] generatedSrcSpan 
 													 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
@@ -84,23 +90,23 @@ paralleliseLoop_map loop loopVars loopWrites 	|	errors_map == "" 	=	(True,
 																	(removeLoopConstructs_recursive loop))
 									|	otherwise	=			(False, addAnnotation loop (outputTab ++ "Cannot map due to:\n" ++ errors_map))
 									where
-										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVars loopWrites loop
+										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVars loopWrites tempVars loop
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
-paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName p] -> (Bool, Fortran [String])
-paralleliseLoop_reduce loop loopVars loopWrites 	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "REDUCTION POSSIBLE:\n"))
+paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> (Bool, Fortran [String])
+paralleliseLoop_reduce loop loopVars loopWrites tempVars	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "REDUCTION POSSIBLE:\n"))
 										|	otherwise	=				(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
-										(errors_reduce, reducionVariable, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loopWrites loop 
+										(errors_reduce, reducionVariable, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loopWrites tempVars loop 
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
-analyseLoop_map :: [VarName [String]] -> [VarName [String]] -> Fortran [String] -> AnalysisInfo
-analyseLoop_map loopVars loopWrites codeSeg = case codeSeg of
-		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo (analyseAccess_map loopVars loopWrites expr1) (analyseAccess_map loopVars loopWrites expr2)) ("",[],[],[expr1])
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites)) codeSeg)
-		_ -> foldl combineAnalysisInfo analysisInfoBaseCase ((gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites)) codeSeg) ++ (gmapQ (mkQ analysisInfoBaseCase (analyseAccess_map loopVars loopWrites)) codeSeg))
+analyseLoop_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> Fortran [String] -> AnalysisInfo
+analyseLoop_map loopVars loopWrites tempVars codeSeg = case codeSeg of
+		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo (analyseAccess_map loopVars loopWrites tempVars expr1) (analyseAccess_map loopVars loopWrites tempVars expr2)) ("",[],[],[expr1])
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites tempVars)) codeSeg)
+		_ -> foldl combineAnalysisInfo analysisInfoBaseCase ((gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites tempVars)) codeSeg) ++ (gmapQ (mkQ analysisInfoBaseCase (analyseAccess_map loopVars loopWrites tempVars)) codeSeg))
 
 
 --analyseLoop_map loopVars loopWrites codeSeg = case codeSeg of
@@ -135,8 +141,8 @@ analyseLoop_map loopVars loopWrites codeSeg = case codeSeg of
 --		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites)) codeSeg)
 
 --analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
-analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName p] -> Fortran [String] -> AnalysisInfo
-analyseLoop_reduce condExprs loopVars loopWrites codeSeg = case codeSeg of
+analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> Fortran [String] -> AnalysisInfo
+analyseLoop_reduce condExprs loopVars loopWrites tempVars codeSeg = case codeSeg of
 		Assg _ srcspan expr1 expr2 -> 	(
 										(if not potentialReductionVar then 
 											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" 
@@ -148,10 +154,13 @@ analyseLoop_reduce condExprs loopVars loopWrites codeSeg = case codeSeg of
 			where
 				--assignments = arrayAccesses_query expr1
 				--accesses = arrayAccesses_query expr2
-				potentialReductionVar = (hasOperand expr2 expr1) || (foldl (\accum item -> if item then item else accum) False $ map (\x -> hasOperand x expr1) condExprs) 
-		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites)) codeSeg)
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites )) codeSeg)
-		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs loopVars loopWrites )) codeSeg)
+				operands = extractOperands expr1
+				nonTempOperands = filter (\x -> not $ hasVarName tempVars x) operands
+				tempAssignment = nonTempOperands == []
+				potentialReductionVar = not tempAssignment && ( (hasOperand expr2 expr1) || (foldl (\accum item -> if item then item else accum) False $ map (\x -> hasOperand x expr1) condExprs) ) 
+		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites tempVars)) codeSeg)
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites tempVars)) codeSeg)
+		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs loopVars loopWrites tempVars)) codeSeg)
 
 analysisInfoBaseCase :: AnalysisInfo
 analysisInfoBaseCase = ("",[],[],[])
@@ -173,49 +182,142 @@ addAnnotation original appendage = case original of
 		For anno srcspan var expr1 expr2 expr3 fortran -> For (anno ++ [appendage]) srcspan var expr1 expr2 expr3 fortran
 		_ -> original		
 
-analyseAccess_map :: [VarName [String]] -> [VarName [String]] -> Expr [String] -> AnalysisInfo
-analyseAccess_map loopVars loopWrites expr = (errors, [],[expr],[])
+analyseAccess_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> Expr [String] -> AnalysisInfo
+analyseAccess_map loopVars loopWrites tempVars expr = (errors, [],[expr],[])
 								where
 									operands = extractOperands expr
 									writtenOperands = filter (hasVarName loopWrites) operands
-									errors = foldl (++) "" $ map (\item -> if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractArrayAccesses item)) 
-																/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
-																	++ ": Non read only (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") writtenOperands
+									nonTempWrittenOperands = filter (\x -> not $ hasVarName tempVars x) writtenOperands
+									errors = foldl (++) "" $ map (\item -> 
+
+																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractArrayAccesses item)) 
+																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
+																	++ ": Non read only (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
+
+analyseAllVarAccess:: Block [String] -> VarAccessAnalysis
+analyseAllVarAccess block = foldl (combineVarAccessAnalysis) [] (gmapQ (mkQ [] (analyseAllVarAccess_fortran [])) block)
+
+analyseAllVarAccess_fortran :: VarAccessAnalysis -> Fortran [String] -> VarAccessAnalysis
+analyseAllVarAccess_fortran prevAnalysis (Assg _ _ writeExpr readExpr) = combineVarAccessAnalysis prevAnalysis analysisWithWritesReads
+												where
+													readVarNames = foldl (\accum item -> accum ++ (extractVarNames item)) [] (extractOperands readExpr)
+													writtenVarNames = foldl (\accum item -> accum ++ (extractVarNames item)) [] (extractOperands writeExpr)
+													analysisWithReads = foldl (addVarReadAccess (srcSpan readExpr)) prevAnalysis readVarNames
+													analysisWithWritesReads = foldl (addVarWriteAccess (srcSpan readExpr)) analysisWithReads writtenVarNames
+
+analyseAllVarAccess_fortran prevAnalysis codeSeg =  foldl (combineVarAccessAnalysis) [] (gmapQ (mkQ [] (analyseAllVarAccess_fortran currentAnalysis)) codeSeg)
+												where 
+													extractedExprs = gmapQ (mkQ (Null [] generatedSrcSpan) extractExprs) codeSeg
+													extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
+													readVarNames = foldl (\accum item -> accum ++ extractVarNames item) [] extractedOperands	
+													analysisWithReads = foldl (addVarReadAccess (srcSpan codeSeg)) prevAnalysis readVarNames	
+													currentAnalysis = combineVarAccessAnalysis prevAnalysis analysisWithReads							
+
+addVarReadAccess :: SrcSpan -> VarAccessAnalysis -> VarName [String] -> VarAccessAnalysis
+addVarReadAccess srcspan ((varnameAnalysis, src_reads, src_writes):xs) varname  | varnameAnalysis == varname = [(varname, src_reads ++ [srcspan], src_writes)] ++ xs
+																				| otherwise = [(varnameAnalysis, src_reads, src_writes)] ++ (addVarReadAccess srcspan xs varname)
+addVarReadAccess srcspan [] varname	= [(varname, [srcspan], [])]
+
+addVarWriteAccess :: SrcSpan -> VarAccessAnalysis -> VarName [String] -> VarAccessAnalysis
+addVarWriteAccess srcspan ((varnameAnalysis, src_reads, src_writes):xs) varname  | varnameAnalysis == varname = [(varname, src_reads, src_writes ++ [srcspan])] ++ xs
+																				| otherwise = [(varnameAnalysis, src_reads, src_writes)] ++ (addVarWriteAccess srcspan xs varname)
+addVarWriteAccess srcspan [] varname	= [(varname, [], [srcspan])]															
+
+combineVarAccessAnalysis :: VarAccessAnalysis -> VarAccessAnalysis -> VarAccessAnalysis
+combineVarAccessAnalysis a b = foldl (addVarAccessAnalysis) a b 
+
+addVarAccessAnalysis :: VarAccessAnalysis -> (VarName [String], [SrcSpan], 	[SrcSpan]) -> VarAccessAnalysis
+addVarAccessAnalysis ((varnameAnalysis, readsAnalysis, writesAnalysis):xs) (newVarName, newReads, newWrites) 	| varnameAnalysis == newVarName = [(varnameAnalysis, readsAnalysis ++ newReads, writesAnalysis ++ newWrites)] ++ xs
+																												| otherwise = [(varnameAnalysis, readsAnalysis, writesAnalysis)] ++ (addVarAccessAnalysis xs (newVarName, newReads, newWrites))
+addVarAccessAnalysis [] (newVarName, newReads, newWrites) = [(newVarName, newReads, newWrites)]
+
+getNonTempVars :: SrcSpan -> VarAccessAnalysis -> [VarName [String]]
+getNonTempVars codeBlockSpan accessAnalysis = map (\(x, _, _) -> x) hangingReads
+						where
+							readsAfterBlock = varAccessAnalysis_readsAfter codeBlockSpan accessAnalysis
+							writesReadsAfterBlock = varAccessAnalysis_writesAfter codeBlockSpan readsAfterBlock
+							hangingReads = filter (checkHangingReads) writesReadsAfterBlock
+
+
+varAccessAnalysis_writesAfter :: SrcSpan -> VarAccessAnalysis -> VarAccessAnalysis
+varAccessAnalysis_writesAfter codeBlockSpan accessAnalysis = foldl (\accum item -> accum ++ varAccessAnalysis_writesAfter' codeBlockSpan item) [] accessAnalysis
+
+varAccessAnalysis_writesAfter' :: SrcSpan -> (VarName [String], [SrcSpan], [SrcSpan]) ->  VarAccessAnalysis
+varAccessAnalysis_writesAfter' (start, SrcLoc file_end line_end column_end) (varname, readSpans, writeSpans) = [(varname, readSpans, newWriteSpans)]
+										where
+											newWriteSpans = filter (\((SrcLoc _ line_write column_write), _) -> line_write >= line_end) writeSpans
+
+varAccessAnalysis_readsAfter :: SrcSpan -> VarAccessAnalysis -> VarAccessAnalysis
+varAccessAnalysis_readsAfter codeBlockSpan accessAnalysis = foldl (\accum item -> accum ++ varAccessAnalysis_readsAfter' codeBlockSpan item) [] accessAnalysis
+
+varAccessAnalysis_readsAfter' :: SrcSpan -> (VarName [String], [SrcSpan], [SrcSpan]) ->  VarAccessAnalysis
+varAccessAnalysis_readsAfter' (start, SrcLoc file_end line_end column_end) (varname, readSpans, writeSpans) = if newReadSpans /= [] then [(varname, newReadSpans, writeSpans)] else []
+										where
+											newReadSpans = filter (\((SrcLoc _ line_read column_read), _) -> line_read >= line_end) readSpans
+
+checkHangingReads :: (VarName [String], [SrcSpan], [SrcSpan]) -> Bool
+checkHangingReads (varname, readSpans, writeSpans) = case earliestRead of
+														Just r ->	case earliestWrite of
+																		Just w -> checkSrcSpanBefore r w
+																		Nothing -> True
+														Nothing ->	False
+								where 
+									earliestRead = getEarliestSrcSpan readSpans
+									earliestWrite = getEarliestSrcSpan writeSpans
+
+getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
+getEarliestSrcSpan [] = Nothing
+getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
+
+checkSrcSpanBefore :: SrcSpan -> SrcSpan -> Bool
+checkSrcSpanBefore ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after) && (column_before < column_after)
 
 --	This function takes two nodes where one is parent of the other. It producces a list of VarNames that represent variables that are temporary within the
 --	non-parent node. For example, the nodes may be a For loop that is contained within an FSeq. The function returns a list of VarNames that appear in the
 --	loop whose values are not read after the loop without being previously reassigned. This is done by finding a list of reads (VarNames) in the parent 
 --	node (not including the child's children) whose values do not come from code within the node and matching it against a list of writes in the child node.
---	The child's writes that do not match any of the parent's reads are temporary variables within the child node. 
-getTempVariables :: Fortran[String] -> Fortran [String] -> [VarName [String]]
-getTempVariables codeSegParent codeSeg = listSubtract loopWrites followingReads
-									where
-										followingReads = foldl (++) [] $ gmapQ (mkQ [] $ extractUnassignedReads_skip codeSeg) codeSegParent
-										loopWrites = extractWrites_query codeSeg
+--	The child's writes that do not match any of the parent's reads are temporary variables within the child node. 	
+--getTempVariables :: Fortran[String] -> Fortran [String] -> [VarName [String]]
+--getTempVariables codeSegParent codeSeg = listSubtract loopWrites followingReads
+--									where
+--										followingReads = foldl (++) [] $ gmapQ (mkQ [] $ extractUnassignedReads_skip codeSeg) codeSegParent
+--										loopWrites = extractWrites_query codeSeg
 
---	Function is used to process the parent node (see getTempVariables) without processing the child node in question.
-extractUnassignedReads_skip :: Fortran[String] -> Fortran[String] -> [VarName [String]]
-extractUnassignedReads_skip codeSegSkip codeSeg |	codeSegSkip == codeSeg = []
-												|	otherwise = fst (extractUnassignedReads ([],[]) codeSeg )
 
---	This recursive function takes a node returns a tuple containing a list of VarNames that are written to and a list of VarNames that are read without being written
---	to previously within that node. The first element of the returned tuple is the important one for the overall functionality as it represents the variables
---	whose values are not accounted for in this node, as in they receive their value from elsewhere.
-extractUnassignedReads :: ([VarName [String]], [VarName [String]]) -> Fortran[String] -> ([VarName [String]], [VarName [String]])
-extractUnassignedReads (prevRead,prevWritten)  (Assg _ _ writeExpr readExpr) = (newRead, newWritten)
-							where 
-								writtenVars = foldl (\accum item -> accum ++ extractVarNames item) [] (extractOperands writeExpr)
-								readVars = foldl (\accum item -> accum ++ extractVarNames item) [] (extractOperands readExpr)
-								newWritten = foldl (\accum item -> if not $ elem item accum then accum ++ [item] else accum) prevWritten writtenVars
-								newRead = filter (\item -> not $ elem item newWritten) readVars
-extractUnassignedReads (prevRead, prevWritten) codeSeg = (newRead ++ nextResultRead, prevWritten)
-							where
-								extractedExprs = gmapQ (mkQ (Null [] generatedSrcSpan) extractExprs) codeSeg
-								extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
-								readVars = listRemoveDuplications $ foldl (\accum item -> accum ++ extractVarNames item) [] extractedOperands
-								newRead = (filter (\item -> not $ elem item prevWritten) readVars) ++ prevRead
+--matchTest :: Fortran[String] -> Fortran [String] -> String
+--matchTest codeSegParent codeSeg = show (gmapQ (mkQ [] $ skip codeSeg) codeSegParent) ++"\nPARENT: " ++ show (codeSegParent) ++ "\nCHILD: " ++ show(codeSeg) ++ "\n\n"
 
-								(nextResultRead, nextResultWritten) = foldl (\(accumR, accumW) (itemR, itemW) -> (accumR ++ itemR, accumW ++ itemW)) ([], []) (gmapQ (mkQ ([],[]) (extractUnassignedReads (newRead,prevWritten))) codeSeg)
+----show $ gmapQ (mkQ [] $ skip codeSeg) codeSegParent
+
+--skip :: Fortran[String] -> Fortran[String] -> [Bool]
+--skip codeSegSkip codeSeg 	|	codeSegSkip == codeSeg = [False]
+--							|	otherwise = [True]
+
+----	Function is used to process the parent node (see getTempVariables) without processing the child node in question.
+--extractUnassignedReads_skip :: Fortran[String] -> Fortran[String] -> [VarName [String]]
+--extractUnassignedReads_skip codeSegSkip codeSeg |	codeSegSkip == codeSeg = []
+--												|	otherwise = fst (extractUnassignedReads ([],[]) codeSeg )
+
+----extractUnassignedReads_skip codeSegSkip codeSeg = fst (extractUnassignedReads ([],[]) codeSeg )
+
+----	This recursive function takes a node returns a tuple containing a list of VarNames that are written to and a list of VarNames that are read without being written
+----	to previously within that node. The first element of the returned tuple is the important one for the overall functionality as it represents the variables
+----	whose values are not accounted for in this node, as in they receive their value from elsewhere.
+--extractUnassignedReads :: ([VarName [String]], [VarName [String]]) -> Fortran[String] -> ([VarName [String]], [VarName [String]])
+--extractUnassignedReads (prevRead,prevWritten)  (Assg _ _ writeExpr readExpr) = (newRead, newWritten)
+--							where 
+--								writtenVars = foldl (\accum item -> accum ++ extractVarNames item) [] (extractOperands writeExpr)
+--								readVars = foldl (\accum item -> accum ++ extractVarNames item) [] (extractOperands readExpr)
+--								newWritten = foldl (\accum item -> if not $ elem item accum then accum ++ [item] else accum) prevWritten writtenVars
+--								newRead = filter (\item -> not $ elem item newWritten) readVars
+--extractUnassignedReads (prevRead, prevWritten) codeSeg = (newRead ++ nextResultRead, prevWritten)
+--							where
+--								extractedExprs = gmapQ (mkQ (Null [] generatedSrcSpan) extractExprs) codeSeg
+--								extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
+--								readVars = listRemoveDuplications $ foldl (\accum item -> accum ++ extractVarNames item) [] extractedOperands
+--								newRead = (filter (\item -> not $ elem item prevWritten) readVars) ++ prevRead
+
+--								(nextResultRead, nextResultWritten) = foldl (\(accumR, accumW) (itemR, itemW) -> (accumR ++ itemR, accumW ++ itemW)) ([], []) (gmapQ (mkQ ([],[]) (extractUnassignedReads (newRead,prevWritten))) codeSeg)
 								-- foldl (\accum item -> accum ++ extractVarNames item) [] (extractOperands readExpr)
 
 hasVarName :: [VarName [String]] -> Expr [String] -> Bool
@@ -253,16 +355,14 @@ paralleliseProgram :: (Typeable p, Data p) => Program p -> Program p
 paralleliseProgram = map (gmapT (mkT (transformBlock))) 
 
 transformBlock :: Block [String] -> Block [String]
-transformBlock = gmapT (mkT (transformForLoop Nothing))
+transformBlock block = gmapT (mkT (transformForLoop accessAnalysis)) block
+		where 
+			accessAnalysis = analyseAllVarAccess block
 
-transformForLoop :: Maybe(Fortran [String]) -> Fortran [String] -> Fortran [String]
-transformForLoop parent inp = case inp of
-		For _ _ _ _ _ _ _ -> case parent of
-								Just a -> paralleliseLoop [] tempVars $ gmapT (mkT (transformForLoop (Just inp) )) inp
-									where
-										tempVars = getTempVariables a inp
-								Nothing -> paralleliseLoop [] [] $ gmapT (mkT (transformForLoop (Just inp) )) inp
-		_ -> gmapT (mkT (transformForLoop (Just inp))) inp
+transformForLoop :: VarAccessAnalysis -> Fortran [String] -> Fortran [String]
+transformForLoop  accessAnalysis inp = case inp of
+		For _ _ _ _ _ _ _ -> paralleliseLoop [] accessAnalysis $ gmapT (mkT (transformForLoop accessAnalysis )) inp
+		_ -> gmapT (mkT (transformForLoop accessAnalysis)) inp
 
 --	Function uses a SYB query to get all of the loop condtions contained within a particular AST. loopCondtions_query traverses the AST
 --	and calls getLoopConditions when a Fortran node is encountered.
@@ -367,10 +467,6 @@ primitiveMod quotient divisor = Bin
 multiplyLoopConditions :: [(VarName p, Expr p, Expr p, Expr p)] -> Expr p
 multiplyLoopConditions ((var, start, end, step):[]) = end
 multiplyLoopConditions ((var, start, end, step):xs) = Bin (tag var) generatedSrcSpan (Mul (tag var)) end (multiplyLoopConditions xs)
-													-- Bin p SrcSpan  (BinOp p) (Expr p) (Expr p)			
-
---removeLoopConstructs_trans :: (Typeable p, Data p) => Fortran p -> Fortran p
---removeLoopConstructs_trans = everywhere (mkT (removeLoopConstructs))
 
 --	Takes an AST and removes the loop statements from the node and joins up the rest of the code so that is it represented in the
 --	format that language-fortran uses.
@@ -385,33 +481,6 @@ removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran1) = removeLoopConstructs
 removeLoopConstructs_recursive (OpenCLMap _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
 removeLoopConstructs_recursive (NullStmt anno srcspan) = NullStmt anno srcspan
 removeLoopConstructs_recursive codeSeg = gmapT (mkT removeLoopConstructs_recursive) codeSeg
-
-
---removeLoopConstructs :: Fortran [String] -> Fortran [String]
-----removeLoopConstructs (FSeq _ _ (For _ _ _ _ _ _ (FSeq _ _ fortran11 fortran12)) fortran02) = FSeq [] generatedSrcSpan fortran11 (appendFortran_trans fortran02 fortran12)
---removeLoopConstructs (FSeq _ _ (For _ _ _ _ _ _ (FSeq _ _ fortran11 fortran12)) fortran02) = FSeq [] generatedSrcSpan fortran11 (appendFortran_recursive fortran02 fortran12)
---removeLoopConstructs (FSeq _ _ (For _ _ _ _ _ _ fortran1) fortran2 ) = FSeq [] generatedSrcSpan fortran1 fortran2
---removeLoopConstructs (FSeq _ _ fortran1 (For _ _ _ _ _ _ fortran2)) = FSeq [] generatedSrcSpan fortran1 fortran2
-
-----removeLoopConstructs (FSeq _ _ (OpenCLMap _ _ _ _ (FSeq _ _ fortran11 fortran12)) fortran02) = FSeq [] generatedSrcSpan fortran11 (appendFortran_trans fortran02 fortran12)
---removeLoopConstructs (FSeq _ _ (OpenCLMap _ _ _ _ (FSeq _ _ fortran11 fortran12)) fortran02) = FSeq [] generatedSrcSpan fortran11 (appendFortran_recursive fortran02 fortran12)
---removeLoopConstructs (FSeq _ _ (OpenCLMap _ _ _ _ fortran1) fortran2 ) = FSeq [] generatedSrcSpan fortran1 fortran2
---removeLoopConstructs (FSeq _ _ fortran1 (OpenCLMap _ _ _ _ fortran2)) = FSeq [] generatedSrcSpan fortran1 fortran2
---removeLoopConstructs (FSeq _ _ fortran1 (NullStmt _ _)) = fortran1
-
---removeLoopConstructs (For _ _ _ _ _ _ fortran) = fortran
---removeLoopConstructs (OpenCLMap _ _ _ _ fortran) = fortran
---removeLoopConstructs codeSeg = codeSeg
-
---appendFortran_trans :: Fortran [String] -> Fortran [String] -> Fortran [String]
---appendFortran_trans newFortran codeSeg = everywhere (mkT (appendFortran newFortran)) codeSeg
-
---appendFortran :: Fortran [String] -> Fortran [String] -> Fortran [String]
---appendFortran newFortran codeSeg = case codeSeg of
---	(FSeq _ _ _ (FSeq _ _ _ _)) -> codeSeg 
--- 	(FSeq _ _ fortran1 fortran2) -> FSeq [] generatedSrcSpan fortran1 (FSeq [] generatedSrcSpan fortran2 newFortran)
--- 	_ -> codeSeg
--- 	-- _ -> FSeq [] generatedSrcSpan codeSeg newFortran
 
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran [String] -> Fortran [String] -> Fortran [String]
@@ -445,7 +514,7 @@ getVarNames expr = [expr]
 --getVarNameExprList (Var _ _ lst) = lst
 --getVarNameExprList _ = []
 
---	Generic function that takes two lists a and b and returns a list c that is all of the elements of a that do not appear in b.
+--	Generic function that takes two lists a and b and returns a +list c that is all of the elements of a that do not appear in b.
 listSubtract :: Eq a => [a] -> [a] -> [a]
 listSubtract a b = filter (\x -> notElem x b) a
 
