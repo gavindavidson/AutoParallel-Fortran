@@ -10,34 +10,17 @@ program arrayLoop
 
    total = 0
 
-!    i = g_id/(25*15)
    do 15 i=0,10
-!      j = 7
-!      j = 9
-!       reduce(i) = 0
-       do 20 g=0,15
-!         arr(i,g) = arr(i,g) + spew(i,g)
-        reduce(i,g) = reduce(1,2,3) !+ temp1
-!         reduce(i,g) = j
-!           j = 7
-!         arr(k) = 10
-!           arr(k) = spew(k)
-!           arr(k) = spew(k)*g
-!           arr(123) = 12
-!           do 25 j = 0, 230
-!             spew(j,i,g) = 12
-!           25 continue
-      20 continue
-!     arr(i) = i
-    temp3 = total
+      temp1 = arr(i) + total
+      temp2 = temp1 + arr(i) + temp1
+      total = temp2 + 1
+!        do 20 g=0,15
+
+!       20 continue
+
   15 continue
-!   total = 1
-!   total = 2
-!   reduce(1) = total
-!   total = temp1
-!   temp1 = 2
-!   total = temp1
-!   j = 1
-  t = j
+  j = total
+  print *,total
+
 
 end program arrayLoop
