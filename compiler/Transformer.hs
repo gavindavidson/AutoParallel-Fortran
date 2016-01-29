@@ -6,6 +6,8 @@ import Language.Fortran
 import Data.Char
 import Data.List
 import System.Environment
+import System.Process
+import System.Directory
 
 import PreProcessor
 import VarAccessAnalysis
@@ -38,15 +40,14 @@ main = do
 	--putStr "\n"
 
 --	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
-parseFile s = do inp <- readFile s
-                 --return $ parse $ preProcess inp
-                 return $ parse $ inp
+parseFile s = do inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
+                 return $ parse $ preProcess inp
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
 paralleliseLoop :: [VarName [String]] -> VarAccessAnalysis ->Fortran [String] -> Fortran [String]
-paralleliseLoop loopVars accessAnalysis loop 	=	case mapAttempt_bool of
-										True	-> mapAttempt_ast
+paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
+										True	-> mapAttempt_ast 
 										False 	-> case reduceAttempt_bool of
 													True 	-> reduceAttempt_ast
 													False	-> reduceAttempt_ast
@@ -81,7 +82,7 @@ extractWrites _ = []
 --	original sub-tree annotated with reasons why the loop cannot be mapped
 paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> (Bool, Fortran [String])
 paralleliseLoop_map loop loopVars loopWrites nonTempVars 	|	errors_map == "" 	=	(True,
-																	OpenCLMap [] generatedSrcSpan 
+																	OpenCLMap [outputTab ++ "Map found at " ++ errorLocationFormatting (srcSpan loop)] generatedSrcSpan 
 													 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
@@ -186,14 +187,14 @@ errorExprFormatting (Con _ _ str) = str
 errorExprFormatting codeSeg = show codeSeg
 
 --paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
-paralleliseProgram :: (Typeable p, Data p) => Program p -> Program p 
+paralleliseProgram :: Program [String] -> Program [String] 
 --paralleliseProgram = map (gmapT (mkT (transformBlock))) 
-paralleliseProgram = map (everywhere (mkT (transformBlock)))
+paralleliseProgram codeSeg = map (everywhere (mkT (transformBlock (analyseAllVarAccess codeSeg)))) codeSeg
 
-transformBlock :: Block [String] -> Block [String]
-transformBlock block = gmapT (mkT (transformForLoop accessAnalysis)) block
-		where 
-			accessAnalysis = analyseAllVarAccess block
+transformBlock :: VarAccessAnalysis -> Block [String] -> Block [String]
+transformBlock accessAnalysis block = gmapT (mkT (transformForLoop accessAnalysis)) block
+		--where 
+		--	accessAnalysis = analyseAllVarAccess block
 
 transformForLoop :: VarAccessAnalysis -> Fortran [String] -> Fortran [String]
 transformForLoop  accessAnalysis inp = case inp of
@@ -303,26 +304,6 @@ primitiveMod quotient divisor = Bin
 multiplyLoopConditions :: [(VarName p, Expr p, Expr p, Expr p)] -> Expr p
 multiplyLoopConditions ((var, start, end, step):[]) = end
 multiplyLoopConditions ((var, start, end, step):xs) = Bin (tag var) generatedSrcSpan (Mul (tag var)) end (multiplyLoopConditions xs)
-
---	Takes an AST and removes the loop statements from the node and joins up the rest of the code so that is it represented in the
---	format that language-fortran uses.
-removeLoopConstructs_recursive :: Fortran [String] -> Fortran [String]
-removeLoopConstructs_recursive (FSeq _ _ (For _ _ _ _ _ _ (FSeq anno srcspan fortran11 fortran12)) fortran02) = FSeq anno srcspan fortran11 
-																															(appendFortran_recursive 	(removeLoopConstructs_recursive fortran02) 
-																																						(removeLoopConstructs_recursive fortran12))
-removeLoopConstructs_recursive (FSeq _ _ (OpenCLMap _ _ _ _ _ (FSeq anno srcspan fortran11 fortran12)) fortran02) = FSeq anno srcspan fortran11 
-																															(appendFortran_recursive 	(removeLoopConstructs_recursive fortran02) 
-																																						(removeLoopConstructs_recursive fortran12))
-removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
-removeLoopConstructs_recursive (OpenCLMap _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
-removeLoopConstructs_recursive (NullStmt anno srcspan) = NullStmt anno srcspan
-removeLoopConstructs_recursive codeSeg = gmapT (mkT removeLoopConstructs_recursive) codeSeg
-
---	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
-appendFortran_recursive :: Fortran [String] -> Fortran [String] -> Fortran [String]
-appendFortran_recursive newFortran (FSeq _ _ _ (FSeq _ _ _ fortran1)) = appendFortran_recursive newFortran fortran1 
-appendFortran_recursive newFortran (FSeq _ _ fortran1 fortran2) = FSeq [] generatedSrcSpan fortran1 (FSeq [] generatedSrcSpan fortran2 newFortran)
-appendFortran_recursive newFortran codeSeg = FSeq [] generatedSrcSpan codeSeg newFortran
 
 --	Traverses the AST and prooduces a single string that contains all of the parallelising errors for this particular run of the compiler.
 --	compileErrorListing traverses the AST and applies getErrors to Fortran nodes (as currently they are the only nodes that have

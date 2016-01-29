@@ -10,12 +10,45 @@ import LanguageFortranTools
 --	Type used to colate data on variable accesses throughout a program.
 --						Name of variable 	All reads 	All writes
 type VarAccessRecord = (VarName [String], 	[SrcSpan], 	[SrcSpan])
-type VarAccessAnalysis = [VarAccessRecord]
+type LocalVarAccessAnalysis = [VarAccessRecord]
+type VarAccessAnalysis = (LocalVarAccessAnalysis, [VarName [String]])
 
-analyseAllVarAccess:: Block [String] -> VarAccessAnalysis
-analyseAllVarAccess block = foldl (combineVarAccessAnalysis) [] (gmapQ (mkQ [] (analyseAllVarAccess_fortran [])) block)
+--analyseAllVarAccess:: Block [String] -> VarAccessAnalysis
+--analyseAllVarAccess block = (localVarAccesses, arguments)
+--						where 
+--							localVarAccesses = foldl (combineVarAccessAnalysis) [] (gmapQ (mkQ [] (analyseAllVarAccess_fortran [])) block)
+--							arguments = getArguments
 
-analyseAllVarAccess_fortran :: VarAccessAnalysis -> Fortran [String] -> VarAccessAnalysis
+analyseAllVarAccess:: Program [String] -> VarAccessAnalysis
+analyseAllVarAccess prog = (localVarAccesses, arguments)
+						where 
+							--localVarAccesses = foldl (combineVarAccessAnalysis) [] (gmapQ (mkQ [] (analyseAllVarAccess_fortran [])) block)
+							localVarAccesses = everything (combineVarAccessAnalysis) (mkQ [] (analyseAllVarAccess_fortran [])) prog
+							arguments = getArguments prog
+
+getNonTempVars :: SrcSpan -> VarAccessAnalysis -> [VarName [String]]
+getNonTempVars codeBlockSpan accessAnalysis = (map (\(x, _, _) -> x) hangingReads) ++ subroutineArguments
+						where
+							localVarAccesses = fst accessAnalysis
+							subroutineArguments = snd accessAnalysis
+							readsAfterBlock = varAccessAnalysis_readsAfter codeBlockSpan localVarAccesses
+							writesReadsAfterBlock = varAccessAnalysis_writesAfter codeBlockSpan readsAfterBlock
+							hangingReads = filter (checkHangingReads) writesReadsAfterBlock
+
+getArguments :: Program [String] -> [VarName [String]]
+getArguments prog = argNames
+		where
+			argNames = everything (++) (mkQ [] getArgNamesAsVarNames) prog--foldl (++) [] (foldl (++) [] (map (gmapQ (mkQ [] getArguments_list)) prog))
+
+getArguments_list :: Arg [String] -> [VarName [String]]
+getArguments_list arg = everything (++) (mkQ [] getArgNamesAsVarNames) arg
+
+getArgNamesAsVarNames :: ArgName [String] -> [VarName [String]]
+getArgNamesAsVarNames (ArgName _ str) = [VarName [] str]
+getArgNamesAsVarNames _ = []
+
+
+analyseAllVarAccess_fortran :: LocalVarAccessAnalysis -> Fortran [String] -> LocalVarAccessAnalysis
 analyseAllVarAccess_fortran prevAnalysis (Assg _ _ writeExpr readExpr) = combineVarAccessAnalysis prevAnalysis analysisWithWritesReads
 												where
 													readVarNames = foldl (\accum item -> accum ++ (extractVarNames item)) [] (extractOperands readExpr)
@@ -31,44 +64,36 @@ analyseAllVarAccess_fortran prevAnalysis codeSeg =  foldl (combineVarAccessAnaly
 													analysisWithReads = foldl (addVarReadAccess (srcSpan codeSeg)) prevAnalysis readVarNames	
 													currentAnalysis = combineVarAccessAnalysis prevAnalysis analysisWithReads							
 
-addVarReadAccess :: SrcSpan -> VarAccessAnalysis -> VarName [String] -> VarAccessAnalysis
+addVarReadAccess :: SrcSpan -> LocalVarAccessAnalysis -> VarName [String] -> LocalVarAccessAnalysis
 addVarReadAccess srcspan ((varnameAnalysis, src_reads, src_writes):xs) varname  | varnameAnalysis == varname = [(varname, src_reads ++ [srcspan], src_writes)] ++ xs
 																				| otherwise = [(varnameAnalysis, src_reads, src_writes)] ++ (addVarReadAccess srcspan xs varname)
 addVarReadAccess srcspan [] varname	= [(varname, [srcspan], [])]
 
-addVarWriteAccess :: SrcSpan -> VarAccessAnalysis -> VarName [String] -> VarAccessAnalysis
+addVarWriteAccess :: SrcSpan -> LocalVarAccessAnalysis -> VarName [String] -> LocalVarAccessAnalysis
 addVarWriteAccess srcspan ((varnameAnalysis, src_reads, src_writes):xs) varname  | varnameAnalysis == varname = [(varname, src_reads, src_writes ++ [srcspan])] ++ xs
 																				| otherwise = [(varnameAnalysis, src_reads, src_writes)] ++ (addVarWriteAccess srcspan xs varname)
 addVarWriteAccess srcspan [] varname	= [(varname, [], [srcspan])]															
 
-combineVarAccessAnalysis :: VarAccessAnalysis -> VarAccessAnalysis -> VarAccessAnalysis
+combineVarAccessAnalysis :: LocalVarAccessAnalysis -> LocalVarAccessAnalysis -> LocalVarAccessAnalysis
 combineVarAccessAnalysis a b = foldl (addVarAccessAnalysis) a b 
 
-addVarAccessAnalysis :: VarAccessAnalysis -> (VarName [String], [SrcSpan], 	[SrcSpan]) -> VarAccessAnalysis
+addVarAccessAnalysis :: LocalVarAccessAnalysis -> (VarName [String], [SrcSpan], 	[SrcSpan]) -> LocalVarAccessAnalysis
 addVarAccessAnalysis ((varnameAnalysis, readsAnalysis, writesAnalysis):xs) (newVarName, newReads, newWrites) 	| varnameAnalysis == newVarName = [(varnameAnalysis, readsAnalysis ++ newReads, writesAnalysis ++ newWrites)] ++ xs
 																												| otherwise = [(varnameAnalysis, readsAnalysis, writesAnalysis)] ++ (addVarAccessAnalysis xs (newVarName, newReads, newWrites))
 addVarAccessAnalysis [] (newVarName, newReads, newWrites) = [(newVarName, newReads, newWrites)]
 
-getNonTempVars :: SrcSpan -> VarAccessAnalysis -> [VarName [String]]
-getNonTempVars codeBlockSpan accessAnalysis = map (\(x, _, _) -> x) hangingReads
-						where
-							readsAfterBlock = varAccessAnalysis_readsAfter codeBlockSpan accessAnalysis
-							writesReadsAfterBlock = varAccessAnalysis_writesAfter codeBlockSpan readsAfterBlock
-							hangingReads = filter (checkHangingReads) writesReadsAfterBlock
-
-
-varAccessAnalysis_writesAfter :: SrcSpan -> VarAccessAnalysis -> VarAccessAnalysis
+varAccessAnalysis_writesAfter :: SrcSpan -> LocalVarAccessAnalysis -> LocalVarAccessAnalysis
 varAccessAnalysis_writesAfter codeBlockSpan accessAnalysis = foldl (\accum item -> accum ++ varAccessAnalysis_writesAfter' codeBlockSpan item) [] accessAnalysis
 
-varAccessAnalysis_writesAfter' :: SrcSpan -> VarAccessRecord ->  VarAccessAnalysis
+varAccessAnalysis_writesAfter' :: SrcSpan -> VarAccessRecord ->  LocalVarAccessAnalysis
 varAccessAnalysis_writesAfter' (start, SrcLoc file_end line_end column_end) (varname, readSpans, writeSpans) = [(varname, readSpans, newWriteSpans)]
 										where
 											newWriteSpans = filter (\((SrcLoc _ line_write column_write), _) -> line_write >= line_end) writeSpans
 
-varAccessAnalysis_readsAfter :: SrcSpan -> VarAccessAnalysis -> VarAccessAnalysis
+varAccessAnalysis_readsAfter :: SrcSpan -> LocalVarAccessAnalysis -> LocalVarAccessAnalysis
 varAccessAnalysis_readsAfter codeBlockSpan accessAnalysis = foldl (\accum item -> accum ++ varAccessAnalysis_readsAfter' codeBlockSpan item) [] accessAnalysis
 
-varAccessAnalysis_readsAfter' :: SrcSpan -> VarAccessRecord ->  VarAccessAnalysis
+varAccessAnalysis_readsAfter' :: SrcSpan -> VarAccessRecord ->  LocalVarAccessAnalysis
 varAccessAnalysis_readsAfter' (start, SrcLoc file_end line_end column_end) (varname, readSpans, writeSpans) = if newReadSpans /= [] then [(varname, newReadSpans, writeSpans)] else []
 										where
 											newReadSpans = filter (\((SrcLoc _ line_read column_read), _) -> line_read >= line_end) readSpans
