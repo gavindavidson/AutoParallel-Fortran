@@ -24,6 +24,7 @@ main = do
 	
 	args <- getArgs
 	let filename = args!!0
+
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile filename
 	let parallelisedProg = paralleliseProgram (parsedProgram)
@@ -34,14 +35,15 @@ main = do
 	putStr $ show $ parsedProgram
 	putStr "\n\n\n"
 
-	putStr $ show $ parallelisedProg
-	putStr "\n"
+	--putStr $ show $ parallelisedProg
+	--putStr "\n"
 
 	--putStr "\n"
 
 --	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
 parseFile s = do inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
                  return $ parse $ preProcess inp
+                 --return $ preProcess inp
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
@@ -50,7 +52,7 @@ paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
 										True	-> mapAttempt_ast 
 										False 	-> case reduceAttempt_bool of
 													True 	-> reduceAttempt_ast
-													False	-> reduceAttempt_ast
+													False	-> addAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
 								--case paralleliseLoop_map loop newLoopVars of 
 								--	Just a -> a
 								--	Nothing -> loop
@@ -63,11 +65,11 @@ paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
 									dependencies = analyseDependencies loop
 									loopWrites = extractWrites_query loop
 
-									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars
+									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars accessAnalysis
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
-									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites nonTempVars dependencies
+									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
 
@@ -80,8 +82,8 @@ extractWrites _ = []
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
-paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> (Bool, Fortran [String])
-paralleliseLoop_map loop loopVars loopWrites nonTempVars 	|	errors_map == "" 	=	(True,
+paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> (Bool, Fortran [String])
+paralleliseLoop_map loop loopVars loopWrites nonTempVars accessAnalysis	|	errors_map == "" 	=	(True,
 																	OpenCLMap [outputTab ++ "Map found at " ++ errorLocationFormatting (srcSpan loop)] generatedSrcSpan 
 													 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
@@ -92,27 +94,35 @@ paralleliseLoop_map loop loopVars loopWrites nonTempVars 	|	errors_map == "" 	=	
 																	(removeLoopConstructs_recursive loop))
 									|	otherwise	=			(False, addAnnotation loop (outputTab ++ "Cannot map due to:\n" ++ errors_map))
 									where
-										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVars loopWrites nonTempVars loop
+										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis loop
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
-paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> (Bool, Fortran [String])
-paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "Reduction found at " ++ errorLocationFormatting (srcSpan loop)))
+paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran [String])
+paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies accessAnalysis	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "Reduction found at " ++ errorLocationFormatting (srcSpan loop)))
 															|	otherwise				=	(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
-										(errors_reduce, reductionVariables, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loopWrites nonTempVars dependencies loop 
+										(errors_reduce, reductionVariables, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loopWrites nonTempVars dependencies accessAnalysis loop 
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
-analyseLoop_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> Fortran [String] -> AnalysisInfo
-analyseLoop_map loopVars loopWrites nonTempVars codeSeg = case codeSeg of
-		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo (analyseAccess_map loopVars loopWrites nonTempVars expr1) (analyseAccess_map loopVars loopWrites nonTempVars expr2)) ("",[],[],[expr1])
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites nonTempVars)) codeSeg)
-		_ -> foldl combineAnalysisInfo analysisInfoBaseCase ((gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites nonTempVars)) codeSeg) ++ (gmapQ (mkQ analysisInfoBaseCase (analyseAccess_map loopVars loopWrites nonTempVars)) codeSeg))
+analyseLoop_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Fortran [String] -> AnalysisInfo
+analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case codeSeg of
+		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) ("",[],[],[expr1])
+						where
+							expr1Analysis = (analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr1)
+							expr2Analysis = (analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr2)
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
+						where
+							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites nonTempVars accessAnalysis)) codeSeg)
+		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (childrenAnalysis ++ nodeAccessAnalysis)
+						where
+							nodeAccessAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
+							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
 
 --analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
-analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> Fortran [String] -> AnalysisInfo
-analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies codeSeg = case codeSeg of
+analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran [String] -> AnalysisInfo
+analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
 		Assg _ srcspan expr1 expr2 -> 	(
 										(if (not potentialReductionVar) && isNonTempAssignment then 
 											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" 
@@ -133,9 +143,9 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies codeSe
 				
 				potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelf) 
 
-		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies)) codeSeg)
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies)) codeSeg)
-		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies)) codeSeg)
+		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
+		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 
 analysisInfoBaseCase :: AnalysisInfo
 analysisInfoBaseCase = ("",[],[],[])
@@ -157,16 +167,17 @@ addAnnotation original appendage = case original of
 		For anno srcspan var expr1 expr2 expr3 fortran -> For (anno ++ [appendage]) srcspan var expr1 expr2 expr3 fortran
 		_ -> original		
 
-analyseAccess_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> Expr [String] -> AnalysisInfo
-analyseAccess_map loopVars loopWrites nonTempVars expr = (errors, [],[expr],[])
+analyseAccess_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Expr [String] -> AnalysisInfo
+analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors, [],[expr],[])
 								where
 									operands = extractOperands expr
 									writtenOperands = filter (hasVarName loopWrites) operands
+									fnCall = isFunctionCall accessAnalysis expr
 									--nonTempWrittenOperands = filter (\x -> not $ hasVarName nonTempVars x) writtenOperands
 									nonTempWrittenOperands = filter(hasVarName nonTempVars) writtenOperands
 									errors = foldl (++) "" $ map (\item -> 
 
-																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractArrayAccesses item)) 
+																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
 																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
 																	++ ": Non temporary, write variable (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
 
@@ -188,8 +199,10 @@ errorExprFormatting codeSeg = show codeSeg
 
 --paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
 paralleliseProgram :: Program [String] -> Program [String] 
---paralleliseProgram = map (gmapT (mkT (transformBlock))) 
-paralleliseProgram codeSeg = map (everywhere (mkT (transformBlock (analyseAllVarAccess codeSeg)))) codeSeg
+-- paralleliseProgram = map (gmapT (mkT (transformBlock))) 
+paralleliseProgram codeSeg = map (everywhere (mkT (transformBlock (accessAnalysis)))) codeSeg
+	where
+		accessAnalysis = analyseAllVarAccess codeSeg
 
 transformBlock :: VarAccessAnalysis -> Block [String] -> Block [String]
 transformBlock accessAnalysis block = gmapT (mkT (transformForLoop accessAnalysis)) block

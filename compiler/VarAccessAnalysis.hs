@@ -11,7 +11,8 @@ import LanguageFortranTools
 --						Name of variable 	All reads 	All writes
 type VarAccessRecord = (VarName [String], 	[SrcSpan], 	[SrcSpan])
 type LocalVarAccessAnalysis = [VarAccessRecord]
-type VarAccessAnalysis = (LocalVarAccessAnalysis, [VarName [String]])
+--													Subroutine arguments 	Declared var names
+type VarAccessAnalysis = (LocalVarAccessAnalysis,	[VarName [String]],	 	[VarName [String]])
 
 --analyseAllVarAccess:: Block [String] -> VarAccessAnalysis
 --analyseAllVarAccess block = (localVarAccesses, arguments)
@@ -20,20 +21,34 @@ type VarAccessAnalysis = (LocalVarAccessAnalysis, [VarName [String]])
 --							arguments = getArguments
 
 analyseAllVarAccess:: Program [String] -> VarAccessAnalysis
-analyseAllVarAccess prog = (localVarAccesses, arguments)
+analyseAllVarAccess prog = (localVarAccesses, arguments, declarations)
 						where 
 							--localVarAccesses = foldl (combineVarAccessAnalysis) [] (gmapQ (mkQ [] (analyseAllVarAccess_fortran [])) block)
 							localVarAccesses = everything (combineVarAccessAnalysis) (mkQ [] (analyseAllVarAccess_fortran [])) prog
 							arguments = getArguments prog
 
+							declarations = everything (++) (mkQ [] getDeclaredVarNames) prog
+
 getNonTempVars :: SrcSpan -> VarAccessAnalysis -> [VarName [String]]
 getNonTempVars codeBlockSpan accessAnalysis = (map (\(x, _, _) -> x) hangingReads) ++ subroutineArguments
 						where
-							localVarAccesses = fst accessAnalysis
-							subroutineArguments = snd accessAnalysis
+							localVarAccesses = (\(x, _, _) -> x) accessAnalysis
+							subroutineArguments = (\(_, x, _) -> x) accessAnalysis
 							readsAfterBlock = varAccessAnalysis_readsAfter codeBlockSpan localVarAccesses
 							writesReadsAfterBlock = varAccessAnalysis_writesAfter codeBlockSpan readsAfterBlock
 							hangingReads = filter (checkHangingReads) writesReadsAfterBlock
+
+isFunctionCall :: VarAccessAnalysis -> Expr [String] -> Bool
+isFunctionCall accessAnalysis expr =  (all (\x -> not (elem x declaredVarNames)) exprVarNames) && subVars /= []
+						where 
+							
+							subVars = extractContainedVars expr
+							exprVarNames = extractVarNames expr
+							declaredVarNames = (\(_,_,x) -> x) accessAnalysis
+
+isNullExpr :: Expr [String] -> Bool
+isNullExpr (NullExpr _ _) = True
+isNullExpr _ = False
 
 getArguments :: Program [String] -> [VarName [String]]
 getArguments prog = argNames
@@ -47,6 +62,10 @@ getArgNamesAsVarNames :: ArgName [String] -> [VarName [String]]
 getArgNamesAsVarNames (ArgName _ str) = [VarName [] str]
 getArgNamesAsVarNames _ = []
 
+getDeclaredVarNames :: Decl [String] -> [VarName [String]]
+getDeclaredVarNames (Decl _ _ lst _) = foldl (\accum (expr1, _, _) -> accum ++ extractVarNames expr1) [] lst
+--getDeclaredVarNames decl = everything (++) (mkQ [] extractVarNames) decl--foldl (++) [] (gmapQ (mkQ [] extractVarNames) decl)
+getDeclaredVarNames decl = []
 
 analyseAllVarAccess_fortran :: LocalVarAccessAnalysis -> Fortran [String] -> LocalVarAccessAnalysis
 analyseAllVarAccess_fortran prevAnalysis (Assg _ _ writeExpr readExpr) = combineVarAccessAnalysis prevAnalysis analysisWithWritesReads

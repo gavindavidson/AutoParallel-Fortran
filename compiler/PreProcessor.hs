@@ -18,7 +18,8 @@ caseStatementFix :: String -> String
 caseStatementFix input = caseInsensitive_strReplace "\ncase(" "\n case(" (caseInsensitive_strReplace "\ncase " "\n case " input)
 
 containsStatementFix :: String -> String
-containsStatementFix input =  caseInsensitive_strReplace "\ncontains\n" "\n contains " (caseInsensitive_strReplace "\ncontains " "\n contains " input)
+containsStatementFix input = (caseInsensitive_strReplace "\ncontains" "\n contains " (caseInsensitive_strReplace "\ncontains " "\n contains " input))
+-- caseInsensitive_strReplace "contains" " contains\n" 
 
 orOperatorFix :: String -> String
 orOperatorFix input = caseInsensitive_strReplace ".or." " .or. " input

@@ -17,9 +17,9 @@ extractVarNames :: (Typeable p, Data p) => Expr p -> [VarName p]
 extractVarNames (Var _ _ lst) = map (\(x, _) -> x) lst
 extractVarNames _ = []
 
-extractArrayAccesses :: (Typeable p, Data p) => Expr p -> [Expr p]
-extractArrayAccesses (Var _ _ lst) = foldl (\accumExprs (itemVar, itemExprs) -> accumExprs ++ itemExprs) [] lst
-extractArrayAccesses _ = []
+extractContainedVars :: (Typeable p, Data p) => Expr p -> [Expr p]
+extractContainedVars (Var _ _ lst) = foldl (\accumExprs (itemVar, itemExprs) -> accumExprs ++ itemExprs) [] lst
+extractContainedVars _ = []
 
 --	Used as part of a foldl to concatentate expressions taken from 
 concatExprList_foldl :: (Typeable p, Data p) => [Expr p] -> (VarName p, [Expr p]) -> [Expr p]
