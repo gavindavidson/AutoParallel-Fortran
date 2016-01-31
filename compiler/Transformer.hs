@@ -62,7 +62,7 @@ paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
 										Nothing -> loopVars
 
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
-									dependencies = analyseDependencies loop
+									dependencies = analyseDependencies accessAnalysis loop
 									loopWrites = extractWrites_query loop
 
 									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars accessAnalysis
@@ -84,7 +84,7 @@ extractWrites _ = []
 --	original sub-tree annotated with reasons why the loop cannot be mapped
 paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> (Bool, Fortran [String])
 paralleliseLoop_map loop loopVars loopWrites nonTempVars accessAnalysis	|	errors_map == "" 	=	(True,
-																	OpenCLMap [outputTab ++ "Map found at " ++ errorLocationFormatting (srcSpan loop)] generatedSrcSpan 
+																	OpenCLMap [] generatedSrcSpan 
 													 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
@@ -170,7 +170,9 @@ addAnnotation original appendage = case original of
 analyseAccess_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Expr [String] -> AnalysisInfo
 analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors, [],[expr],[])
 								where
-									operands = extractOperands expr
+									operands = case fnCall of
+											True ->	extractContainedVars expr
+											False -> extractOperands expr
 									writtenOperands = filter (hasVarName loopWrites) operands
 									fnCall = isFunctionCall accessAnalysis expr
 									--nonTempWrittenOperands = filter (\x -> not $ hasVarName nonTempVars x) writtenOperands
@@ -329,9 +331,6 @@ getErrors codeSeg = case tag codeSeg of
 	[] -> ""
 	_ -> "Loop at " ++ (errorLocationFormatting (srcSpan codeSeg)) ++ " cannot be parallelised.\n" ++ (foldl (++) "" (tag codeSeg)) ++ "\n"
 
---getErrors (For tag srcspan _ _ _ _ _) = "For loop at " ++ (errorLocationFormatting srcspan) ++ " cannot be parallelised." ++ (foldl (++) "" tag) ++ "\n"
---getErrors codeSeg = "Loop at " ++ (errorLocationFormatting (srcSpan codeSeg)) ++ " cannot be parallelised." ++ (foldl (++) "" (tag codeSeg)) ++ "\n"
-
 --	Returns a list of all of the names of variables that are used in a particular AST. getVarNames_query performs the traversal and applies
 --	getVarNames at appropriate moments.
 getVarNames_query :: (Typeable p, Data p) =>  Fortran p -> [VarName p]
@@ -340,25 +339,9 @@ getVarNames_query fortran = everything (++) (mkQ [] getVarNames) fortran
 getVarNames :: (Typeable p, Data p) =>  VarName p -> [VarName p]
 getVarNames expr = [expr]
 
---getVarNameExprList :: (Typeable p, Data p) =>  Expr p -> [(VarName p, [Expr p])]
---getVarNameExprList (Var _ _ lst) = lst
---getVarNameExprList _ = []
-
 --	Generic function that takes two lists a and b and returns a +list c that is all of the elements of a that do not appear in b.
 listSubtract :: Eq a => [a] -> [a] -> [a]
 listSubtract a b = filter (\x -> notElem x b) a
-
---	Generic function that removes all duplicate elements from a list.
-listRemoveDuplications :: Eq a => [a] -> [a]
-listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a
-
---extractOperands :: (Typeable p, Data p) => Expr p -> [(VarName p, [Expr p])]
---extractOperands (Bin _ _ _ expr1 expr2) = extractOperands expr1 ++ extractOperands expr2
---extractOperands expr 					= getVarNameExprList expr
-
---extractExprs :: (Typeable p, Data p) => Expr p -> Expr p
-
---exprListContainsVarNames accesses loopVars
 
 --	Function checks whether every Expr in a list is a VarName from another list.
 exprListContainsVarNames :: (Typeable p, Data p, Eq p) =>  [Expr p] -> [VarName p] -> Bool
@@ -390,33 +373,3 @@ getLoopVar _ = Nothing
 --	Value used as a global spacing measure. Used for output formatting.
 outputTab :: String
 outputTab = "  "
-
-
--- FUNCTIONS FOR DEBUGGING AND DEVELOPMENT
-
-identifyLoops :: (Typeable p, Data p) => ProgUnit p -> [Fortran [String]]
-identifyLoops program =
-	everything
-		(++)
-		(mkQ [] checkLoop)
-		program
-
-checkLoop inp = case inp of
-		For _ _ _ _ _ _ _ -> [inp]
-		_ -> []
-
-contains_list :: [Variable] -> [Variable] -> Bool
-contains_list container contained = all (== True) (Prelude.map (\x -> elem x container) contained)
-
-contains_list_rejectEmpty :: [Variable] -> [Variable] -> Bool
-contains_list_rejectEmpty container [] = False
-contains_list_rejectEmpty container contained = all (== True) (Prelude.map (\x -> elem x container) contained)
-
-arbitraryChange_allChildren :: (Data a, Typeable a) => String -> Fortran a -> Fortran a
-arbitraryChange_allChildren comment = everywhere (mkT (modifySrcSpan_allChildren comment)) 
-
-modifySrcSpan_allChildren :: String -> SrcSpan -> SrcSpan
-modifySrcSpan_allChildren comment (a, b) = (SrcLoc {srcFilename = comment, srcLine = 10, srcColumn = -1}, b)
-
-test_exprListContainsAllVarNames :: (Typeable p, Data p, Eq p) =>  [Expr p] -> [VarName p] -> [VarName p]
-test_exprListContainsAllVarNames container contains = (foldl delete_foldl (listRemoveDuplications contains) (everything (++) (mkQ [] getVarNames) container))

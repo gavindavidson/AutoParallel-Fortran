@@ -7,14 +7,20 @@ import Data.Char
 import Data.List
 
 import LanguageFortranTools
+import VarAccessAnalysis
+
+--	The code in this file is used to perform some simple dependency analysis for a block of code. A call to 'analyseDependencies'
+--	will produce a set of direct dependencies between variables. A direct dependency is formed when one variable is used in the 
+--	calculation of another variable's assignment. It is possible under this scheme for variables to depend upon themselves and this
+--	fact is ued by Transformer.hs when looking to determine whether or not a loop represnets a reduction.
 
 --	Type used to colate dependency data between variables within a particular block of code
 --							Variable A 			depends on all these variables
 type VarDependencyRecord = (VarName [String], 	[VarName [String]])
 type VarDependencyAnalysis = [VarDependencyRecord]
 
-analyseDependencies :: Fortran [String] -> VarDependencyAnalysis
-analyseDependencies codeSeg = foldl (\accum item -> constructDependencies accum item) [] assignments
+analyseDependencies :: VarAccessAnalysis -> Fortran [String] -> VarDependencyAnalysis
+analyseDependencies accessAnalysis codeSeg = foldl (\accum item -> constructDependencies accessAnalysis accum item) [] assignments
 						where
 							assignments = extractAssigments codeSeg
 
@@ -26,15 +32,19 @@ extractAssigments' codeSeg = case codeSeg of
 								Assg _ _ _ _ -> [codeSeg]
 								_	-> []
 
-constructDependencies :: VarDependencyAnalysis -> Fortran [String] -> VarDependencyAnalysis
-constructDependencies prevAnalysis (Assg _ _ expr1 expr2) = foldl (\accum item -> addDependencies accum item readVars) prevAnalysis writtenVars
+constructDependencies :: VarAccessAnalysis -> VarDependencyAnalysis -> Fortran [String] -> VarDependencyAnalysis
+constructDependencies accessAnalysis prevAnalysis (Assg _ _ expr1 expr2) = foldl (\accum item -> addDependencies accum item readVars) prevAnalysis writtenVars
 							where
+								--	As part of Language-Fortran's assignment type, the first expression represents the 
+								--	variable being assigned to and the second expression is the thing being assigned
 								writtenOperands = extractOperands expr1
-								readOperands = extractOperands expr2
-
+								readOperands = case fnCall of
+											True ->	extractContainedVars expr2
+											False -> extractOperands expr2
+								fnCall = isFunctionCall accessAnalysis expr2
 								writtenVars = foldl (\accum item -> accum ++ extractVarNames item) [] writtenOperands
 								readVars = foldl (\accum item -> accum ++ extractVarNames item) [] readOperands
-constructDependencies prevAnalysis _ = prevAnalysis
+constructDependencies accessAnalysis prevAnalysis _ = prevAnalysis
 
 addDependencies :: VarDependencyAnalysis -> VarName [String] -> [VarName [String]] -> VarDependencyAnalysis
 addDependencies prevAnalysis dependent dependees = foldl (\accum item -> addDependency accum dependent item) prevAnalysis dependees

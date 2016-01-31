@@ -1,16 +1,8 @@
-program arrayLoop
-!    implicit none
-!    integer i
-!    integer arr(12)
-!    integer spew(10)
-!    integer total
-!    integer j
-!    integer g
-!    integer g_id
+module arrayLoop
 
-!    total = 0
-!     integer j(10)
-
+ contains
+  subroutine bondv1(jm,u,z2,dzn,v,w,km,n,im,dt,dxs)
+    use common_sn 
         real(kind=4), intent(In) :: dt
         real(kind=4), dimension(0:ip) , intent(In) :: dxs
         real(kind=4), dimension(-1:kp+2) , intent(In) :: dzn
@@ -24,13 +16,17 @@ program arrayLoop
         real(kind=4), dimension(kp+2) , intent(In) :: z2
         real(kind=4) :: u_val
 
+  reduction = 0
    do 15 i=0,10
-      j = 10
-      hello = gavin(1,2,3)
-
+      temp = minFun(u(i), interest, interest)
+      reduction = interest
+      reduction = temp12
   15 continue
-  hello = j
+    j = reduction
 !   print *,j
 
+    return
+      end subroutine bondv1
 
-end program arrayLoop
+
+end module arrayLoop
