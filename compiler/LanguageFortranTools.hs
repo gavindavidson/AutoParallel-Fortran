@@ -41,6 +41,20 @@ standardiseSrcSpan_trans = everywhere (mkT (standardiseSrcSpan))
 standardiseSrcSpan :: SrcSpan -> SrcSpan
 standardiseSrcSpan src = generatedSrcSpan
 
+hasOperand :: Expr [String] -> Expr [String] -> Bool
+hasOperand container contains = all (== True) $ map (\x -> elem x (extractOperands $ standardiseSrcSpan_trans container)) (extractOperands $ standardiseSrcSpan_trans contains)
+
+--	Appends a new item to the list of annotations already associated to a particular node
+addAnnotation :: Fortran [String] -> String -> Fortran [String]
+addAnnotation original appendage = case original of
+		For anno srcspan var expr1 expr2 expr3 fortran -> For (anno ++ [appendage]) srcspan var expr1 expr2 expr3 fortran
+		_ -> original
+
+hasVarName :: [VarName [String]] -> Expr [String] -> Bool
+hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
+hasVarName loopWrites _ = False
+
+
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran [String] -> Fortran [String] -> Fortran [String]
 appendFortran_recursive newFortran (FSeq _ _ _ (FSeq _ _ _ fortran1)) = appendFortran_recursive newFortran fortran1 

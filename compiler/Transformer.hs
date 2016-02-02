@@ -13,6 +13,7 @@ import PreProcessor
 import VarAccessAnalysis
 import VarDependencyAnalysis
 import LanguageFortranTools
+import CodeEmitter
 
 --	Type used to standardise loop analysis functions
 --						errors 		reduction variables read variables		written variables		
@@ -28,22 +29,80 @@ main = do
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile filename
 	let parallelisedProg = paralleliseProgram (parsedProgram)
+	let combinedProg = combineKernels parallelisedProg
+
+	--cppd <- cpp filename
+	--putStr (cppd)
 
 	putStr $ compileErrorListing parallelisedProg
-	putStr "\n"
+	-- putStr "\n"
+	emit (filename) "" combinedProg
 
-	putStr $ show $ parsedProgram
-	putStr "\n\n\n"
+	--putStr $ show $ parsedProgram
+	--putStr "\n\n\n"
 
-	--putStr $ show $ parallelisedProg
-	--putStr "\n"
+	-- putStr $ show $ parallelisedProg
+	-- putStr "\n"
 
 	--putStr "\n"
 
 --	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
 parseFile s = do inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
                  return $ parse $ preProcess inp
-                 --return $ preProcess inp
+
+cpp s = do 	inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
+        	return inp
+
+combineKernels :: Program [String] -> Program [String]
+combineKernels codeSeg = map (everywhere (mkT (combineKernelsBlock))) codeSeg
+
+combineKernelsBlock :: Block [String] -> Block [String]
+combineKernelsBlock block = combinedAdjacentNested
+				where
+					combinedNested = everywhere (mkT (combineNestedKernels)) block
+					combinedAdjacentNested = everywhere (mkT (combineAdjacentKernels)) combinedNested
+
+combineNestedKernels :: Fortran [String] -> Fortran [String]
+combineNestedKernels codeSeg = case codeSeg of
+					(OpenCLMap _ _ outerReads outerWrites outerLoopVs fortran) -> case fortran of
+								FSeq _ _ (OpenCLMap _ _ innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
+										OpenCLMap [] generatedSrcSpan reads writes loopVs innerFortran
+											where 
+												reads = listRemoveDuplications $ outerReads ++ innerReads
+												writes = listRemoveDuplications $ outerWrites ++ innerWrites
+												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
+								otherwise -> codeSeg
+					otherwise -> codeSeg
+
+
+combineAdjacentKernels :: Fortran [String] -> Fortran [String]
+combineAdjacentKernels codeSeg = case codeSeg of
+					(FSeq _ _ fortran1 (FSeq _ _ fortran2 _)) -> case fortran1 of
+							OpenCLMap _ _ _ _ _ _ -> case fortran2 of
+									OpenCLMap _ _ _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
+																Just map -> map
+																Nothing -> codeSeg
+									otherwise	-> codeSeg
+							otherwise	-> codeSeg
+					otherwise -> codeSeg
+
+attemptCombineAdjacentMaps:: Fortran [String] -> Fortran [String] -> Maybe(Fortran [String])
+attemptCombineAdjacentMaps 	(OpenCLMap _ _ reads1 writes1 loopVs1 fortran1) 
+							(OpenCLMap _ _ reads2 writes2 loopVs2 fortran2) = result
+									where
+										combinedLoopVars = attemptCombineLoopVariables loopVs1 loopVs2
+										result = case combinedLoopVars of
+											Just combinedVars -> Just $ OpenCLMap [] generatedSrcSpan reads writes combinedVars fortran
+											Nothing -> Nothing
+										reads = listRemoveDuplications $ reads1 ++ reads2
+										writes = listRemoveDuplications $ writes1 ++ writes2
+										fortran = appendFortran_recursive fortran2 fortran1
+
+attemptCombineLoopVariables :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
+									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
+									-> Maybe ([(VarName [String], Expr [String], Expr [String], Expr [String])])
+attemptCombineLoopVariables loopVars1 loopVars2 |	loopVars1 == loopVars2 = Just loopVars1
+												|	otherwise = Nothing
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
@@ -52,7 +111,8 @@ paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
 										True	-> mapAttempt_ast 
 										False 	-> case reduceAttempt_bool of
 													True 	-> reduceAttempt_ast
-													False	-> addAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
+													False	-> reduceAttempt_ast
+													--False	-> addAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
 								--case paralleliseLoop_map loop newLoopVars of 
 								--	Just a -> a
 								--	Nothing -> loop
@@ -99,7 +159,15 @@ paralleliseLoop_map loop loopVars loopWrites nonTempVars accessAnalysis	|	errors
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
 paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran [String])
-paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies accessAnalysis	|	errors_reduce == "" 	=	(True, addAnnotation loop (outputTab ++ "Reduction found at " ++ errorLocationFormatting (srcSpan loop)))
+paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies accessAnalysis	|	errors_reduce == "" 	=	(True, 
+																									OpenCLReduce [] generatedSrcSpan 
+																					 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
+																					 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
+																					 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
+																									--(flattenLoopConditions Nothing (VarName [] "g_id") 
+																									(loopCondtions_query loop) --)   
+																									(listRemoveDuplications (foldl (++) [] (map extractVarNames reductionVariables)))
+																									(removeLoopConstructs_recursive loop))
 															|	otherwise				=	(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
 										(errors_reduce, reductionVariables, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loopWrites nonTempVars dependencies accessAnalysis loop 
@@ -154,18 +222,7 @@ combineAnalysisInfo :: AnalysisInfo -> AnalysisInfo -> AnalysisInfo
 combineAnalysisInfo accum item = (accumErrors ++ itemErrors, accumReductionVars ++ itemReductionVars, accumReads ++ itemReads, accumWrites ++ itemWrites)
 								where
 									(accumErrors, accumReductionVars, accumReads, accumWrites) = accum
-									(itemErrors, itemReductionVars, itemReads, itemWrites) = item
-
-
-
-hasOperand :: Expr [String] -> Expr [String] -> Bool
-hasOperand container contains = all (== True) $ map (\x -> elem x (extractOperands $ standardiseSrcSpan_trans container)) (extractOperands $ standardiseSrcSpan_trans contains)
-
---	Appends a new item to the list of annotations already associated to a particular node
-addAnnotation :: Fortran [String] -> String -> Fortran [String]
-addAnnotation original appendage = case original of
-		For anno srcspan var expr1 expr2 expr3 fortran -> For (anno ++ [appendage]) srcspan var expr1 expr2 expr3 fortran
-		_ -> original		
+									(itemErrors, itemReductionVars, itemReads, itemWrites) = item		
 
 analyseAccess_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Expr [String] -> AnalysisInfo
 analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors, [],[expr],[])
@@ -183,10 +240,6 @@ analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors,
 																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
 																	++ ": Non temporary, write variable (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
 
-hasVarName :: [VarName [String]] -> Expr [String] -> Bool
-hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
-hasVarName loopWrites _ = False
-
 --	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
 errorLocationFormatting :: SrcSpan -> String
@@ -201,20 +254,19 @@ errorExprFormatting codeSeg = show codeSeg
 
 --paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
 paralleliseProgram :: Program [String] -> Program [String] 
--- paralleliseProgram = map (gmapT (mkT (transformBlock))) 
-paralleliseProgram codeSeg = map (everywhere (mkT (transformBlock (accessAnalysis)))) codeSeg
+paralleliseProgram codeSeg = map (everywhere (mkT (paralleliseBlock (accessAnalysis)))) codeSeg -- map (everywhere (mkT (paralleliseBlock (accessAnalysis)))) codeSeg
 	where
 		accessAnalysis = analyseAllVarAccess codeSeg
 
-transformBlock :: VarAccessAnalysis -> Block [String] -> Block [String]
-transformBlock accessAnalysis block = gmapT (mkT (transformForLoop accessAnalysis)) block
+paralleliseBlock :: VarAccessAnalysis -> Block [String] -> Block [String]
+paralleliseBlock accessAnalysis block = gmapT (mkT (paralleliseForLoop accessAnalysis)) block
 		--where 
 		--	accessAnalysis = analyseAllVarAccess block
 
-transformForLoop :: VarAccessAnalysis -> Fortran [String] -> Fortran [String]
-transformForLoop  accessAnalysis inp = case inp of
-		For _ _ _ _ _ _ _ -> paralleliseLoop [] accessAnalysis $ gmapT (mkT (transformForLoop accessAnalysis )) inp
-		_ -> gmapT (mkT (transformForLoop accessAnalysis)) inp
+paralleliseForLoop :: VarAccessAnalysis -> Fortran [String] -> Fortran [String]
+paralleliseForLoop  accessAnalysis inp = case inp of
+		For _ _ _ _ _ _ _ -> paralleliseLoop [] accessAnalysis $ gmapT (mkT (paralleliseForLoop accessAnalysis )) inp
+		_ -> gmapT (mkT (paralleliseForLoop accessAnalysis)) inp
 
 --	Function uses a SYB query to get all of the loop condtions contained within a particular AST. loopCondtions_query traverses the AST
 --	and calls getLoopConditions when a Fortran node is encountered.
@@ -225,100 +277,8 @@ getLoopConditions :: (Typeable p, Data p) => Fortran p -> [(VarName p, Expr p, E
 getLoopConditions codeSeg = case codeSeg of
 		For _ _ var start end step _ -> [(var, start, end, step)]
 		OpenCLMap _ _ _ _ loopVars _ -> loopVars
+		OpenCLReduce _ _ _ _ loopVars _ _ -> loopVars
 		_ -> []
-
---	Returns an AST representing a set of assignments that determine the values of the loop variables that are being parallelised for a
---	given global_id value.
-flattenLoopConditions :: Maybe (VarName p) -> (VarName p) -> [(VarName p, Expr p, Expr p, Expr p)] -> Fortran p
-flattenLoopConditions prev globalId ((var, start, end, step):[]) = Assg 
-																		(tag globalId) 
-																		generatedSrcSpan 
-																		(Var (tag globalId) generatedSrcSpan [(var, [])])
-																		(primitiveMod globalId end)
-flattenLoopConditions prev globalId ((var, start, end, step):xs) = 	FSeq 
-																	(tag globalId) 
-																	generatedSrcSpan (
-																		Assg 
-																		(tag globalId) 
-																		generatedSrcSpan (
-																			Var (tag globalId) generatedSrcSpan [(var, [])])
-																		(flattenCondition_div globalId prev (multiplyLoopConditions xs) -- DIVISOR
-																			)
-																		)
-																	 (flattenLoopConditions (Just var) globalId xs) -- FSeq p SrcSpan (Fortran p) (Fortran p) 
-
---	Function returns an AST represnting a standard division that is performed to calculate loop variable values.
-flattenCondition_div :: VarName p -> Maybe (VarName p) -> Expr p -> Expr p
-flattenCondition_div globalId (Just prev) divisor = Bin 
-														(tag globalId) 
-														generatedSrcSpan 
-														(Div (tag globalId)) (
-															Bin 
-																(tag globalId) 
-																generatedSrcSpan 
-																(Minus (tag globalId)) 
-																(Var 
-																	(tag globalId) 
-																	generatedSrcSpan 
-																	[(globalId, [])]) 
-																(Var 
-																	(tag globalId) 
-																	generatedSrcSpan 
-																	[(prev, [])]))
-														divisor
-flattenCondition_div globalId Nothing divisor = 	Bin 
-														(tag globalId) 
-														generatedSrcSpan 
-														(Div (tag globalId)) 
-														(Var 
-															(tag globalId) 
-															generatedSrcSpan 
-															[(globalId, [])]) 
-														divisor
-
---	Function returns an AST represnting a standard modulus calculation that is performed to calculate loop variable values.
-flattenCondition_mod :: VarName p -> Maybe (VarName p) -> Expr p -> Expr p
-flattenCondition_mod globalId (Just prev) divisor = Bin 
-														(tag globalId) 
-														generatedSrcSpan 
-														(Div (tag globalId)) 
-														(Var 
-															(tag globalId) 
-															generatedSrcSpan 
-															[(globalId, [])]) 
-														divisor 
-
---	Fortran does not have a modulus operator as standard. Therefore, this function returns an AST represnting a modulus calculation
---	that only uses primitive operators (+, -, *, /)
-primitiveMod :: VarName p -> Expr p -> Expr p 
-primitiveMod quotient divisor = Bin 
-									(tag quotient) 
-									generatedSrcSpan 
-									(Minus (tag quotient)) 
-									(Var 
-										(tag quotient) 
-										generatedSrcSpan 
-										[(quotient, [])]) 
-									(Bin 
-										(tag quotient) 
-										generatedSrcSpan 
-										(Mul (tag quotient)) 
-										(Bin 
-											(tag quotient) 
-											generatedSrcSpan 
-											(Div (tag quotient)) 
-											(Var 
-												(tag quotient) 
-												generatedSrcSpan 
-												[(quotient, [])]) 
-											divisor) 
-										divisor)
-
--- 	Used by flattenLoopConditions to produce an expression that multiplies together the loop variable dimensions. 
---	This will likely be changed.
-multiplyLoopConditions :: [(VarName p, Expr p, Expr p, Expr p)] -> Expr p
-multiplyLoopConditions ((var, start, end, step):[]) = end
-multiplyLoopConditions ((var, start, end, step):xs) = Bin (tag var) generatedSrcSpan (Mul (tag var)) end (multiplyLoopConditions xs)
 
 --	Traverses the AST and prooduces a single string that contains all of the parallelising errors for this particular run of the compiler.
 --	compileErrorListing traverses the AST and applies getErrors to Fortran nodes (as currently they are the only nodes that have
@@ -351,19 +311,19 @@ varNameCheck :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [Bool]
 varNameCheck container contains = [elem contains container]
 
 --	Function checks whether every VarName in a list appears at least once in a list of Expr
-exprListContainsAllVarNames :: (Typeable p, Data p, Eq p) => [VarName p] -> [Expr p] -> Bool
-exprListContainsAllVarNames contains container = (foldl delete_foldl (listRemoveDuplications contains) (everything (++) (mkQ [] getVarNames) container)) == []
+-- exprListContainsAllVarNames :: (Typeable p, Data p, Eq p) => [VarName p] -> [Expr p] -> Bool
+-- exprListContainsAllVarNames contains container = (foldl delete_foldl (listRemoveDuplications contains) (everything (++) (mkQ [] getVarNames) container)) == []
 
-delete_foldl :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [VarName p]
-delete_foldl accum item = delete item accum
+-- delete_foldl :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [VarName p]
+-- delete_foldl accum item = delete item accum
 
 --	Function returns a boolean that shows whether or not a list of expressions contains any constants
-constantCheck_query :: (Typeable p, Data p) => [Expr p] -> Bool
-constantCheck_query exprList = all (== False) (everything (++) (mkQ [] (constantCheck)) exprList)
+-- constantCheck_query :: (Typeable p, Data p) => [Expr p] -> Bool
+-- constantCheck_query exprList = all (== False) (everything (++) (mkQ [] (constantCheck)) exprList)
 
-constantCheck :: Expr [String] -> [Bool]
-constantCheck (Con _ _ _) = [True]
-constantCheck _ = [False]
+-- constantCheck :: Expr [String] -> [Bool]
+-- constantCheck (Con _ _ _) = [True]
+-- constantCheck _ = [False]
 
 -- 	Function returns the loop variable for an AST representing a for loop
 getLoopVar :: Fortran p -> Maybe(VarName p)

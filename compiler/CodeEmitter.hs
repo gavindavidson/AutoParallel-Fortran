@@ -4,8 +4,21 @@ module CodeEmitter where
 import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
+import Data.List
+import Data.List.Split
+import System.IO
+import System.Process
 
 import LanguageFortranTools
+
+emit filename "" ast = do
+				let newFilename = defaultFilename (splitOn "/" filename)
+				writeFile newFilename (show ast)
+emit filename specified ast = do				
+				writeFile specified (show ast)
+
+defaultFilename (x:[]) = "par_" ++ x
+defaultFilename (x:xs) = x ++ "/" ++ defaultFilename xs
 
 --	This file will contain the code that actually produces the parallel version of the input program code. Currently it only
 --	houses old code that is likely going to be heavily modified before use. 
