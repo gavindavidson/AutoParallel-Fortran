@@ -29,13 +29,16 @@ main = do
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile filename
 	let parallelisedProg = paralleliseProgram (parsedProgram)
-	let combinedProg = combineKernels parallelisedProg
+	let combinedProg = combineKernels (removeAllAnnotations parallelisedProg)
 
 	--cppd <- cpp filename
 	--putStr (cppd)
 
-	putStr $ compileErrorListing parallelisedProg
+	putStr $ compileAnnotationListing parallelisedProg
+	putStr "\n"
+	putStr $ compileAnnotationListing combinedProg
 	-- putStr "\n"
+	--emit (filename) "" parallelisedProg
 	emit (filename) "" combinedProg
 
 	--putStr $ show $ parsedProgram
@@ -64,23 +67,26 @@ combineKernelsBlock block = combinedAdjacentNested
 
 combineNestedKernels :: Fortran [String] -> Fortran [String]
 combineNestedKernels codeSeg = case codeSeg of
-					(OpenCLMap _ _ outerReads outerWrites outerLoopVs fortran) -> case fortran of
-								FSeq _ _ (OpenCLMap _ _ innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
-										OpenCLMap [] generatedSrcSpan reads writes loopVs innerFortran
+					(OpenCLMap anno1 _ outerReads outerWrites outerLoopVs fortran) -> case fortran of
+								FSeq _ src1 (OpenCLMap anno2 _ innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
+										OpenCLMap (anno1++anno2++[newAnnotation]) generatedSrcSpan reads writes loopVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
 												writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
+												newAnnotation = "Nested Map fusion of loops at " ++ errorLocationFormatting src1 ++ "\n"
 								otherwise -> codeSeg
 					otherwise -> codeSeg
 
 
 combineAdjacentKernels :: Fortran [String] -> Fortran [String]
 combineAdjacentKernels codeSeg = case codeSeg of
-					(FSeq _ _ fortran1 (FSeq _ _ fortran2 _)) -> case fortran1 of
+					(FSeq anno1 src1 fortran1 (FSeq anno2 src2 fortran2 fortran3)) -> case fortran1 of
 							OpenCLMap _ _ _ _ _ _ -> case fortran2 of
 									OpenCLMap _ _ _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
-																Just map -> map
+																Just oclmap -> FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
+																	where
+																		newAnnotation = "Adjacent Map fusion between loops at " ++ errorLocationFormatting src1 ++ " and " ++ errorLocationFormatting src2 ++ "\n"
 																Nothing -> codeSeg
 									otherwise	-> codeSeg
 							otherwise	-> codeSeg
@@ -101,8 +107,11 @@ attemptCombineAdjacentMaps 	(OpenCLMap _ _ reads1 writes1 loopVs1 fortran1)
 attemptCombineLoopVariables :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
 									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
 									-> Maybe ([(VarName [String], Expr [String], Expr [String], Expr [String])])
-attemptCombineLoopVariables loopVars1 loopVars2 |	loopVars1 == loopVars2 = Just loopVars1
+attemptCombineLoopVariables loopVars1 loopVars2 |	standardLoop1 == standardLoop2 = Just loopVars1
 												|	otherwise = Nothing
+												where
+													standardLoop1 = everywhere (mkT standardiseSrcSpan) loopVars1
+													standardLoop2 = everywhere (mkT standardiseSrcSpan) loopVars2
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
@@ -111,8 +120,8 @@ paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
 										True	-> mapAttempt_ast 
 										False 	-> case reduceAttempt_bool of
 													True 	-> reduceAttempt_ast
-													False	-> reduceAttempt_ast
-													--False	-> addAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
+													False	-> prependAnnotation (reduceAttempt_ast) ("Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan reduceAttempt_ast) ++ "\n")
+													--False	-> appendAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
 								--case paralleliseLoop_map loop newLoopVars of 
 								--	Just a -> a
 								--	Nothing -> loop
@@ -152,7 +161,7 @@ paralleliseLoop_map loop loopVars loopWrites nonTempVars accessAnalysis	|	errors
 																	(loopCondtions_query loop) --)   
 																	--(removeLoopConstructs_trans loop))
 																	(removeLoopConstructs_recursive loop))
-									|	otherwise	=			(False, addAnnotation loop (outputTab ++ "Cannot map due to:\n" ++ errors_map))
+									|	otherwise	=			(False, appendAnnotation loop (outputTab ++ "Cannot map due to:\n" ++ errors_map))
 									where
 										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis loop
 
@@ -168,7 +177,7 @@ paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies accessA
 																									(loopCondtions_query loop) --)   
 																									(listRemoveDuplications (foldl (++) [] (map extractVarNames reductionVariables)))
 																									(removeLoopConstructs_recursive loop))
-															|	otherwise				=	(False, addAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
+															|	otherwise				=	(False, appendAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
 										(errors_reduce, reductionVariables, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loopWrites nonTempVars dependencies accessAnalysis loop 
 
@@ -245,6 +254,9 @@ analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors,
 errorLocationFormatting :: SrcSpan -> String
 errorLocationFormatting ((SrcLoc filename line column), srcEnd) = "line " ++ show line -- ++ ", column " ++ show column
 
+errorLocationRangeFormatting :: SrcSpan -> String
+errorLocationRangeFormatting ((SrcLoc _ line_start _), (SrcLoc _ line_end _)) = "line " ++ show line_start ++ " and line " ++ show line_end -- ++ ", column " ++ show column
+
 errorExprFormatting :: Expr [String] -> String
 errorExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) -> ((\(VarName _ str) -> str) varname) ++ 
 															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
@@ -281,15 +293,16 @@ getLoopConditions codeSeg = case codeSeg of
 		_ -> []
 
 --	Traverses the AST and prooduces a single string that contains all of the parallelising errors for this particular run of the compiler.
---	compileErrorListing traverses the AST and applies getErrors to Fortran nodes (as currently they are the only nodes that have
+--	compileAnnotationListing traverses the AST and applies getAnnotations to Fortran nodes (as currently they are the only nodes that have
 --	ever have annotations applied. The resulting string is then output to the user.
-compileErrorListing :: Program [String] -> String
-compileErrorListing codeSeg = everything (++) (mkQ [] getErrors) codeSeg
+compileAnnotationListing :: Program [String] -> String
+compileAnnotationListing codeSeg = everything (++) (mkQ [] getAnnotations) codeSeg
 
-getErrors :: Fortran [String] -> String
-getErrors codeSeg = case tag codeSeg of
+getAnnotations :: Fortran [String] -> String
+getAnnotations codeSeg = case tag codeSeg of
 	[] -> ""
-	_ -> "Loop at " ++ (errorLocationFormatting (srcSpan codeSeg)) ++ " cannot be parallelised.\n" ++ (foldl (++) "" (tag codeSeg)) ++ "\n"
+	_ -> (foldl (++) "" (tag codeSeg)) ++ "\n"
+	--_ -> "Loop at " ++ (errorLocationFormatting (srcSpan codeSeg)) ++ " cannot be parallelised.\n" ++ (foldl (++) "" (tag codeSeg)) ++ "\n"
 
 --	Returns a list of all of the names of variables that are used in a particular AST. getVarNames_query performs the traversal and applies
 --	getVarNames at appropriate moments.

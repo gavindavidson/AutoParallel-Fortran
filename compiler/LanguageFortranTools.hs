@@ -35,7 +35,8 @@ generatedSrcSpan = (SrcLoc {srcFilename = "Generated", srcLine = -1, srcColumn =
 
 --	Used to standardise SrcSpans so that nodes of an AST may be matched up even if they appear in completely different
 --	parts of a program
-standardiseSrcSpan_trans ::(Data a, Typeable a) =>  Expr a -> Expr a
+--standardiseSrcSpan_trans ::(Data a, Typeable a) =>  Expr a -> Expr a
+standardiseSrcSpan_trans :: Expr [String] -> Expr [String]
 standardiseSrcSpan_trans = everywhere (mkT (standardiseSrcSpan))
 
 standardiseSrcSpan :: SrcSpan -> SrcSpan
@@ -45,10 +46,28 @@ hasOperand :: Expr [String] -> Expr [String] -> Bool
 hasOperand container contains = all (== True) $ map (\x -> elem x (extractOperands $ standardiseSrcSpan_trans container)) (extractOperands $ standardiseSrcSpan_trans contains)
 
 --	Appends a new item to the list of annotations already associated to a particular node
-addAnnotation :: Fortran [String] -> String -> Fortran [String]
-addAnnotation original appendage = case original of
-		For anno srcspan var expr1 expr2 expr3 fortran -> For (anno ++ [appendage]) srcspan var expr1 expr2 expr3 fortran
+appendAnnotation :: Fortran [String] -> String -> Fortran [String]
+appendAnnotation original appendage = case original of
+		For anno f2 f3 f4 f5 f6 f7 -> For (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
+		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (anno ++ [appendage]) f2 f3 f4 f5 f6
 		_ -> original
+
+--	Prepends a new item to the list of annotations already associated to a particular node
+prependAnnotation :: Fortran [String] -> String -> Fortran [String]
+prependAnnotation original appendage = case original of
+		For anno f2 f3 f4 f5 f6 f7 -> For ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
+		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap ([appendage] ++ anno) f2 f3 f4 f5 f6
+		_ -> original
+
+--removeAllAnnotations :: Fortran [String] -> Fortran [String]
+removeAllAnnotations original = everywhere (mkT removeAnnotations) original
+
+removeAnnotations :: Fortran [String] -> Fortran [String]
+removeAnnotations original = case original of
+		For anno f2 f3 f4 f5 f6 f7 -> For ([]) f2 f3 f4 f5 f6 f7
+		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap ([]) f2 f3 f4 f5 f6
+		_ -> original
+
 
 hasVarName :: [VarName [String]] -> Expr [String] -> Bool
 hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
@@ -58,6 +77,7 @@ hasVarName loopWrites _ = False
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran [String] -> Fortran [String] -> Fortran [String]
 appendFortran_recursive newFortran (FSeq _ _ _ (FSeq _ _ _ fortran1)) = appendFortran_recursive newFortran fortran1 
+appendFortran_recursive newFortran (FSeq _ _ fortran1 (NullStmt _ _)) = FSeq [] generatedSrcSpan fortran1 newFortran
 appendFortran_recursive newFortran (FSeq _ _ fortran1 fortran2) = FSeq [] generatedSrcSpan fortran1 (FSeq [] generatedSrcSpan fortran2 newFortran)
 appendFortran_recursive newFortran codeSeg = FSeq [] generatedSrcSpan codeSeg newFortran
 

@@ -1,5 +1,5 @@
 folder="../testFiles"
-filename="arrayLoop.f95"
+filename="bondv1.f95"
 
 originalfile=$folder"/"$filename
 parfile=$folder"/par_"$filename
