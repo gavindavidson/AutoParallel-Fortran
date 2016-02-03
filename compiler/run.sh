@@ -1,5 +1,5 @@
 folder="../testFiles"
-filename="bondv1.f95"
+filename="les.f95"
 
 originalfile=$folder"/"$filename
 parfile=$folder"/par_"$filename

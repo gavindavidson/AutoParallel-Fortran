@@ -64,8 +64,8 @@ removeAllAnnotations original = everywhere (mkT removeAnnotations) original
 
 removeAnnotations :: Fortran [String] -> Fortran [String]
 removeAnnotations original = case original of
-		For anno f2 f3 f4 f5 f6 f7 -> For ([]) f2 f3 f4 f5 f6 f7
-		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap ([]) f2 f3 f4 f5 f6
+		For anno f2 f3 f4 f5 f6 f7 -> For [] f2 f3 f4 f5 f6 f7
+		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap [] f2 f3 f4 f5 f6
 		_ -> original
 
 

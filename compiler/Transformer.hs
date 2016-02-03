@@ -74,7 +74,18 @@ combineNestedKernels codeSeg = case codeSeg of
 												reads = listRemoveDuplications $ outerReads ++ innerReads
 												writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
-												newAnnotation = "Nested Map fusion of loops at " ++ errorLocationFormatting src1 ++ "\n"
+												newAnnotation = "Nested map at " ++ errorLocationFormatting src1 ++ " fused into surrounding map\n"
+								otherwise -> codeSeg
+
+					(OpenCLReduce anno1 _ outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
+								FSeq _ src1 (OpenCLReduce anno2 _ innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
+										OpenCLReduce (anno1++anno2++[newAnnotation]) generatedSrcSpan reads writes loopVs redVs innerFortran
+											where 
+												reads = listRemoveDuplications $ outerReads ++ innerReads
+												writes = listRemoveDuplications $ outerWrites ++ innerWrites
+												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
+												redVs = listRemoveDuplications $ outerRedVs ++ innerRedVs
+												newAnnotation = "Nested reduction at " ++ errorLocationFormatting src1 ++ " fused into surrounding reduction\n"
 								otherwise -> codeSeg
 					otherwise -> codeSeg
 
@@ -86,7 +97,7 @@ combineAdjacentKernels codeSeg = case codeSeg of
 									OpenCLMap _ _ _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
 																Just oclmap -> FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
 																	where
-																		newAnnotation = "Adjacent Map fusion between loops at " ++ errorLocationFormatting src1 ++ " and " ++ errorLocationFormatting src2 ++ "\n"
+																		newAnnotation = "Adjacent maps at " ++ errorLocationFormatting src1 ++ " and " ++ errorLocationFormatting src2 ++ " fused\n"
 																Nothing -> codeSeg
 									otherwise	-> codeSeg
 							otherwise	-> codeSeg
@@ -120,7 +131,7 @@ paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
 										True	-> mapAttempt_ast 
 										False 	-> case reduceAttempt_bool of
 													True 	-> reduceAttempt_ast
-													False	-> prependAnnotation (reduceAttempt_ast) ("Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan reduceAttempt_ast) ++ "\n")
+													False	-> prependAnnotation (reduceAttempt_ast) ("\nCannot parallelise loop at " ++ errorLocationFormatting (srcSpan reduceAttempt_ast) ++ "\n")
 													--False	-> appendAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
 								--case paralleliseLoop_map loop newLoopVars of 
 								--	Just a -> a
@@ -200,7 +211,7 @@ analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case co
 --analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
 analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran [String] -> AnalysisInfo
 analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
-		Assg _ srcspan expr1 expr2 -> 	(
+		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
 										(if (not potentialReductionVar) && isNonTempAssignment then 
 											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" 
 												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" else "") 
@@ -208,6 +219,7 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 										if potentialReductionVar then [expr1] else [],
 										extractOperands expr2,
 										[expr1])
+										usesFullLoopVarError
 			where
 				--assignments = arrayAccesses_query expr1
 				--accesses = arrayAccesses_query expr2
@@ -217,8 +229,9 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				referencedCondition = (foldl (||) False $ map (\x -> hasOperand x expr1) condExprs)
 				referencedSelf = (hasOperand expr2 expr1)
 				dependsOnSelf = (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames) --isIndirectlyDependentOn dependencies 
-				
-				potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelf) 
+				usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
+
+				potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelf) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 
 		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
@@ -246,13 +259,29 @@ analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors,
 									errors = foldl (++) "" $ map (\item -> 
 
 																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
-																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
-																	++ ": Non temporary, write variable (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
+																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan expr)  
+																	++ ": Non temporary, write variable (" ++ errorExprFormatting expr ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
+
+analyseAccess_reduce :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Expr [String] -> AnalysisInfo
+analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (errors, [],[],[])
+								where
+									operands = case fnCall of
+											True ->	extractContainedVars expr
+											False -> extractOperands expr
+									writtenOperands = filter (hasVarName loopWrites) operands
+									fnCall = isFunctionCall accessAnalysis expr
+									--nonTempWrittenOperands = filter (\x -> not $ hasVarName nonTempVars x) writtenOperands
+									nonTempWrittenOperands = filter(hasVarName nonTempVars) writtenOperands
+									errors = foldl (++) "" $ map (\item -> 
+
+																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
+																	== [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan expr)  
+																	++ ": Non temporary, write variable (" ++ errorExprFormatting expr ++ ") written to with use of full loop variable\n"  else "") nonTempWrittenOperands
 
 --	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
 errorLocationFormatting :: SrcSpan -> String
-errorLocationFormatting ((SrcLoc filename line column), srcEnd) = "line " ++ show line -- ++ ", column " ++ show column
+errorLocationFormatting ((SrcLoc filename line column), srcEnd) = show line ++ ":" ++ show column --"line " ++ show line ++ ", column " ++ show column
 
 errorLocationRangeFormatting :: SrcSpan -> String
 errorLocationRangeFormatting ((SrcLoc _ line_start _), (SrcLoc _ line_end _)) = "line " ++ show line_start ++ " and line " ++ show line_end -- ++ ", column " ++ show column
@@ -301,7 +330,7 @@ compileAnnotationListing codeSeg = everything (++) (mkQ [] getAnnotations) codeS
 getAnnotations :: Fortran [String] -> String
 getAnnotations codeSeg = case tag codeSeg of
 	[] -> ""
-	_ -> (foldl (++) "" (tag codeSeg)) ++ "\n"
+	_ -> (foldl (++) "" (tag codeSeg))-- ++ "\n"
 	--_ -> "Loop at " ++ (errorLocationFormatting (srcSpan codeSeg)) ++ " cannot be parallelised.\n" ++ (foldl (++) "" (tag codeSeg)) ++ "\n"
 
 --	Returns a list of all of the names of variables that are used in a particular AST. getVarNames_query performs the traversal and applies
