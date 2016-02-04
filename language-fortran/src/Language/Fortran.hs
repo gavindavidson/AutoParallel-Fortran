@@ -219,12 +219,12 @@ data Fortran  p = Assg p SrcSpan (Expr p) (Expr p)
                 | OpenCLMap p SrcSpan                   -- Node to represent the data needed for an OpenCL map kernel
                   [VarName p]                           -- List of arguments to kernel that are READ
                   [VarName p]                           -- List of arguments to kernel that are WRITTEN
-                  [(VarName p, Expr p, Expr p, Expr p)]   -- Loop variables of nested maps
+                  [(VarName p, Expr p, Expr p, Expr p)] -- Loop variables of nested maps
                   (Fortran p)                           -- Body of kernel code
                 | OpenCLReduce p SrcSpan
                   [VarName p]                           -- List of arguments to kernel that are READ
                   [VarName p]                           -- List of arguments to kernel that are WRITTEN
-                  [(VarName p, Expr p, Expr p, Expr p)]   -- Loop variables of nested maps
+                  [(VarName p, Expr p, Expr p, Expr p)] -- Loop variables of nested maps
                   [VarName p]                           -- List of variables that are considered 'reduction variables'
                   (Fortran p)                           -- Body of kernel code
                   deriving (Show, Functor, Typeable, Data, Eq)

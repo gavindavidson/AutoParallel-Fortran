@@ -50,6 +50,7 @@ appendAnnotation :: Fortran [String] -> String -> Fortran [String]
 appendAnnotation original appendage = case original of
 		For anno f2 f3 f4 f5 f6 f7 -> For (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
 		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (anno ++ [appendage]) f2 f3 f4 f5 f6
+		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
 		_ -> original
 
 --	Prepends a new item to the list of annotations already associated to a particular node
@@ -57,6 +58,7 @@ prependAnnotation :: Fortran [String] -> String -> Fortran [String]
 prependAnnotation original appendage = case original of
 		For anno f2 f3 f4 f5 f6 f7 -> For ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
 		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap ([appendage] ++ anno) f2 f3 f4 f5 f6
+		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
 		_ -> original
 
 --removeAllAnnotations :: Fortran [String] -> Fortran [String]
@@ -66,6 +68,7 @@ removeAnnotations :: Fortran [String] -> Fortran [String]
 removeAnnotations original = case original of
 		For anno f2 f3 f4 f5 f6 f7 -> For [] f2 f3 f4 f5 f6 f7
 		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap [] f2 f3 f4 f5 f6
+		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce [] f2 f3 f4 f5 f6 f7
 		_ -> original
 
 

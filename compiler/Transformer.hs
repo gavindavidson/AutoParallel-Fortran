@@ -23,6 +23,12 @@ main :: IO ()
 main = do
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	
+	putStr "STUFF TO DO:\n"
+	putStr "\t- Fix adjacent kernel fusion\n"
+	putStr "\t- Add new reduction rule (Depends on self but only once)\n"
+	putStr "\t- Code emission\n"
+	putStr "\n"
+
 	args <- getArgs
 	let filename = args!!0
 
@@ -38,8 +44,8 @@ main = do
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
 	-- putStr "\n"
-	--emit (filename) "" parallelisedProg
-	emit (filename) "" combinedProg
+	emit (filename) "" parallelisedProg
+	--emit (filename) "" combinedProg
 
 	--putStr $ show $ parsedProgram
 	--putStr "\n\n\n"
@@ -104,16 +110,17 @@ combineAdjacentKernels codeSeg = case codeSeg of
 					otherwise -> codeSeg
 
 attemptCombineAdjacentMaps:: Fortran [String] -> Fortran [String] -> Maybe(Fortran [String])
-attemptCombineAdjacentMaps 	(OpenCLMap _ _ reads1 writes1 loopVs1 fortran1) 
-							(OpenCLMap _ _ reads2 writes2 loopVs2 fortran2) = result
+attemptCombineAdjacentMaps 	(OpenCLMap anno1 _ reads1 writes1 loopVs1 fortran1) 
+							(OpenCLMap anno2 _ reads2 writes2 loopVs2 fortran2) = result
 									where
 										combinedLoopVars = attemptCombineLoopVariables loopVs1 loopVs2
 										result = case combinedLoopVars of
-											Just combinedVars -> Just $ OpenCLMap [] generatedSrcSpan reads writes combinedVars fortran
+											Just combinedVars -> Just $ OpenCLMap anno generatedSrcSpan reads writes combinedVars fortran
 											Nothing -> Nothing
 										reads = listRemoveDuplications $ reads1 ++ reads2
 										writes = listRemoveDuplications $ writes1 ++ writes2
 										fortran = appendFortran_recursive fortran2 fortran1
+										anno = anno1 ++ anno2
 
 attemptCombineLoopVariables :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
 									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
@@ -128,10 +135,10 @@ attemptCombineLoopVariables loopVars1 loopVars2 |	standardLoop1 == standardLoop2
 --	nodes or the original sub-tree annotated with parallelisation errors.
 paralleliseLoop :: [VarName [String]] -> VarAccessAnalysis ->Fortran [String] -> Fortran [String]
 paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
-										True	-> mapAttempt_ast 
+										True	-> prependAnnotation mapAttempt_ast ("Map at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
 										False 	-> case reduceAttempt_bool of
-													True 	-> reduceAttempt_ast
-													False	-> prependAnnotation (reduceAttempt_ast) ("\nCannot parallelise loop at " ++ errorLocationFormatting (srcSpan reduceAttempt_ast) ++ "\n")
+													True 	-> prependAnnotation reduceAttempt_ast ("Reduction at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
+													False	-> prependAnnotation reduceAttempt_ast ("\nCannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
 													--False	-> appendAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
 								--case paralleliseLoop_map loop newLoopVars of 
 								--	Just a -> a
@@ -208,13 +215,13 @@ analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case co
 							nodeAccessAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
 							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
 
---analyseLoop_reduce :: [VarName [String]] -> Fortran [String] -> (String, [Expr [String]], [Expr [String]])
 analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran [String] -> AnalysisInfo
 analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
 										(if (not potentialReductionVar) && isNonTempAssignment then 
 											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" 
-												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" else "") 
+												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" else ""
+											++ show dependsOnSelfOnce) 
 										,
 										if potentialReductionVar then [expr1] else [],
 										extractOperands expr2,
@@ -223,14 +230,21 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 			where
 				--assignments = arrayAccesses_query expr1
 				--accesses = arrayAccesses_query expr2
-				operands = extractOperands expr1
-				writtenVarnames = foldl (\accum item -> accum ++ extractVarNames item) [] operands
+				operandsExpr1 = extractOperands expr1
+				operandsExpr2 = extractOperands expr2
+
+				dependsOnSelfOnce = map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenVarnames)) readVarnames
+
+				writtenVarnames = foldl (\accum item -> accum ++ extractVarNames item) [] operandsExpr1
+				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] operandsExpr2
+
 				isNonTempAssignment = hasVarName nonTempVars expr1
 				referencedCondition = (foldl (||) False $ map (\x -> hasOperand x expr1) condExprs)
 				referencedSelf = (hasOperand expr2 expr1)
 				dependsOnSelf = (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames) --isIndirectlyDependentOn dependencies 
 				usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
 
+				--potentialReductionVar = isNonTempAssignment && (dependsOnSelfOnce) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 				potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelf) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 
 		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
