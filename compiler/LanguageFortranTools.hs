@@ -6,6 +6,31 @@ import Language.Fortran
 import Data.Char
 import Data.List
 
+--	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
+--	output to the user
+errorLocationFormatting :: SrcSpan -> String
+errorLocationFormatting ((SrcLoc filename line column), srcEnd) = show line ++ ":" ++ show column --"line " ++ show line ++ ", column " ++ show column
+
+errorLocationRangeFormatting :: SrcSpan -> String
+errorLocationRangeFormatting ((SrcLoc _ line_start _), (SrcLoc _ line_end _)) = "line " ++ show line_start ++ " and line " ++ show line_end -- ++ ", column " ++ show column
+
+errorExprFormatting :: Expr [String] -> String
+errorExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) -> ((\(VarName _ str) -> str) varname) ++ 
+															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
+																++ item) "" (map (errorExprFormatting) exprList)) ++ ")" else "")) list)
+errorExprFormatting (Con _ _ str) = str
+errorExprFormatting (Bin _ _ op expr1 expr2) = errorExprFormatting expr1 ++ op_str ++ errorExprFormatting expr2
+							where
+								op_str = case op of
+									Plus p -> "+"
+									Minus p -> "-"
+									Mul p -> "*"
+									Div p -> "/"
+									Or p -> " or "
+									And p -> " and "
+									_ -> "binOp"
+errorExprFormatting codeSeg = show codeSeg
+
 --	Generic function that removes all duplicate elements from a list.
 listRemoveDuplications :: Eq a => [a] -> [a]
 listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a

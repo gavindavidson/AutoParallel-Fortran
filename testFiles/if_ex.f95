@@ -8,7 +8,7 @@ program if_ex
 IF (x > 0) THEN 
 	y = 1
 ELSE IF (x == 0) THEN
-   y = 2 
+   y = 2 	
 ELSE IF (x == -1) THEN
 	WRITE(*,*) 'negative wun'
 ELSE

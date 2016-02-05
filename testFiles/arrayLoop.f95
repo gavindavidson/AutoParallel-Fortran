@@ -15,7 +15,10 @@ program arrayLoop
 
     reduction = 0
     do i = 1, 5
-      reduction = reduction + a(i)
+      hello = reduction
+      reduction = f(reduction) + hello
+!       reduction = this + is + a + test
+!       reduction = reduction + a(i)
 !       red1 = red0 + red0 + a(1)
 !       red2 = red0 + red0 + a(1) + red0 + red0 + a(1) + a(2)
 !       red3 = red0 + red0 + a(1) + red0 + red0 + a(1) + a(2) + red0 + red0 + a(1) + red0 + red0 + a(1) + a(2) + a(3)
@@ -24,23 +27,23 @@ program arrayLoop
     end do
     nonTemp = reduction
 
-    reduction = 0
-    do i = 1, 5
-      reduction = reduction + f(reduction)
-!       reduction = reduction + a(i)
-!       red1 = red0 + a(1)
-!       red2 = red0 + a(1) + a(2)
-!       red3 = red0 + a(1) + a(2) + a(3)
-!       red4 = red0 + a(1) + a(2) + a(3) + a(4)
+!     reduction = 0
+!     do i = 1, 5
+!       reduction = reduction + f(reduction)
+! !       reduction = reduction + a(i)
+! !       red1 = red0 + a(1)
+! !       red2 = red0 + a(1) + a(2)
+! !       red3 = red0 + a(1) + a(2) + a(3)
+! !       red4 = red0 + a(1) + a(2) + a(3) + a(4)
 
-!       reduction3 = reduction3 + f(reduction3)
-!       red1 = red0 + f(red0)
-!       red2 = red0 + f(red0) + f(red0 + f(red0))
-!       red3 = red0 + f(red0) + f(red0 + f(red0)) + f(red0 + f(red0) + f(red0 + f(red0)))
-!       red4 = red0 + f(red0) + f(red0 + f(red0)) + f(red0 + f(red0) + f(red0 + f(red0))) + f(red0 + f(red0) + f(red0 + f(red0)) + f(red0 + f(red0) + f(red0 + f(red0))))
+! !       reduction3 = reduction3 + f(reduction3)
+! !       red1 = red0 + f(red0)
+! !       red2 = red0 + f(red0) + f(red0 + f(red0))
+! !       red3 = red0 + f(red0) + f(red0 + f(red0)) + f(red0 + f(red0) + f(red0 + f(red0)))
+! !       red4 = red0 + f(red0) + f(red0 + f(red0)) + f(red0 + f(red0) + f(red0 + f(red0))) + f(red0 + f(red0) + f(red0 + f(red0)) + f(red0 + f(red0) + f(red0 + f(red0))))
 
-    end do
-    nonTemp = reduction
+!     end do
+!     nonTemp = reduction
 
 !   do 15 loop1=0,10
 !     a(loop1) = 1 + 2

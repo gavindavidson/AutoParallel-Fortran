@@ -219,32 +219,37 @@ analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName [String]
 analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
 										(if (not potentialReductionVar) && isNonTempAssignment then 
-											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ": possible reduction variable (" 
-												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" else ""
-											++ show dependsOnSelfOnce) 
+											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\t Possible reduction variable (" 
+												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" 
+											else "")
+										++
+										(if potentialReductionVar && (not dependsOnSelfOnce) then
+											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\t Possible reduction variable (" 
+												++ errorExprFormatting expr1 ++ ") is related to itself more than once." 
+											else "")
 										,
 										if potentialReductionVar then [expr1] else [],
 										extractOperands expr2,
 										[expr1])
 										usesFullLoopVarError
 			where
-				--assignments = arrayAccesses_query expr1
-				--accesses = arrayAccesses_query expr2
-				operandsExpr1 = extractOperands expr1
-				operandsExpr2 = extractOperands expr2
+				writtenExprs = extractOperands expr1
+				readOperands = extractOperands expr2
+				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 
-				dependsOnSelfOnce = map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenVarnames)) readVarnames
+				dependsOnSelfOnce = foldl (/=) False (map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenVarnames)) readVarnames)
 
-				writtenVarnames = foldl (\accum item -> accum ++ extractVarNames item) [] operandsExpr1
-				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] operandsExpr2
+
+				writtenVarnames = foldl (\accum item -> accum ++ extractVarNames item) [] writtenExprs
+				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] readExprs
 
 				isNonTempAssignment = hasVarName nonTempVars expr1
 				referencedCondition = (foldl (||) False $ map (\x -> hasOperand x expr1) condExprs)
 				referencedSelf = (hasOperand expr2 expr1)
-				dependsOnSelf = (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames) --isIndirectlyDependentOn dependencies 
+				dependsOnSelf = dependsOnSelfOnce || (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames) --isIndirectlyDependentOn dependencies 
 				usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
 
-				--potentialReductionVar = isNonTempAssignment && (dependsOnSelfOnce) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
+				--potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelfOnce) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 				potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelf) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 
 		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
@@ -273,8 +278,8 @@ analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors,
 									errors = foldl (++) "" $ map (\item -> 
 
 																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
-																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan expr)  
-																	++ ": Non temporary, write variable (" ++ errorExprFormatting expr ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
+																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
+																	++ ":\t Non temporary, write variable (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
 
 analyseAccess_reduce :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Expr [String] -> AnalysisInfo
 analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (errors, [],[],[])
@@ -289,23 +294,8 @@ analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (erro
 									errors = foldl (++) "" $ map (\item -> 
 
 																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
-																	== [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan expr)  
-																	++ ": Non temporary, write variable (" ++ errorExprFormatting expr ++ ") written to with use of full loop variable\n"  else "") nonTempWrittenOperands
-
---	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
---	output to the user
-errorLocationFormatting :: SrcSpan -> String
-errorLocationFormatting ((SrcLoc filename line column), srcEnd) = show line ++ ":" ++ show column --"line " ++ show line ++ ", column " ++ show column
-
-errorLocationRangeFormatting :: SrcSpan -> String
-errorLocationRangeFormatting ((SrcLoc _ line_start _), (SrcLoc _ line_end _)) = "line " ++ show line_start ++ " and line " ++ show line_end -- ++ ", column " ++ show column
-
-errorExprFormatting :: Expr [String] -> String
-errorExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) -> ((\(VarName _ str) -> str) varname) ++ 
-															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
-																++ item) "" (map (errorExprFormatting) exprList)) ++ ")" else "")) list)
-errorExprFormatting (Con _ _ str) = str
-errorExprFormatting codeSeg = show codeSeg
+																	== [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
+																	++ ":\t Non temporary, write variable (" ++ errorExprFormatting item ++ ") written to with use of full loop variable\n"  else "") nonTempWrittenOperands
 
 --paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
 paralleliseProgram :: Program [String] -> Program [String] 
@@ -366,21 +356,6 @@ exprListContainsVarNames contains container = all (== True) (everything (++) (mk
 varNameCheck :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [Bool]
 varNameCheck container contains = [elem contains container]
 
---	Function checks whether every VarName in a list appears at least once in a list of Expr
--- exprListContainsAllVarNames :: (Typeable p, Data p, Eq p) => [VarName p] -> [Expr p] -> Bool
--- exprListContainsAllVarNames contains container = (foldl delete_foldl (listRemoveDuplications contains) (everything (++) (mkQ [] getVarNames) container)) == []
-
--- delete_foldl :: (Typeable p, Data p, Eq p) => [VarName p] -> VarName p -> [VarName p]
--- delete_foldl accum item = delete item accum
-
---	Function returns a boolean that shows whether or not a list of expressions contains any constants
--- constantCheck_query :: (Typeable p, Data p) => [Expr p] -> Bool
--- constantCheck_query exprList = all (== False) (everything (++) (mkQ [] (constantCheck)) exprList)
-
--- constantCheck :: Expr [String] -> [Bool]
--- constantCheck (Con _ _ _) = [True]
--- constantCheck _ = [False]
-
 -- 	Function returns the loop variable for an AST representing a for loop
 getLoopVar :: Fortran p -> Maybe(VarName p)
 getLoopVar (For _ _ var _ _ _ _) = Just var
@@ -389,3 +364,14 @@ getLoopVar _ = Nothing
 --	Value used as a global spacing measure. Used for output formatting.
 outputTab :: String
 outputTab = "  "
+
+isAssociativeOp :: BinOp p -> Bool
+isAssociativeOp (Plus p) = True
+isAssociativeOp (Mul p) = True
+isAssociativeOp (Or p) = True
+isAssociativeOp _ = False
+
+isAssociativFunction :: String -> Bool
+isAssociativFunction "min" = True
+isAssociativFunction "max" = True
+isAssociativFunction _ = False
