@@ -1,11 +1,13 @@
 folder="../testFiles"
-filename="press.f95"
+filename="arrayLoop.f95"
 
 originalfile=$folder"/"$filename
 parfile=$folder"/par_"$filename
 
-echo "Running on "$originalfile
-
 ghc Transformer.hs -i../language-fortran/src/ -XTemplateHaskell
+
+echo ""
+echo "Running on "$originalfile
+echo ""
 ./Transformer $originalfile
 python ../utils/astFormatter.py $parfile > treeWalker.ast

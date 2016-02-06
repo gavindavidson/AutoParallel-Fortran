@@ -19,7 +19,7 @@ errorExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) ->
 															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
 																++ item) "" (map (errorExprFormatting) exprList)) ++ ")" else "")) list)
 errorExprFormatting (Con _ _ str) = str
-errorExprFormatting (Bin _ _ op expr1 expr2) = errorExprFormatting expr1 ++ op_str ++ errorExprFormatting expr2
+errorExprFormatting (Bin _ _ op expr1 expr2) = errorExprFormatting expr1 ++ " " ++ op_str ++ " " ++ errorExprFormatting expr2
 							where
 								op_str = case op of
 									Plus p -> "+"

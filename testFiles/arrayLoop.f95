@@ -16,7 +16,7 @@ program arrayLoop
     reduction = 0
     do i = 1, 5
       hello = reduction
-      reduction = f(reduction) + hello
+      reduction = reduction + a(i) - reduction
 !       reduction = this + is + a + test
 !       reduction = reduction + a(i)
 !       red1 = red0 + red0 + a(1)

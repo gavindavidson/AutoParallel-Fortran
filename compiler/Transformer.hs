@@ -25,7 +25,8 @@ main = do
 	
 	putStr "STUFF TO DO:\n"
 	putStr "\t- Fix adjacent kernel fusion\n"
-	putStr "\t- Add new reduction rule (Depends on self but only once)\n"
+	putStr "\t- Check is associative function (reduction)\n"
+	putStr "\t- Check for identity value (reduction)\n"
 	putStr "\t- Code emission\n"
 	putStr "\n"
 
@@ -219,13 +220,18 @@ analyseLoop_reduce :: [Expr [String]] -> [VarName [String]] -> [VarName [String]
 analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
 										(if (not potentialReductionVar) && isNonTempAssignment then 
-											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\t Possible reduction variable (" 
+											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\tPossible reduction variable (" 
 												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" 
 											else "")
 										++
 										(if potentialReductionVar && (not dependsOnSelfOnce) then
-											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\t Possible reduction variable (" 
-												++ errorExprFormatting expr1 ++ ") is related to itself more than once." 
+											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\tPossible reduction variable (" 
+												++ errorExprFormatting expr1 ++ ") is related to itself more than once.\n" 
+											else "")
+										++
+										(if potentialReductionVar && (not associative) && dependsOnSelfOnce then
+											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\t(" 
+												++ errorExprFormatting expr2 ++ ") is not an associative function.\n" 
 											else "")
 										,
 										if potentialReductionVar then [expr1] else [],
@@ -239,18 +245,18 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 
 				dependsOnSelfOnce = foldl (/=) False (map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenVarnames)) readVarnames)
 
-
 				writtenVarnames = foldl (\accum item -> accum ++ extractVarNames item) [] writtenExprs
 				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] readExprs
 
 				isNonTempAssignment = hasVarName nonTempVars expr1
 				referencedCondition = (foldl (||) False $ map (\x -> hasOperand x expr1) condExprs)
 				referencedSelf = (hasOperand expr2 expr1)
+				associative = isAssociativeExpr expr1 expr2
 				dependsOnSelf = dependsOnSelfOnce || (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames) --isIndirectlyDependentOn dependencies 
 				usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
 
-				--potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelfOnce) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 				potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelf) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
+				--potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 
 		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
@@ -279,7 +285,7 @@ analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors,
 
 																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
 																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
-																	++ ":\t Non temporary, write variable (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
+																	++ ":\tNon temporary, write variable (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
 
 analyseAccess_reduce :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Expr [String] -> AnalysisInfo
 analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (errors, [],[],[])
@@ -296,6 +302,31 @@ analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (erro
 																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
 																	== [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
 																	++ ":\t Non temporary, write variable (" ++ errorExprFormatting item ++ ") written to with use of full loop variable\n"  else "") nonTempWrittenOperands
+
+isAssociativeExpr :: Expr [String] -> Expr [String] -> Bool
+isAssociativeExpr assignee (Bin _ _ op expr1 expr2) = case assigneePresent of
+										True -> associativeOp
+										False -> isAssociativeExpr assignee expr1 || 
+													isAssociativeExpr assignee expr2 
+						where
+							assigneePresent = standardiseSrcSpan_trans expr1 == standardiseSrcSpan_trans assignee ||
+												standardiseSrcSpan_trans expr2 == standardiseSrcSpan_trans assignee
+							associativeOp = isAssociativeOp op
+isAssociativeExpr assignee assignment = foldl (||) False (map (\(VarName _ str) -> isAssociativeFunction str) (extractVarNames assignment))
+
+isAssociativeOp :: BinOp p -> Bool
+isAssociativeOp (Plus p) = True
+isAssociativeOp (Mul p) = True
+isAssociativeOp (Or p) = True
+isAssociativeOp _ = False
+
+isAssociativeFunction :: String -> Bool
+isAssociativeFunction fnName = case (map (toLower) fnName) of
+								"min" -> True
+								"max" -> True
+								"amax1" -> True
+								"amin1" -> True
+								_ -> False
 
 --paralleliseProgram :: (Typeable p, Data p) => ProgUnit p -> ProgUnit p 
 paralleliseProgram :: Program [String] -> Program [String] 
@@ -364,14 +395,3 @@ getLoopVar _ = Nothing
 --	Value used as a global spacing measure. Used for output formatting.
 outputTab :: String
 outputTab = "  "
-
-isAssociativeOp :: BinOp p -> Bool
-isAssociativeOp (Plus p) = True
-isAssociativeOp (Mul p) = True
-isAssociativeOp (Or p) = True
-isAssociativeOp _ = False
-
-isAssociativFunction :: String -> Bool
-isAssociativFunction "min" = True
-isAssociativFunction "max" = True
-isAssociativFunction _ = False
