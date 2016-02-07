@@ -103,7 +103,7 @@ analyseAllVarAccess_fortran declarations prevAnalysis codeSeg =  aggregateAnalys
 												where 
 													aggregateAnalysis = foldl (combineVarAccessAnalysis) [] (gmapQ (mkQ [] (analyseAllVarAccess_fortran declarations currentAnalysis)) codeSeg)						
 
-													extractedExprs = gmapQ (mkQ (Null [] generatedSrcSpan) extractExprs) codeSeg
+													extractedExprs = gmapQ (mkQ (Null [] nullSrcSpan) extractExprs) codeSeg
 													--readExprs = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
 													readExprs = foldl (getAccessedExprs declarations) [] extractedExprs
 													readVarNames = foldl (\accum item -> accum ++ extractVarNames item) [] readExprs	

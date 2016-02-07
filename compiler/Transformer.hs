@@ -45,7 +45,7 @@ main = do
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
 	-- putStr "\n"
-	emit (filename) "" parallelisedProg
+	emit (filename) "" combinedProg
 	--emit (filename) "" combinedProg
 
 	--putStr $ show $ parsedProgram
@@ -74,49 +74,59 @@ combineKernelsBlock block = combinedAdjacentNested
 
 combineNestedKernels :: Fortran [String] -> Fortran [String]
 combineNestedKernels codeSeg = case codeSeg of
-					(OpenCLMap anno1 _ outerReads outerWrites outerLoopVs fortran) -> case fortran of
-								FSeq _ src1 (OpenCLMap anno2 _ innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
-										OpenCLMap (anno1++anno2++[newAnnotation]) generatedSrcSpan reads writes loopVs innerFortran
+					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
+								FSeq _ _ (OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
+										OpenCLMap (anno1++anno2++[newAnnotation]) src1 reads writes loopVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
 												writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
-												newAnnotation = "Nested map at " ++ errorLocationFormatting src1 ++ " fused into surrounding map\n"
+												newAnnotation = "Nested map at " ++ errorLocationFormatting src2 ++ " fused into surrounding map\n"
 								otherwise -> codeSeg
 
-					(OpenCLReduce anno1 _ outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
-								FSeq _ src1 (OpenCLReduce anno2 _ innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
-										OpenCLReduce (anno1++anno2++[newAnnotation]) generatedSrcSpan reads writes loopVs redVs innerFortran
+					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
+								FSeq _ _ (OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
+										OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
 												writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
 												redVs = listRemoveDuplications $ outerRedVs ++ innerRedVs
-												newAnnotation = "Nested reduction at " ++ errorLocationFormatting src1 ++ " fused into surrounding reduction\n"
+												newAnnotation = "Nested reduction at " ++ errorLocationFormatting src2 ++ " fused into surrounding reduction\n"
 								otherwise -> codeSeg
 					otherwise -> codeSeg
 
 
 combineAdjacentKernels :: Fortran [String] -> Fortran [String]
 combineAdjacentKernels codeSeg = case codeSeg of
-					(FSeq anno1 src1 fortran1 (FSeq anno2 src2 fortran2 fortran3)) -> case fortran1 of
-							OpenCLMap _ _ _ _ _ _ -> case fortran2 of
-									OpenCLMap _ _ _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
+					(FSeq anno1 _ fortran1 (FSeq anno2 _ fortran2 fortran3)) -> case fortran1 of
+							OpenCLMap _ src1 _ _ _ _ -> case fortran2 of
+									OpenCLMap _ src2 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
 																Just oclmap -> FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
 																	where
 																		newAnnotation = "Adjacent maps at " ++ errorLocationFormatting src1 ++ " and " ++ errorLocationFormatting src2 ++ " fused\n"
 																Nothing -> codeSeg
 									otherwise	-> codeSeg
 							otherwise	-> codeSeg
+					(FSeq anno1 _ fortran1 fortran2) -> case fortran1 of
+							OpenCLMap _ src1 _ _ _ _ -> case fortran2 of
+									OpenCLMap _ src2 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
+																Just oclmap -> appendAnnotation oclmap newAnnotation -- FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
+																	where
+																		newAnnotation = (foldl (++) "" anno1) ++ "Adjacent maps at " ++ errorLocationFormatting src1 
+																						++ " and " ++ errorLocationFormatting src2 ++ " fused\n"
+																Nothing -> codeSeg
+									otherwise	-> codeSeg
+							otherwise	-> codeSeg
 					otherwise -> codeSeg
 
 attemptCombineAdjacentMaps:: Fortran [String] -> Fortran [String] -> Maybe(Fortran [String])
-attemptCombineAdjacentMaps 	(OpenCLMap anno1 _ reads1 writes1 loopVs1 fortran1) 
-							(OpenCLMap anno2 _ reads2 writes2 loopVs2 fortran2) = result
+attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
+							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) = result
 									where
 										combinedLoopVars = attemptCombineLoopVariables loopVs1 loopVs2
 										result = case combinedLoopVars of
-											Just combinedVars -> Just $ OpenCLMap anno generatedSrcSpan reads writes combinedVars fortran
+											Just combinedVars -> Just $ OpenCLMap anno src1 reads writes combinedVars fortran
 											Nothing -> Nothing
 										reads = listRemoveDuplications $ reads1 ++ reads2
 										writes = listRemoveDuplications $ writes1 ++ writes2
@@ -172,7 +182,7 @@ extractWrites _ = []
 --	original sub-tree annotated with reasons why the loop cannot be mapped
 paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> (Bool, Fortran [String])
 paralleliseLoop_map loop loopVars loopWrites nonTempVars accessAnalysis	|	errors_map == "" 	=	(True,
-																	OpenCLMap [] generatedSrcSpan 
+																	OpenCLMap [] (generateSrcSpan (srcSpan loop)) 
 													 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
 													 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
@@ -188,7 +198,7 @@ paralleliseLoop_map loop loopVars loopWrites nonTempVars accessAnalysis	|	errors
 --	original sub-tree annotated with reasons why the loop is not a reduction
 paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran [String])
 paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies accessAnalysis	|	errors_reduce == "" 	=	(True, 
-																									OpenCLReduce [] generatedSrcSpan 
+																									OpenCLReduce [] (generateSrcSpan (srcSpan loop))
 																					 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
 																					 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
 																					 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))

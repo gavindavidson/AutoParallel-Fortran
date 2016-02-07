@@ -28,16 +28,16 @@ defaultFilename (x:xs) = x ++ "/" ++ defaultFilename xs
 flattenLoopConditions :: Maybe (VarName p) -> (VarName p) -> [(VarName p, Expr p, Expr p, Expr p)] -> Fortran p
 flattenLoopConditions prev globalId ((var, start, end, step):[]) = Assg 
 																		(tag globalId) 
-																		generatedSrcSpan 
-																		(Var (tag globalId) generatedSrcSpan [(var, [])])
+																		nullSrcSpan 
+																		(Var (tag globalId) nullSrcSpan [(var, [])])
 																		(primitiveMod globalId end)
 flattenLoopConditions prev globalId ((var, start, end, step):xs) = 	FSeq 
 																	(tag globalId) 
-																	generatedSrcSpan (
+																	nullSrcSpan (
 																		Assg 
 																		(tag globalId) 
-																		generatedSrcSpan (
-																			Var (tag globalId) generatedSrcSpan [(var, [])])
+																		nullSrcSpan (
+																			Var (tag globalId) nullSrcSpan [(var, [])])
 																		(flattenCondition_div globalId prev (multiplyLoopConditions xs) -- DIVISOR
 																			)
 																		)
@@ -47,28 +47,28 @@ flattenLoopConditions prev globalId ((var, start, end, step):xs) = 	FSeq
 flattenCondition_div :: VarName p -> Maybe (VarName p) -> Expr p -> Expr p
 flattenCondition_div globalId (Just prev) divisor = Bin 
 														(tag globalId) 
-														generatedSrcSpan 
+														nullSrcSpan 
 														(Div (tag globalId)) (
 															Bin 
 																(tag globalId) 
-																generatedSrcSpan 
+																nullSrcSpan 
 																(Minus (tag globalId)) 
 																(Var 
 																	(tag globalId) 
-																	generatedSrcSpan 
+																	nullSrcSpan 
 																	[(globalId, [])]) 
 																(Var 
 																	(tag globalId) 
-																	generatedSrcSpan 
+																	nullSrcSpan 
 																	[(prev, [])]))
 														divisor
 flattenCondition_div globalId Nothing divisor = 	Bin 
 														(tag globalId) 
-														generatedSrcSpan 
+														nullSrcSpan 
 														(Div (tag globalId)) 
 														(Var 
 															(tag globalId) 
-															generatedSrcSpan 
+															nullSrcSpan 
 															[(globalId, [])]) 
 														divisor
 
@@ -76,11 +76,11 @@ flattenCondition_div globalId Nothing divisor = 	Bin
 flattenCondition_mod :: VarName p -> Maybe (VarName p) -> Expr p -> Expr p
 flattenCondition_mod globalId (Just prev) divisor = Bin 
 														(tag globalId) 
-														generatedSrcSpan 
+														nullSrcSpan 
 														(Div (tag globalId)) 
 														(Var 
 															(tag globalId) 
-															generatedSrcSpan 
+															nullSrcSpan 
 															[(globalId, [])]) 
 														divisor 
 
@@ -89,23 +89,23 @@ flattenCondition_mod globalId (Just prev) divisor = Bin
 primitiveMod :: VarName p -> Expr p -> Expr p 
 primitiveMod quotient divisor = Bin 
 									(tag quotient) 
-									generatedSrcSpan 
+									nullSrcSpan 
 									(Minus (tag quotient)) 
 									(Var 
 										(tag quotient) 
-										generatedSrcSpan 
+										nullSrcSpan 
 										[(quotient, [])]) 
 									(Bin 
 										(tag quotient) 
-										generatedSrcSpan 
+										nullSrcSpan 
 										(Mul (tag quotient)) 
 										(Bin 
 											(tag quotient) 
-											generatedSrcSpan 
+											nullSrcSpan 
 											(Div (tag quotient)) 
 											(Var 
 												(tag quotient) 
-												generatedSrcSpan 
+												nullSrcSpan 
 												[(quotient, [])]) 
 											divisor) 
 										divisor)
@@ -114,4 +114,4 @@ primitiveMod quotient divisor = Bin
 --	This will likely be changed.
 multiplyLoopConditions :: [(VarName p, Expr p, Expr p, Expr p)] -> Expr p
 multiplyLoopConditions ((var, start, end, step):[]) = end
-multiplyLoopConditions ((var, start, end, step):xs) = Bin (tag var) generatedSrcSpan (Mul (tag var)) end (multiplyLoopConditions xs)
+multiplyLoopConditions ((var, start, end, step):xs) = Bin (tag var) nullSrcSpan (Mul (tag var)) end (multiplyLoopConditions xs)
