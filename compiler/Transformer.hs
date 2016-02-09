@@ -45,8 +45,8 @@ main = do
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
 	-- putStr "\n"
+	--emit (filename) "" parsedProgram
 	emit (filename) "" combinedProg
-	--emit (filename) "" combinedProg
 
 	--putStr $ show $ parsedProgram
 	--putStr "\n\n\n"
@@ -75,7 +75,9 @@ combineKernelsBlock block = combinedAdjacentNested
 combineNestedKernels :: Fortran [String] -> Fortran [String]
 combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
-								FSeq _ _ (OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
+								--FSeq _ _ (OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
+								(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
+
 										OpenCLMap (anno1++anno2++[newAnnotation]) src1 reads writes loopVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
@@ -85,7 +87,8 @@ combineNestedKernels codeSeg = case codeSeg of
 								otherwise -> codeSeg
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
-								FSeq _ _ (OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
+								--FSeq _ _ (OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
+								(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
 										OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
@@ -120,27 +123,110 @@ combineAdjacentKernels codeSeg = case codeSeg of
 							otherwise	-> codeSeg
 					otherwise -> codeSeg
 
-attemptCombineAdjacentMaps:: Fortran [String] -> Fortran [String] -> Maybe(Fortran [String])
+attemptCombineAdjacentMaps :: Fortran [String] -> Fortran [String] -> Maybe(Fortran [String])
 attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
-							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) = result
+							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] = Nothing
+																					| otherwise = Just(resultantMap)
 									where
-										combinedLoopVars = attemptCombineLoopVariables loopVs1 loopVs2
-										result = case combinedLoopVars of
-											Just combinedVars -> Just $ OpenCLMap anno src1 reads writes combinedVars fortran
-											Nothing -> Nothing
-										reads = listRemoveDuplications $ reads1 ++ reads2
+										combinedReads = listRemoveDuplications $ reads1 ++ reads2
 										writes = listRemoveDuplications $ writes1 ++ writes2
-										fortran = appendFortran_recursive fortran2 fortran1
 										anno = anno1 ++ anno2
 
-attemptCombineLoopVariables :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
+										fortran = appendFortran_recursive 	(if yPredicateList /= [] then (generateIf yAndPredicate fortran2) else fortran2) 
+																			(if xPredicateList /= [] then (generateIf xAndPredicate fortran1) else fortran1) 
+
+										combinedConditions = loopVariableCombinationConditions loopVs1 loopVs2
+										(xPredicateList, yPredicateList, resultLoopVars) = case combinedConditions of
+											Just conditions -> conditions
+											Nothing -> ([],[],[])
+
+										xAndPredicate = generateAndExprFromList xPredicateList
+										yAndPredicate = generateAndExprFromList yPredicateList
+
+										resultantMap = OpenCLMap anno src1 combinedReads writes resultLoopVars fortran
+
+loopVariableCombinationConditions :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
 									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
-									-> Maybe ([(VarName [String], Expr [String], Expr [String], Expr [String])])
-attemptCombineLoopVariables loopVars1 loopVars2 |	standardLoop1 == standardLoop2 = Just loopVars1
-												|	otherwise = Nothing
-												where
-													standardLoop1 = everywhere (mkT standardiseSrcSpan) loopVars1
-													standardLoop2 = everywhere (mkT standardiseSrcSpan) loopVars2
+									-> Maybe([Expr [String]], [Expr [String]], [(VarName [String], Expr [String], Expr [String], Expr [String])])
+loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs) 
+									((yVarName, yStart, yEnd, yStep):ys) 	|	sameVarNames && sameStart && sameStep && sameEnd && nextCombines = Just([],[], [loopVars] ++ loopVarsNext)
+																			|	sameVarNames && sameStart && sameStep && endLinearFunction && nextCombines = Just(predicatListX ++ xNext, predicatListY ++ yNext, [loopVars] ++ loopVarsNext)
+																			|	otherwise = Nothing
+										where
+											sameVarNames = xVarName == yVarName
+											sameStart = (everywhere (mkT standardiseSrcSpan) xStart) == (everywhere (mkT standardiseSrcSpan) yStart)
+											sameStep = (everywhere (mkT standardiseSrcSpan) xStep) == (everywhere (mkT standardiseSrcSpan) yStep)
+											sameEnd = (everywhere (mkT standardiseSrcSpan) xEnd) == (everywhere (mkT standardiseSrcSpan) yEnd)
+
+											xAddsToY = isConstantAdditionOf xEnd yEnd
+											yAddsToX = isConstantAdditionOf yEnd xEnd
+											xTakesFromY = isConstantSubtractionOf xEnd yEnd
+											yTakesFromX = isConstantSubtractionOf yEnd xEnd
+											endLinearFunction = xAddsToY || yAddsToX || xTakesFromY || yTakesFromX
+
+											predicatListX = (if yAddsToX || xTakesFromY then [generateLTExpr (generateVar xVarName) xEnd]
+															 else [])
+											predicatListY = (if xAddsToY || yTakesFromX then [generateLTExpr (generateVar yVarName) yEnd]
+															 else [])
+											loopVars = (if yAddsToX || xTakesFromY then (yVarName, yStart, yEnd, yStep)
+															 else (xVarName, xStart, xEnd, xStep))
+
+											nextCombines = case next of
+													Just a -> True
+													Nothing -> False
+
+											next = loopVariableCombinationCondition xs ys
+											xNext = case next of
+												Just a -> (\(x, _, _) -> x) a
+												Nothing -> []
+											yNext = case next of
+												Just a -> (\(_, y, _) -> y) a
+												Nothing -> []
+											loopVarsNext = case next of
+												Just a -> (\(_, _, z) -> z) a
+												Nothing -> []
+
+loopVariableCombinationCondition [] [] = Just([],[],[])
+loopVariableCombinationCondition a b = Just([],[],[])
+
+isConstantAdditionOf :: Expr [String] -> Expr [String] -> Bool
+isConstantAdditionOf (Bin anno2 src2 op expr1 expr2) var 	|	exprContainsVar && expr2Cons = case op of
+																								Plus _ -> True
+																								otherwise -> False
+															|	otherwise = False
+																where 
+																	standardVar = (everywhere (mkT standardiseSrcSpan) var)
+																	standardExpr1 = (everywhere (mkT standardiseSrcSpan) expr1)
+																	exprContainsVar = standardVar == standardExpr1
+																	expr2Cons = case expr2 of
+																			Con _ _ str -> True
+																			_	-> False
+isConstantAdditionOf _ _ = False
+
+isConstantSubtractionOf :: Expr [String] -> Expr [String] -> Bool
+isConstantSubtractionOf (Bin anno2 src2 op expr1 expr2) var |	exprContainsVar && expr2Cons = case op of
+																								Minus _ -> True
+																								otherwise -> False
+															|	otherwise = False
+																where 
+																	standardVar = (everywhere (mkT standardiseSrcSpan) var)
+																	standardExpr1 = (everywhere (mkT standardiseSrcSpan) expr1)
+																	exprContainsVar = standardVar == standardExpr1
+																	expr2Cons = case expr2 of
+																			Con _ _ str -> True
+																			_	-> False
+isConstantSubtractionOf _ _ = False
+
+
+
+--attemptCombineLoopVariables :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
+--									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
+--									-> Maybe ([(VarName [String], Expr [String], Expr [String], Expr [String])])
+--attemptCombineLoopVariables loopVars1 loopVars2 |	standardLoop1 == standardLoop2 = Just loopVars1
+--												|	otherwise = Nothing
+--												where
+--													standardLoop1 = everywhere (mkT standardiseSrcSpan) loopVars1
+--													standardLoop2 = everywhere (mkT standardiseSrcSpan) loopVars2
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.

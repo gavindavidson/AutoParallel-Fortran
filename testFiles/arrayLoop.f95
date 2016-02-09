@@ -5,19 +5,83 @@ program arrayLoop
         integer, intent(In) :: c
         integer, intent(In) :: d
 
-  do 15 loop1=0,10
-    a = 1 + 2
-  15 continue
+do loop1=0, d
+  do loop2=0, c 
+    a(loop1,loop2) = 12+45
+    a(loop1,loop2) = 12+45
+  end do
+end do
 
-  do 15 loop1=0,10
-    b(loop1) = 3 + 4
-  15 continue
-  
+do loop1=0, d
+  do loop2=0, c 
+    b(loop1,loop2) = 12+45
+  end do
+end do
 
-  do 15 loop1=0,10
-    c(loop1) = 1 + 2
-    d(loop1) = 3 + 4
-  15 continue
+! do loop1=0, d + 1
+!   do loop2=0, c 
+!     if (loop1 < d) then
+!       a(loop1,loop2) = 12+45
+!     endif
+!     b(loop1,loop2) = 12+45
+!   end do
+! end do
+!   do 15 loop1=0,d
+!     a(loop1) = 1 + 2
+!   15 continue
+
+!   do 15 loop1=0,d+1
+!     b(loop1) = 3 + 4
+!   15 continue
+
+! ! ! BECOMES
+
+!   do 15 loop2=0,d + 1
+!     if (loop2 < d) then
+!       a(loop2) = 1 + 2
+!     endif
+!     b(loop2) = 3 + 4
+!   15 continue
+
+
+
+
+!   do 15 loop1=0,d + 5
+!     a(loop1) = 1 + 2
+!   15 continue
+
+!   do 15 loop1=0,d
+!     b(loop1) = 3 + 4
+!   15 continue
+
+!   do 15 loop1=0,d + 5
+!     a(loop1) = 1 + 2
+!     if (loop1 < d)
+!       b(loop1) = 3 + 4
+!     endif
+!   15 continue
+
+
+!   do 15 loop1=0,d - 5
+!     a(loop1) = 1 + 2
+!   15 continue
+
+!   do 15 loop1=0,d
+!     b(loop1) = 3 + 4
+!   15 continue
+
+!   do 15 loop1=0,d
+!     if (loop1 < d - 5)
+!       a(loop1) = 1 + 2
+!     endif
+!     b(loop1) = 3 + 4
+!   15 continue
+
+
+!   do 15 loop1=0,10
+!     c(loop1) = 1 + 2
+!     d(loop1) = 3 + 4
+!   15 continue
 
 ! module arrayLoop
 

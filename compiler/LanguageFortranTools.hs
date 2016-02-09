@@ -61,6 +61,21 @@ nullSrcSpan = (SrcLoc {srcFilename = "Generated", srcLine = -1, srcColumn = -1},
 generateSrcSpan :: SrcSpan -> SrcSpan
 generateSrcSpan ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "Generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "Generated", srcLine = eLine, srcColumn = eCol})
 
+generateLTExpr :: Expr [String] -> Expr [String] -> Expr [String]
+generateLTExpr expr1 expr2 = Bin [] nullSrcSpan (RelLT []) expr1 expr2
+
+generateAndExpr :: Expr [String] -> Expr [String] -> Expr [String]
+generateAndExpr expr1 expr2 = Bin [] nullSrcSpan (And []) expr1 expr2
+
+generateAndExprFromList :: [Expr [String]] -> Expr [String]
+generateAndExprFromList list = foldl1 (generateAndExpr) list
+
+generateVar :: VarName [String] -> Expr [String]
+generateVar varname = Var [] nullSrcSpan [(varname, [])]
+
+generateIf :: Expr [String] -> Fortran [String] -> Fortran [String]
+generateIf expr fortran = If [] nullSrcSpan expr fortran [] Nothing
+
 --	Used to standardise SrcSpans so that nodes of an AST may be matched up even if they appear in completely different
 --	parts of a program
 --standardiseSrcSpan_trans ::(Data a, Typeable a) =>  Expr a -> Expr a
@@ -118,4 +133,5 @@ removeLoopConstructs_recursive :: Fortran [String] -> Fortran [String]
 removeLoopConstructs_recursive (FSeq anno _ (For _ _ _ _ _ _ fortran1) fortran2) = removeLoopConstructs_recursive $ appendFortran_recursive fortran2 fortran1
 removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran) = removeLoopConstructs_recursive fortran
 removeLoopConstructs_recursive (OpenCLMap _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
+removeLoopConstructs_recursive (FSeq _ _ fortran (NullStmt _ _)) = fortran
 removeLoopConstructs_recursive codeSeg = codeSeg
