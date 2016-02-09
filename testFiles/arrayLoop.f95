@@ -6,17 +6,20 @@ program arrayLoop
         integer, intent(In) :: d
 
 do loop1=0, d
-  do loop2=0, c 
+!   do loop2=0, c 
     a(loop1,loop2) = 12+45
     a(loop1,loop2) = 12+45
-  end do
+!   end do
 end do
 
 do loop1=0, d
-  do loop2=0, c 
+!   do loop2=0, c+1
     b(loop1,loop2) = 12+45
-  end do
+!   end do
 end do
+! if (1 > 2) then
+!   dave = "hello"
+! end if 
 
 ! do loop1=0, d + 1
 !   do loop2=0, c 

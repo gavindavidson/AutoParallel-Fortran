@@ -25,7 +25,6 @@ main = do
 	
 	putStr "STUFF TO DO:\n"
 	putStr "\t- Fix adjacent kernel fusion\n"
-	putStr "\t- Check is associative function (reduction)\n"
 	putStr "\t- Check for identity value (reduction)\n"
 	putStr "\t- Code emission\n"
 	putStr "\n"
@@ -75,8 +74,8 @@ combineKernelsBlock block = combinedAdjacentNested
 combineNestedKernels :: Fortran [String] -> Fortran [String]
 combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
-								--FSeq _ _ (OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
-								(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
+								FSeq _ _ (OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
+								--(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
 
 										OpenCLMap (anno1++anno2++[newAnnotation]) src1 reads writes loopVs innerFortran
 											where 
@@ -87,8 +86,8 @@ combineNestedKernels codeSeg = case codeSeg of
 								otherwise -> codeSeg
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
-								--FSeq _ _ (OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
-								(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
+								FSeq _ _ (OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
+								--(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
 										OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
@@ -216,17 +215,6 @@ isConstantSubtractionOf (Bin anno2 src2 op expr1 expr2) var |	exprContainsVar &&
 																			Con _ _ str -> True
 																			_	-> False
 isConstantSubtractionOf _ _ = False
-
-
-
---attemptCombineLoopVariables :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
---									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
---									-> Maybe ([(VarName [String], Expr [String], Expr [String], Expr [String])])
---attemptCombineLoopVariables loopVars1 loopVars2 |	standardLoop1 == standardLoop2 = Just loopVars1
---												|	otherwise = Nothing
---												where
---													standardLoop1 = everywhere (mkT standardiseSrcSpan) loopVars1
---													standardLoop2 = everywhere (mkT standardiseSrcSpan) loopVars2
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
