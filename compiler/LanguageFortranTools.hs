@@ -5,6 +5,17 @@ import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
 import Data.List
+import System.Process
+import System.Directory
+
+import PreProcessor
+
+--	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
+parseFile s = do inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
+                 return $ parse $ preProcess inp
+
+cpp s = do 	inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
+        	return inp
 
 --	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
@@ -28,7 +39,14 @@ errorExprFormatting (Bin _ _ op expr1 expr2) = errorExprFormatting expr1 ++ " " 
 									Div p -> "/"
 									Or p -> " or "
 									And p -> " and "
-									_ -> "binOp"
+									Concat p -> " concat "
+									Power p -> "^^"
+									RelEQ p -> "=="
+									RelNE p -> "/="
+									RelLT p -> "<"
+									RelLE p -> "<="
+									RelGT p -> ">"
+									RelGE p -> ">="
 errorExprFormatting codeSeg = show codeSeg
 
 --	Generic function that removes all duplicate elements from a list.
@@ -122,9 +140,10 @@ hasVarName loopWrites _ = False
 
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran [String] -> Fortran [String] -> Fortran [String]
-appendFortran_recursive newFortran (FSeq _ _ _ (FSeq _ _ _ fortran1)) = appendFortran_recursive newFortran fortran1 
-appendFortran_recursive newFortran (FSeq _ _ fortran1 (NullStmt _ _)) = FSeq [] nullSrcSpan fortran1 newFortran
-appendFortran_recursive newFortran (FSeq _ _ fortran1 fortran2) = FSeq [] nullSrcSpan fortran1 (FSeq [] nullSrcSpan fortran2 newFortran)
+--appendFortran_recursive newFortran (FSeq _ _ _ (FSeq _ _ _ fortran1)) = appendFortran_recursive newFortran fortran1 
+--appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 (FSeq anno2 src2 fortran2 fortran3)) = FSeq anno1 src1 fortran1 (FSeq anno2 src2 fortran2 (appendFortran_recursive newFortran fortran3)) 
+appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 (NullStmt anno2 src2)) = FSeq anno1 src1 fortran1 newFortran
+appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 fortran2) = FSeq anno1 src1 fortran1 (appendFortran_recursive newFortran fortran2)
 appendFortran_recursive newFortran codeSeg = FSeq [] nullSrcSpan codeSeg newFortran
 
 --	Takes an AST and removes the loop statements from the node and joins up the rest of the code so that is it represented in the
@@ -132,6 +151,33 @@ appendFortran_recursive newFortran codeSeg = FSeq [] nullSrcSpan codeSeg newFort
 removeLoopConstructs_recursive :: Fortran [String] -> Fortran [String]
 removeLoopConstructs_recursive (FSeq anno _ (For _ _ _ _ _ _ fortran1) fortran2) = removeLoopConstructs_recursive $ appendFortran_recursive fortran2 fortran1
 removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran) = removeLoopConstructs_recursive fortran
-removeLoopConstructs_recursive (OpenCLMap _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
---removeLoopConstructs_recursive (FSeq _ _ fortran (NullStmt _ _)) = removeLoopConstructs_recursive fortran
+--removeLoopConstructs_recursive (OpenCLMap _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
+--removeLoopConstructs_recursive (OpenCLReduce _ _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
+removeLoopConstructs_recursive (FSeq _ _ fortran (NullStmt _ _)) = removeLoopConstructs_recursive fortran
 removeLoopConstructs_recursive codeSeg = codeSeg
+
+getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
+getEarliestSrcSpan [] = Nothing
+getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
+
+checkSrcSpanBefore :: SrcSpan -> SrcSpan -> Bool
+checkSrcSpanBefore ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after) && (column_before < column_after)
+
+checkSrcSpanBefore_line :: SrcSpan -> SrcSpan -> Bool
+checkSrcSpanBefore_line ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after)
+
+getSrcSpanNonIntersection :: SrcSpan -> SrcSpan -> (SrcSpan, SrcSpan)
+getSrcSpanNonIntersection src1 src2 = (firstSrc, secondSrc)
+					where
+						(src1_s, src1_e) = src1
+						(src2_s, src2_e) = src2
+
+						firstSrc = (src1_s, src2_s)
+						secondSrc = (src2_e, src1_e)
+
+--	Generic function that takes two lists a and b and returns a +list c that is all of the elements of a that do not appear in b.
+listSubtract :: Eq a => [a] -> [a] -> [a]
+listSubtract a b = filter (\x -> notElem x b) a
+
+listIntersection :: Eq a => [a] -> [a] -> [a]
+listIntersection a b = filter (\x -> elem x b) a

@@ -9,7 +9,6 @@ import System.Environment
 import System.Process
 import System.Directory
 
-import PreProcessor
 import VarAccessAnalysis
 import VarDependencyAnalysis
 import LanguageFortranTools
@@ -46,21 +45,14 @@ main = do
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	emit (filename) "" combinedProg
-
+	--emit (filename) "" parallelisedProg
 	--putStr $ show $ parsedProgram
 	--putStr "\n\n\n"
 
-	-- putStr $ show $ parallelisedProg
+	putStr $ show $ combinedProg
 	-- putStr "\n"
 
 	--putStr "\n"
-
---	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
-parseFile s = do inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
-                 return $ parse $ preProcess inp
-
-cpp s = do 	inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
-        	return inp
 
 combineKernels :: Program [String] -> Program [String]
 combineKernels codeSeg = map (everywhere (mkT (combineKernelsBlock))) codeSeg
@@ -74,8 +66,8 @@ combineKernelsBlock block = combinedAdjacentNested
 combineNestedKernels :: Fortran [String] -> Fortran [String]
 combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
-								FSeq _ _ (OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
-								--(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
+								--FSeq _ _ (OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) (NullStmt _ _) -> 
+								(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
 
 										OpenCLMap (anno1++anno2++[newAnnotation]) src1 reads writes loopVs innerFortran
 											where 
@@ -86,8 +78,8 @@ combineNestedKernels codeSeg = case codeSeg of
 								otherwise -> codeSeg
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
-								FSeq _ _ (OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
-								--(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
+								--FSeq _ _ (OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) (NullStmt _ _) -> 
+								(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
 										OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
@@ -134,6 +126,8 @@ attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran
 										fortran = appendFortran_recursive 	(if yPredicateList /= [] then (generateIf yAndPredicate fortran2) else fortran2) 
 																			(if xPredicateList /= [] then (generateIf xAndPredicate fortran1) else fortran1) 
 
+										--fortran = appendFortran_recursive fortran2 fortran1
+
 										combinedConditions = loopVariableCombinationConditions loopVs1 loopVs2
 										(xPredicateList, yPredicateList, resultLoopVars) = case combinedConditions of
 											Just conditions -> conditions
@@ -148,7 +142,7 @@ loopVariableCombinationConditions :: [(VarName [String], Expr [String], Expr [St
 									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
 									-> Maybe([Expr [String]], [Expr [String]], [(VarName [String], Expr [String], Expr [String], Expr [String])])
 loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs) 
-									((yVarName, yStart, yEnd, yStep):ys) 	|	sameVarNames && sameStart && sameStep && sameEnd && nextCombines = Just([],[], [loopVars] ++ loopVarsNext)
+									((yVarName, yStart, yEnd, yStep):ys) 	|	sameVarNames && sameStart && sameStep && sameEnd && nextCombines = Just(xNext,yNext, [loopVars] ++ loopVarsNext)
 																			|	sameVarNames && sameStart && sameStep && endLinearFunction && nextCombines = Just(predicatListX ++ xNext, predicatListY ++ yNext, [loopVars] ++ loopVarsNext)
 																			|	otherwise = Nothing
 										where
@@ -174,7 +168,7 @@ loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs)
 													Just a -> True
 													Nothing -> False
 
-											next = loopVariableCombinationCondition xs ys
+											next = loopVariableCombinationConditions xs ys
 											xNext = case next of
 												Just a -> (\(x, _, _) -> x) a
 												Nothing -> []
@@ -185,8 +179,7 @@ loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs)
 												Just a -> (\(_, _, z) -> z) a
 												Nothing -> []
 
-loopVariableCombinationCondition [] [] = Just([],[],[])
-loopVariableCombinationCondition a b = Just([],[],[])
+loopVariableCombinationConditions [] [] = Just([],[],[])
 
 isConstantAdditionOf :: Expr [String] -> Expr [String] -> Bool
 isConstantAdditionOf (Bin anno2 src2 op expr1 expr2) var 	|	exprContainsVar && expr2Cons = case op of
@@ -288,10 +281,11 @@ paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies accessA
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
 analyseLoop_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Fortran [String] -> AnalysisInfo
 analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case codeSeg of
-		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) ("",[],[],[expr1])
+		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) ("",[],expr2Operands,[expr1])
 						where
 							expr1Analysis = (analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr1)
 							expr2Analysis = (analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr2)
+							expr2Operands = extractOperands expr2
 		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
 						where
 							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites nonTempVars accessAnalysis)) codeSeg)
@@ -356,7 +350,7 @@ combineAnalysisInfo accum item = (accumErrors ++ itemErrors, accumReductionVars 
 									(itemErrors, itemReductionVars, itemReads, itemWrites) = item		
 
 analyseAccess_map :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Expr [String] -> AnalysisInfo
-analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors, [],[expr],[])
+analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors, [],[],[])
 								where
 									operands = case fnCall of
 											True ->	extractContainedVars expr
@@ -459,10 +453,6 @@ getVarNames_query fortran = everything (++) (mkQ [] getVarNames) fortran
 
 getVarNames :: (Typeable p, Data p) =>  VarName p -> [VarName p]
 getVarNames expr = [expr]
-
---	Generic function that takes two lists a and b and returns a +list c that is all of the elements of a that do not appear in b.
-listSubtract :: Eq a => [a] -> [a] -> [a]
-listSubtract a b = filter (\x -> notElem x b) a
 
 --	Function checks whether every Expr in a list is a VarName from another list.
 exprListContainsVarNames :: (Typeable p, Data p, Eq p) =>  [Expr p] -> [VarName p] -> Bool

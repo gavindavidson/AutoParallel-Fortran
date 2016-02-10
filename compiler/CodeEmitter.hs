@@ -17,9 +17,10 @@ emit filename "" ast = do
 				let newFilename = defaultFilename (splitOn "/" filename)
 				originalLines <- readOriginalFileLines filename
 				let code = produceCodeProg originalLines ast
-				--putStr $ show (originalLines!!21)
-				writeFile newFilename (show ast)
-				--writeFile newFilename code
+				--putStr $ show (foldl (++) "" originalLines)
+				--writeFile newFilename (show ast)
+				--writeFile newFilename (foldl1 (\accum item -> accum ++ "\n" ++ item) originalLines)
+				writeFile newFilename code
 emit filename specified ast = do		
 				originalLines <- readOriginalFileLines filename		
 				let code = produceCodeProg originalLines ast
@@ -32,22 +33,65 @@ defaultFilename (x:xs) = x ++ "/" ++ defaultFilename xs
 
 readOriginalFileLines :: String -> IO ([String])
 readOriginalFileLines filename = do
-				content <- readFile filename
+				--content <- readFile filename
+				content <- cpp filename
 				let contentLines = lines content
 				return contentLines
 
 produceCodeProg :: [String] -> Program [String] -> String
-produceCodeProg originalLines prog = everything (++) (mkQ "" (produceCodeBlock originalLines)) prog
+produceCodeProg originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit originalLines item) "" prog
+
+produceCodeProgUnit :: [String] -> ProgUnit [String] -> String
+produceCodeProgUnit originalLines progUnit =   	nonGeneratedBeforeCode ++
+												everything (++) (mkQ "" (produceCodeBlock originalLines)) progUnit
+												++ nonGeneratedAfterCode
+												-- ++ "\nnonGeneratedBeforeSrc: " ++ show nonGeneratedBeforeSrc
+												-- ++ "\nnonGeneratedAfterSrc: " ++ show nonGeneratedAfterSrc
+												-- ++ show firstFortranSrc
+												
+							where
+								progUnitSrc = srcSpan progUnit
+								firstFortranSrc = (everything (++) (mkQ [] (getFirstFortranSrc)) progUnit)!!0
+								(nonGeneratedBeforeSrc, nonGeneratedAfterSrc) = getSrcSpanNonIntersection progUnitSrc firstFortranSrc
+
+								((SrcLoc _ nonGeneratedBefore_ls _), (SrcLoc _ nonGeneratedBefore_le _)) = nonGeneratedBeforeSrc
+								nonGeneratedBeforeCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedBefore_ls..nonGeneratedBefore_le-1]
+
+								((SrcLoc _ nonGeneratedAfter_ls _), (SrcLoc _ nonGeneratedAfter_le _)) = nonGeneratedAfterSrc
+								nonGeneratedAfterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedAfter_ls+1..nonGeneratedAfter_le-1]
+
+getFirstFortranSrc :: Block [String] -> [SrcSpan]
+getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
 
 produceCodeBlock :: [String] -> Block [String] -> String
-produceCodeBlock originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode originalLines)) block)
+produceCodeBlock originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran originalLines)) block)
 
-produceCode :: [String] -> Fortran [String] -> String
-produceCode originalLines codeSeg 	|	anyChildGenerated codeSeg || isGenerated codeSeg = foldl (++) "" (gmapQ (mkQ "" (produceCode originalLines)) codeSeg)
-									|	otherwise = orignalFileChunk ++ "\n"
-										where 
-											((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = srcSpan codeSeg
-											orignalFileChunk = foldl (\accum item -> accum ++ "\n" ++ (originalLines!!(item-1))) "" [lineStart..lineEnd]
+produceCode_fortran :: [String] -> Fortran [String] -> String
+produceCode_fortran originalLines (If anno src expr fortran _ _) 	|	f == "generated" = "If (" ++ errorExprFormatting expr ++ ") then\n" 
+																			++ (mkQ "" (produceCode_fortran originalLines) fortran)
+																			++ "end if\n"
+																	|	otherwise = extractOriginalCode originalLines src
+															where 
+																((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
+produceCode_fortran originalLines (NullStmt _ _) = ""
+produceCode_fortran originalLines (OpenCLMap _ _ r w l fortran) = "\n\nOpenCLMap (" ++ readArgs ++ writtenArgs ++ generalArgs ++ ")\n{\n"
+																	++ (mkQ "" (produceCode_fortran originalLines) fortran) ++ "\n}\n"
+															where
+																readArgs = foldl (\accum item -> accum ++ "\n\tread_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
+																writtenArgs = foldl (\accum item -> accum ++ "\n\twrite_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
+																generalArgs = foldl (\accum item -> accum ++ "\n\t" ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
+
+produceCode_fortran originalLines (OpenCLReduce _ _ r w l rv fortran) = "\n\nOpenCLReduce (" ++ readArgs ++ writtenArgs ++ generalArgs ++ ")\n{\n! Reduction vars: " ++ reductionVars ++ "\n"
+																	++ (mkQ "" (produceCode_fortran originalLines) fortran) ++ "\n}\n"
+															where
+																readArgs = foldl (\accum item -> accum ++ "\n\tread_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
+																writtenArgs = foldl (\accum item -> accum ++ "\n\twrite_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
+																generalArgs = foldl (\accum item -> accum ++ "\n\t" ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
+																reductionVars = foldl (\accum item -> accum ++ "\t" ++ (\(VarName _ str) -> str) item) "" rv
+
+produceCode_fortran originalLines (FSeq _ _ fortran1 fortran2) = (mkQ "" (produceCode_fortran originalLines) fortran1) ++ (mkQ "" (produceCode_fortran originalLines) fortran2)
+produceCode_fortran originalLines codeSeg 	|	anyChildGenerated codeSeg || isGenerated codeSeg = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran originalLines)) codeSeg)
+											|	otherwise = extractOriginalCode originalLines (srcSpan codeSeg)
 
 anyChildGenerated :: Fortran [String] -> Bool
 anyChildGenerated ast = everything (||) (mkQ False isGenerated) ast
@@ -56,6 +100,12 @@ isGenerated :: Fortran [String] -> Bool
 isGenerated codeSeg = f == "generated"
 			where
 				((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = srcSpan codeSeg
+
+extractOriginalCode :: [String] -> SrcSpan -> String
+extractOriginalCode originalLines src = orignalFileChunk
+					where 
+						((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
+						orignalFileChunk = foldl (\accum item -> accum ++ (originalLines!!(item-1))++ "\n") "" [lineStart..lineEnd]
 
 --	Returns an AST representing a set of assignments that determine the values of the loop variables that are being parallelised for a
 --	given global_id value.

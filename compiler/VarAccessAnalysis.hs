@@ -175,16 +175,9 @@ varAccessAnalysis_readsAfter' (start, SrcLoc file_end line_end column_end) (varn
 checkHangingReads :: VarAccessRecord -> Bool
 checkHangingReads (varname, readSpans, writeSpans) = case earliestRead of
 														Just r ->	case earliestWrite of
-																		Just w -> checkSrcSpanBefore r w
+																		Just w -> not (checkSrcSpanBefore_line w r)-- checkSrcSpanBefore_line r w
 																		Nothing -> True
 														Nothing ->	False
 								where 
 									earliestRead = getEarliestSrcSpan readSpans
 									earliestWrite = getEarliestSrcSpan writeSpans
-
-getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
-getEarliestSrcSpan [] = Nothing
-getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
-
-checkSrcSpanBefore :: SrcSpan -> SrcSpan -> Bool
-checkSrcSpanBefore ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after) && (column_before < column_after)

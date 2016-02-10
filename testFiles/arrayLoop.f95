@@ -5,21 +5,43 @@ program arrayLoop
         integer, intent(In) :: c
         integer, intent(In) :: d
 
+if (1 > 2) then
+  dave = "hello"
+end if 
+
 do loop1=0, d
-!   do loop2=0, c 
+  do loop2=0, c
     a(loop1,loop2) = 12+45
     a(loop1,loop2) = 12+45
-!   end do
+    a(loop1,loop2) = 12+45
+  end do
 end do
 
 do loop1=0, d
-!   do loop2=0, c+1
+  do loop2=0, c
     b(loop1,loop2) = 12+45
-!   end do
+    b(loop1,loop2) = 12+45
+    b(loop1,loop2) = 12+45
+  end do
 end do
-! if (1 > 2) then
-!   dave = "hello"
-! end if 
+
+do loop1=0, d
+  do loop2=0, c+1
+    sum = a(loop1, loop2) + sum
+  end do
+end do
+dave = sum
+
+end program arrayLoop
+
+REAL FUNCTION AVRAGE(X,Y,Z)
+     REAL X,Y,Z,SUM
+     SUM = X + Y + Z
+     AVRAGE = SUM /3.0
+     RETURN
+END
+
+! end module arrayLoop
 
 ! do loop1=0, d + 1
 !   do loop2=0, c 
@@ -138,6 +160,3 @@ end do
 
 !     return
 !       end subroutine bondv1
-
-end program arrayLoop
-! end module arrayLoop
