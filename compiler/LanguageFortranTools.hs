@@ -47,6 +47,7 @@ errorExprFormatting (Bin _ _ op expr1 expr2) = errorExprFormatting expr1 ++ " " 
 									RelLE p -> "<="
 									RelGT p -> ">"
 									RelGE p -> ">="
+errorExprFormatting (Null _ _) = "null"					
 errorExprFormatting codeSeg = show codeSeg
 
 --	Generic function that removes all duplicate elements from a list.
