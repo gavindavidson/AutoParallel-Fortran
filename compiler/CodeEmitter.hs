@@ -66,37 +66,11 @@ getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
 produceCodeBlock :: [String] -> Block [String] -> String
 produceCodeBlock originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran originalLines)) block)
 
---produceCode_fortran :: [String] -> Fortran [String] -> String
---produceCode_fortran originalLines (If anno src expr fortran _ _) 	|	f == "generated" = "If (" ++ errorExprFormatting expr ++ ") then\n" 
---																			++ (mkQ "" (produceCode_fortran originalLines) fortran)
---																			++ "end if\n"
---																	|	otherwise = extractOriginalCode originalLines src
---															where 
---																((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
---produceCode_fortran originalLines (NullStmt _ _) = ""
---produceCode_fortran originalLines (OpenCLMap _ _ r w l fortran) = "\n\nOpenCLMap (" ++ readArgs ++ writtenArgs ++ generalArgs ++ ")\n{\n"
---																	++ (mkQ "" (produceCode_fortran originalLines) fortran) ++ "\n}\n"
---															where
---																readArgs = foldl (\accum item -> accum ++ "\n\tread_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
---																writtenArgs = foldl (\accum item -> accum ++ "\n\twrite_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
---																generalArgs = foldl (\accum item -> accum ++ "\n\t" ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
-
---produceCode_fortran originalLines (OpenCLReduce _ _ r w l rv fortran) = "\n\nOpenCLReduce (" ++ readArgs ++ writtenArgs ++ generalArgs ++ ")\n{\n! Reduction vars: " ++ reductionVars ++ "\n"
---																	++ (mkQ "" (produceCode_fortran originalLines) fortran) ++ "\n}\n"
---															where
---																readArgs = foldl (\accum item -> accum ++ "\n\tread_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
---																writtenArgs = foldl (\accum item -> accum ++ "\n\twrite_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
---																generalArgs = foldl (\accum item -> accum ++ "\n\t" ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
---																reductionVars = foldl (\accum item -> accum ++ "\t" ++ (\(VarName _ str) -> str) item) "" rv
-
---produceCode_fortran originalLines (FSeq _ _ fortran1 fortran2) = (mkQ "" (produceCode_fortran originalLines) fortran1) ++ (mkQ "" (produceCode_fortran originalLines) fortran2)
---produceCode_fortran originalLines codeSeg 	|	anyChildGenerated codeSeg || isGenerated codeSeg = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran originalLines)) codeSeg)
---											|	otherwise = extractOriginalCode originalLines (srcSpan codeSeg)
-
 produceCode_fortran :: [String] -> Fortran [String] -> String
 produceCode_fortran originalLines codeSeg = case codeSeg of
 						If _ _ _ _ _ _ -> synthesiseIf originalLines codeSeg
 						Assg _ _ _ _ -> synthesiseAssg originalLines codeSeg
+						For _ _ _ _ _ _ _ -> synthesiseFor originalLines codeSeg
 						NullStmt _ _ -> ""
 						OpenCLMap _ _ _ _ _ _ -> synthesiseOpenCLMap originalLines codeSeg
 						OpenCLReduce _ _ _ _ _ _ _ -> synthesiseOpenCLReduce originalLines codeSeg
@@ -104,6 +78,17 @@ produceCode_fortran originalLines codeSeg = case codeSeg of
 						_ -> 	case anyChildGenerated codeSeg || isGenerated codeSeg of
 									True -> foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran originalLines)) codeSeg)
 									False -> extractOriginalCode originalLines (srcSpan codeSeg)
+
+synthesiseFor :: [String] -> Fortran [String] -> String
+synthesiseFor originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	f == "generated" = "\tdo " ++ ((\(VarName _ str) -> str) varname) ++ "=" ++ errorExprFormatting expr1 
+																								++ ", " ++ errorExprFormatting expr2 ++ (if expr3isOne then "" else errorExprFormatting expr3)
+																								++ "\n" ++ (mkQ "" (produceCode_fortran originalLines) fort) ++ "\tend do\n"
+																			|	otherwise = extractOriginalCode originalLines src
+																	where
+																		expr3isOne = case expr3 of
+																						Con _ _ "1" -> True
+																						_ -> False
+																		((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
 
 synthesiseAssg :: [String] -> Fortran [String] -> String
 synthesiseAssg originalLines (Assg anno src expr1 expr2)	|	f == "generated" = errorExprFormatting expr1 ++ " = " ++ errorExprFormatting expr2 ++ "\n"
@@ -120,25 +105,59 @@ synthesiseIf originalLines (If anno src expr fortran _ _) 	|	f == "generated" = 
 												((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
 
 synthesiseOpenCLMap :: [String] -> Fortran [String] -> String
-synthesiseOpenCLMap originalLines (OpenCLMap _ _ r w l fortran) = "\n\nOpenCLMap (" ++ readArgs ++ writtenArgs ++ generalArgs ++ ")\n{\n"
-																	++ produceCode_fortran originalLines loopInitialiserCode
+synthesiseOpenCLMap originalLines (OpenCLMap _ _ r w l fortran) = "\n! " ++ compilerName ++ ": Synthesised kernel\n" 
+																	++ "OpenCLMap (" ++ readArgs ++ writtenArgs ++ generalArgs ++ ")\n{\n"
+																	++ "! " ++ compilerName ++ ": Synthesised loop variables\n"
+																	++ produceCode_fortran originalLines loopInitialiserCode ++ "\n\n"
+																	++ "! " ++ compilerName ++ ": Original code\n" 
 																	++ (mkQ "" (produceCode_fortran originalLines) fortran) ++ "\n}\n"
+																	-- ++ "! " ++ compilerName ++ ": End of synthesised kernel\n\n" 
+
 											where
 												readArgs = foldl (\accum item -> accum ++ "\n\tread_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
 												writtenArgs = foldl (\accum item -> accum ++ "\n\twrite_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
 												generalArgs = foldl (\accum item -> accum ++ "\n\t" ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
-												loopInitialisers = generateLoopInitialisers l (Null [] nullSrcSpan)
-												loopInitialiserCode = foldl1 (appendFortran_recursive) loopInitialisers
+												loopInitialisers = generateLoopInitialisers l getGlobalID Nothing
+												loopInitialiserCode = foldl1 (\accum item -> appendFortran_recursive item accum) loopInitialisers
 
 
 synthesiseOpenCLReduce :: [String] -> Fortran [String] -> String
-synthesiseOpenCLReduce originalLines (OpenCLReduce _ _ r w l rv fortran)  = "\n\nOpenCLReduce (" ++ readArgs ++ writtenArgs ++ generalArgs ++ ")\n{\n! Reduction vars: " ++ reductionVars ++ "\n"
-																				++ (mkQ "" (produceCode_fortran originalLines) fortran) ++ "\n}\n"
+synthesiseOpenCLReduce originalLines (OpenCLReduce _ _ r w l rv fortran)  = "\n! " ++ compilerName ++ ": Synthesised kernel\n" 
+																			++ "OpenCLReduce (" ++ readArgs ++ writtenArgs ++ generalArgs ++ local_reductionVars ++ chunkSize_str ++ ")\n{\n"
+																			-- ++ "! " ++ compilerName ++ ": Reduction vars: " ++ global_reductionVars ++ "\n"
+																			++ localChunkSize_str
+																			++ startPosition_str
+																			-- ++ "! " ++ compilerName ++ ": Synthesised loop variables\n"
+																			-- ++ produceCode_fortran originalLines local_loopInitialiserCode ++ "\n\n"
+																			++ "! " ++ compilerName ++ ": Local reduction\n" 
+																			++ (mkQ "" (produceCode_fortran originalLines) localLoop) ++ "\n}\n"
+																			-- ++ "! " ++ compilerName ++ ": End of synthesised kernel\n\n" 
 											where
-												readArgs = foldl (\accum item -> accum ++ "\n\tread_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
-												writtenArgs = foldl (\accum item -> accum ++ "\n\twrite_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
-												generalArgs = foldl (\accum item -> accum ++ "\n\t" ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
+												readArgs = foldl (\accum item -> accum ++ "\n\t__global read_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
+												writtenArgs = foldl (\accum item -> accum ++ "\n\t__global write_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
+												generalArgs = foldl (\accum item -> accum ++ "\n\t__global " ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
 												reductionVars = foldl (\accum item -> accum ++ "\t" ++ (\(VarName _ str) -> str) item) "" rv
+												local_reductionVars = foldl (\accum item -> accum ++ "\n\t__local local_" ++ (\(VarName _ str) -> str) item) "" rv
+												chunkSize_str = "\n\tconst " ++ errorExprFormatting chunk_size
+												localChunkSize_str = (errorExprFormatting localChunkSize) ++ " = " 
+														++ (errorExprFormatting chunk_size) ++ " / " ++ (errorExprFormatting getLocalSize) ++ "\n"
+												-- localChunkSize_str = "local_chunk_size = chunk_size / " ++ errorExprFormatting getLocalSize ++ "\n"
+												startPosition_str = (errorExprFormatting startPosition) ++ " = " ++ (errorExprFormatting localChunkSize) ++
+													" * " ++ (errorExprFormatting getGlobalID) ++ "\n"
+												-- startPosition_str = "start_position = local_chunk_size * " ++ errorExprFormatting getGlobalID ++ "\n"
+
+
+												reductionIterator = generateReductionIterator (r ++ w ++ (map (\(x,_,_,_) -> x) l) ++ rv)
+												localLoopEnd = Bin [] nullSrcSpan (Plus []) startPosition localChunkSize
+												localLoopCode = appendFortran_recursive fortran local_loopInitialiserCode 
+												localLoop = generateLoop reductionIterator startPosition localLoopEnd localLoopCode
+
+												local_loopInitialisers = generateLoopInitialisers l (generateVar reductionIterator) Nothing
+												local_loopInitialiserCode = foldl1 (\accum item -> appendFortran_recursive item accum) local_loopInitialisers
+
+localChunkSize = generateVar (VarName [] "local_chunk_size")
+startPosition  = generateVar (VarName [] "start_position")
+chunk_size = generateVar (VarName [] "chunk_size")
 
 
 anyChildGenerated :: Fortran [String] -> Bool
@@ -155,18 +174,35 @@ extractOriginalCode originalLines src = orignalFileChunk
 						((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
 						orignalFileChunk = foldl (\accum item -> accum ++ (originalLines!!(item-1))++ "\n") "" [lineStart..lineEnd]
 
-generateLoopInitialisers :: [(VarName [String], Expr [String], Expr [String], Expr [String])] -> Expr [String] -> [Fortran [String]]
-generateLoopInitialisers ((var, start, end, step):[]) offset = [Assg [] nullSrcSpan (generateVar var)
-																	(Bin [] nullSrcSpan (Minus []) globalIdVar offset)]
-generateLoopInitialisers ((var, start, end, step):xs) offset = [Assg [] nullSrcSpan (generateVar var)
+generateLoop :: VarName [String] -> Expr [String] -> Expr [String] -> Fortran[String] -> Fortran[String]
+generateLoop r_iter start end fortran = For [] nullSrcSpan r_iter start end step fortran
+					where
+						step = Con [] nullSrcSpan "1"
+
+generateLoopInitialisers :: [(VarName [String], Expr [String], Expr [String], Expr [String])] -> Expr [String] -> Maybe(Expr [String]) -> [Fortran [String]]
+generateLoopInitialisers ((var, start, end, step):[]) iterator (Just offset) = [Assg [] nullSrcSpan 
+																		(generateVar var)
+																		(offset)]
+
+generateLoopInitialisers ((var, start, end, step):xs) iterator Nothing = [Assg [] nullSrcSpan 
+																	(generateVar var)
+																	(Bin [] nullSrcSpan (Div [])  iterator multipliedExprs)]
+																++
+																generateLoopInitialisers xs iterator (Just nextOffset)
+					where
+						--nextOffset = generateSubtractionExpr ([generateProductExpr ([generateVar var] ++ followingEndExprs)])
+						nextOffset = generateSubtractionExpr ([iterator] ++ [generateProductExpr ([generateVar var] ++ followingEndExprs)])
+						followingEndExprs = map (\(_,_,e,_) -> e) xs
+						multipliedExprs = generateProductExpr followingEndExprs  
+generateLoopInitialisers ((var, start, end, step):xs) iterator (Just offset) = [Assg [] nullSrcSpan (generateVar var)
 																	(Bin [] nullSrcSpan (Div []) 
-																		(Bin [] nullSrcSpan (Minus []) globalIdVar offset)
+																		offset
 																		multipliedExprs)]
 																++
-																generateLoopInitialisers xs nextOffset
+																generateLoopInitialisers xs iterator (Just nextOffset)
 					where
 						nextOffset = generateSubtractionExpr ([offset] ++ [generateProductExpr ([generateVar var] ++ followingEndExprs)])
-						followingEndExprs = map (\(_,_,_,e) -> e) xs
+						followingEndExprs = map (\(_,_,e,_) -> e) xs
 						multipliedExprs = generateProductExpr followingEndExprs  
 
 generateProductExpr :: [Expr [String]] -> Expr [String]
@@ -177,98 +213,14 @@ generateSubtractionExpr :: [Expr [String]] -> Expr [String]
 generateSubtractionExpr (x:[]) = x
 generateSubtractionExpr (x:xs) = Bin [] nullSrcSpan (Minus []) x (generateSubtractionExpr xs)
 
-globalIdVar :: Expr [String]
-globalIdVar = Var [] nullSrcSpan [(VarName [] "g_id", [])]
+getGlobalID :: Expr [String]
+getGlobalID = Var [] nullSrcSpan [(VarName [] "g_id", [])]
 
---	Returns an AST representing a set of assignments that determine the values of the loop variables that are being parallelised for a
---	given global_id value.
---flattenLoopConditions :: Maybe (VarName p) -> (VarName p) -> [(VarName p, Expr p, Expr p, Expr p)] -> Fortran p
---flattenLoopConditions prev globalId ((var, start, end, step):[]) = Assg 
---																		(tag globalId) 
---																		nullSrcSpan 
---																		(Var (tag globalId) nullSrcSpan [(var, [])])
---																		(primitiveMod globalId end)
---flattenLoopConditions prev globalId ((var, start, end, step):xs) = 	FSeq 
---																	(tag globalId) 
---																	nullSrcSpan (
---																		Assg 
---																		(tag globalId) 
---																		nullSrcSpan (
---																			Var (tag globalId) nullSrcSpan [(var, [])])
---																		(flattenCondition_div globalId prev (multiplyLoopConditions xs) -- DIVISOR
---																			)
---																		)
---																	 (flattenLoopConditions (Just var) globalId xs) -- FSeq p SrcSpan (Fortran p) (Fortran p) 
+getLocalSize :: Expr [String]
+getLocalSize = Var [] nullSrcSpan [(VarName [] "get_local_size", [Con [] nullSrcSpan "0"])]
 
---	Function returns an AST represnting a standard division that is performed to calculate loop variable values.
---flattenCondition_div :: VarName p -> Maybe (VarName p) -> Expr p -> Expr p
---flattenCondition_div globalId (Just prev) divisor = Bin 
---														(tag globalId) 
---														nullSrcSpan 
---														(Div (tag globalId)) (
---															Bin 
---																(tag globalId) 
---																nullSrcSpan 
---																(Minus (tag globalId)) 
---																(Var 
---																	(tag globalId) 
---																	nullSrcSpan 
---																	[(globalId, [])]) 
---																(Var 
---																	(tag globalId) 
---																	nullSrcSpan 
---																	[(prev, [])]))
---														divisor
---flattenCondition_div globalId Nothing divisor = 	Bin 
---														(tag globalId) 
---														nullSrcSpan 
---														(Div (tag globalId)) 
---														(Var 
---															(tag globalId) 
---															nullSrcSpan 
---															[(globalId, [])]) 
---														divisor
-
---	Function returns an AST represnting a standard modulus calculation that is performed to calculate loop variable values.
---flattenCondition_mod :: VarName p -> Maybe (VarName p) -> Expr p -> Expr p
---flattenCondition_mod globalId (Just prev) divisor = Bin 
---														(tag globalId) 
---														nullSrcSpan 
---														(Div (tag globalId)) 
---														(Var 
---															(tag globalId) 
---															nullSrcSpan 
---															[(globalId, [])]) 
---														divisor 
-
---	Fortran does not have a modulus operator as standard. Therefore, this function returns an AST represnting a modulus calculation
---	that only uses primitive operators (+, -, *, /)
---primitiveMod :: VarName p -> Expr p -> Expr p 
---primitiveMod quotient divisor = Bin 
---									(tag quotient) 
---									nullSrcSpan 
---									(Minus (tag quotient)) 
---									(Var 
---										(tag quotient) 
---										nullSrcSpan 
---										[(quotient, [])]) 
---									(Bin 
---										(tag quotient) 
---										nullSrcSpan 
---										(Mul (tag quotient)) 
---										(Bin 
---											(tag quotient) 
---											nullSrcSpan 
---											(Div (tag quotient)) 
---											(Var 
---												(tag quotient) 
---												nullSrcSpan 
---												[(quotient, [])]) 
---											divisor) 
---										divisor)
-
--- 	Used by flattenLoopConditions to produce an expression that multiplies together the loop variable dimensions. 
---	This will likely be changed.
---multiplyLoopConditions :: [(VarName p, Expr p, Expr p, Expr p)] -> Expr p
---multiplyLoopConditions ((var, start, end, step):[]) = end
---multiplyLoopConditions ((var, start, end, step):xs) = Bin (tag var) nullSrcSpan (Mul (tag var)) end (multiplyLoopConditions xs)
+generateReductionIterator :: [VarName [String]] -> VarName [String]
+generateReductionIterator usedNames = VarName [] choice
+			where
+				possibles = ["reduction_iterator", "reduction_iter", "r_iter"]
+				choice = foldl1 (\accum item -> if not (elem (VarName [] item) usedNames) then item else accum) possibles

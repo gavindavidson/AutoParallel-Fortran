@@ -9,28 +9,40 @@ if (1 > 2) then
   dave = "hello"
 end if 
 
-do loop1=0, d
-  do loop2=0, c
-    a(loop1,loop2) = 12+45
-    a(loop1,loop2) = 12+45
-    a(loop1,loop2) = 12+45
-  end do
-end do
+! do loop1=0, d
+!   do loop2=0, c
+!     a(loop1,loop2) = 12+45
+!     a(loop1,loop2) = 12+45
+!     a(loop1,loop2) = 12+45
+!   end do
+! end do
 
-do loop1=0, d
-  do loop2=0, c
-    b(loop1,loop2) = 12+45
-    b(loop1,loop2) = 12+45
-    b(loop1,loop2) = 12+45
-  end do
-end do
+! do i=0, i_r
+!   do j=0, j_r
+!     do k=0, k_r
+!       do l=0, l_r
+!         a(i,j,k,l) = (a+b)-(c*d)
+!       end do
+!     end do
+!   end do
+! end do
 
-do loop1=0, d
-  do loop2=0, c+1
-    sum = a(loop1, loop2) + sum
-  end do
-end do
-dave = sum
+dave = get_local_size(0)
+
+! do loop1=0, d
+!   do loop2=0, c
+!     b(loop1,loop2) = 12+45
+!     b(loop1,loop2) = 12+45
+!     b(loop1,loop2) = 12+45
+!   end do
+! end do
+
+! do loop1=0, d
+!   do loop2=0, c+1
+!     sum = a(loop1, loop2) + sum
+!   end do
+! end do
+! dave = sum
 
 end program arrayLoop
 

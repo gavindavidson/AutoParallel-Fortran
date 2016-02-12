@@ -1,5 +1,5 @@
 folder="../testFiles"
-filename="velnw.f95"
+filename="press.f95"
 
 originalfile=$folder"/"$filename
 parfile=$folder"/par_"$filename

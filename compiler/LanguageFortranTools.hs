@@ -30,7 +30,7 @@ errorExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) ->
 															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
 																++ item) "" (map (errorExprFormatting) exprList)) ++ ")" else "")) list)
 errorExprFormatting (Con _ _ str) = str
-errorExprFormatting (Bin _ _ op expr1 expr2) = errorExprFormatting expr1 ++ " " ++ op_str ++ " " ++ errorExprFormatting expr2
+errorExprFormatting (Bin _ _ op expr1 expr2) = "(" ++ errorExprFormatting expr1 ++ " " ++ op_str ++ " " ++ errorExprFormatting expr2 ++ ")"
 							where
 								op_str = case op of
 									Plus p -> "+"
@@ -40,7 +40,7 @@ errorExprFormatting (Bin _ _ op expr1 expr2) = errorExprFormatting expr1 ++ " " 
 									Or p -> " or "
 									And p -> " and "
 									Concat p -> " concat "
-									Power p -> "^^"
+									Power p -> "**"
 									RelEQ p -> "=="
 									RelNE p -> "/="
 									RelLT p -> "<"
@@ -138,6 +138,13 @@ hasVarName :: [VarName [String]] -> Expr [String] -> Bool
 hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
 hasVarName loopWrites _ = False
 
+replaceAllOccurences_varname :: Fortran [String] -> VarName [String] -> VarName [String] -> Fortran [String]
+replaceAllOccurences_varname codeSeg original replacement = everywhere (mkT (replaceVarname original replacement)) codeSeg
+
+replaceVarname :: VarName [String] -> VarName [String] -> VarName [String] -> VarName [String]
+replaceVarname original replacement inp 	| 	original == inp = replacement
+											|	otherwise = original
+
 
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran [String] -> Fortran [String] -> Fortran [String]
@@ -167,6 +174,12 @@ checkSrcSpanBefore ((SrcLoc file_before line_before column_before), beforeEnd) (
 checkSrcSpanBefore_line :: SrcSpan -> SrcSpan -> Bool
 checkSrcSpanBefore_line ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after)
 
+generateSrcSpanMerge :: SrcSpan -> SrcSpan -> SrcSpan
+generateSrcSpanMerge src1 src2 = (src1_s, src2_e)
+					where
+						(src1_s, src1_e) = src1
+						(src2_s, src2_e) = src2
+
 getSrcSpanNonIntersection :: SrcSpan -> SrcSpan -> (SrcSpan, SrcSpan)
 getSrcSpanNonIntersection src1 src2 = (firstSrc, secondSrc)
 					where
@@ -182,3 +195,6 @@ listSubtract a b = filter (\x -> notElem x b) a
 
 listIntersection :: Eq a => [a] -> [a] -> [a]
 listIntersection a b = filter (\x -> elem x b) a
+
+compilerName :: String
+compilerName = "ParallelFortran"
