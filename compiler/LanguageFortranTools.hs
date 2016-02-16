@@ -95,6 +95,9 @@ generateVar varname = Var [] nullSrcSpan [(varname, [])]
 generateIf :: Expr [String] -> Fortran [String] -> Fortran [String]
 generateIf expr fortran = If [] nullSrcSpan expr fortran [] Nothing
 
+applyGeneratedSrcSpans :: Fortran [String] -> Fortran [String]
+applyGeneratedSrcSpans = everywhere (mkT (standardiseSrcSpan))
+
 --	Used to standardise SrcSpans so that nodes of an AST may be matched up even if they appear in completely different
 --	parts of a program
 --standardiseSrcSpan_trans ::(Data a, Typeable a) =>  Expr a -> Expr a
@@ -138,12 +141,17 @@ hasVarName :: [VarName [String]] -> Expr [String] -> Bool
 hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
 hasVarName loopWrites _ = False
 
+replaceAllOccurences_varnamePairs :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> Fortran [String]
+replaceAllOccurences_varnamePairs codeSeg originals replacements = foldl (\accum (v1, v2) -> replaceAllOccurences_varname accum v1 v2) codeSeg pairs
+					where
+						pairs = zip originals replacements
+
 replaceAllOccurences_varname :: Fortran [String] -> VarName [String] -> VarName [String] -> Fortran [String]
 replaceAllOccurences_varname codeSeg original replacement = everywhere (mkT (replaceVarname original replacement)) codeSeg
 
 replaceVarname :: VarName [String] -> VarName [String] -> VarName [String] -> VarName [String]
 replaceVarname original replacement inp 	| 	original == inp = replacement
-											|	otherwise = original
+											|	otherwise = inp
 
 
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
