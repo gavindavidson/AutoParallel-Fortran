@@ -80,7 +80,7 @@ produceCode_fortran originalLines codeSeg = case codeSeg of
 									False -> extractOriginalCode originalLines (srcSpan codeSeg)
 
 synthesiseFor :: [String] -> Fortran [String] -> String
-synthesiseFor originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	f == "generated" = "\tdo " ++ ((\(VarName _ str) -> str) varname) ++ "=" ++ errorExprFormatting expr1 
+synthesiseFor originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	f == "generated" = "\tdo " ++ (varnameStr varname) ++ "=" ++ errorExprFormatting expr1 
 																								++ ", " ++ errorExprFormatting expr2 ++ (if expr3isOne then "" else errorExprFormatting expr3)
 																								++ "\n" ++ (mkQ "" (produceCode_fortran originalLines) fort) ++ "\tend do\n"
 																			|	otherwise = extractOriginalCode originalLines src
@@ -114,9 +114,9 @@ synthesiseOpenCLMap originalLines (OpenCLMap _ _ r w l fortran) = "\n! " ++ comp
 																	-- ++ "! " ++ compilerName ++ ": End of synthesised kernel\n\n" 
 
 											where
-												readArgs = foldl (\accum item -> accum ++ "\n\tread_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
-												writtenArgs = foldl (\accum item -> accum ++ "\n\twrite_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
-												generalArgs = foldl (\accum item -> accum ++ "\n\t" ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
+												readArgs = foldl (\accum item -> accum ++ "\n\tread_only " ++ varnameStr item) "" (listSubtract r w)
+												writtenArgs = foldl (\accum item -> accum ++ "\n\twrite_only " ++ varnameStr item) "" (listSubtract w r)
+												generalArgs = foldl (\accum item -> accum ++ "\n\t" ++ varnameStr item) "" (listIntersection w r)
 												loopInitialisers = generateLoopInitialisers l getGlobalID Nothing
 												loopInitialiserCode = foldl1 (\accum item -> appendFortran_recursive item accum) loopInitialisers
 
@@ -130,7 +130,7 @@ synthesiseOpenCLReduce originalLines (OpenCLReduce _ _ r w l rv fortran)  = "\n!
 																			-- ++ "! " ++ compilerName ++ ": Synthesised loop variables\n"
 																			-- ++ produceCode_fortran originalLines local_loopInitialiserCode ++ "\n\n"
 																			++ "! " ++ compilerName ++ ": Local reduction\n" 
-																			++ workItem_reductionVarsInitStr
+																			++ local_reductionVarsInitStr
 																			++ "\n"
 																			++ (mkQ "" (produceCode_fortran originalLines) workItem_Loop)
 																			++ "\n"
@@ -138,16 +138,21 @@ synthesiseOpenCLReduce originalLines (OpenCLReduce _ _ r w l rv fortran)  = "\n!
 																			++ "\n"
 																			++ localMemBarrier
 																			++ "\n"
+																			++ local_reductionVarsInitStr
+																			++ "! Workgroup reduction goes here\n"
+																			++ "! Write to output array(s) goes here\n"
 																			++ "\n}\n"
 																			-- ++ "! " ++ compilerName ++ ": End of synthesised kernel\n\n" 
 											where
-												readArgs = foldl (\accum item -> accum ++ "\n\t__global read_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract r w)
-												writtenArgs = foldl (\accum item -> accum ++ "\n\t__global write_only " ++ (\(VarName _ str) -> str) item) "" (listSubtract w r)
-												generalArgs = foldl (\accum item -> accum ++ "\n\t__global " ++ (\(VarName _ str) -> str) item) "" (listIntersection w r)
-												reductionVars = foldl (\accum item -> accum ++ "\t" ++ (\(VarName _ str) -> str) item) "" rv
+												readArgs = foldl (\accum item -> accum ++ "\n\t__global read_only " ++ varnameStr item) "" (listSubtract r w)
+												writtenArgs = foldl (\accum item -> accum ++ "\n\t__global write_only " ++ varnameStr item) "" (listSubtract w r)
+												generalArgs = foldl (\accum item -> accum ++ "\n\t__global " ++ varnameStr item) "" (listIntersection w r)
+												-- reductionVars = foldl (\accum item -> accum ++ "\t" ++ varnameStr item) "" rv
+												reductionVarNames = map (\(varname, expr) -> varname) rv
 												
-												workItem_reductionVars = map (\(VarName anno str) -> VarName anno ("local_" ++ str)) rv
-												workItem_reductionVarsInitStr = foldl (\accum item -> accum ++ "local_" ++ (\(VarName _ str) -> str) item ++ " = " ++ (\(VarName _ str) -> str) item ++ "(" ++ (errorExprFormatting startPosition) ++ ")\n") "" rv
+												local_reductionVars = map (\(VarName anno str) -> VarName anno ("local_" ++ str)) reductionVarNames
+												-- local_reductionVarsInitStr = foldl (\accum item -> accum ++ "! (incorrect) local_" ++ varnameStr item ++ " = " ++ varnameStr item ++ "(" ++ (errorExprFormatting startPosition) ++ ")\n") "" reductionVarNames
+												local_reductionVarsInitStr = foldl (\accum (var, expr) -> accum ++ "local_" ++ varnameStr var ++ " = " ++ errorExprFormatting expr ++ "\n") "" rv
 
 
 												chunkSize_str = "\n\tconst " ++ errorExprFormatting chunk_size
@@ -159,18 +164,18 @@ synthesiseOpenCLReduce originalLines (OpenCLReduce _ _ r w l rv fortran)  = "\n!
 												-- startPosition_str = "start_position = local_chunk_size * " ++ errorExprFormatting getGlobalID ++ "\n"
 
 
-												reductionIterator = generateReductionIterator (r ++ w ++ (map (\(x,_,_,_) -> x) l) ++ rv)
+												reductionIterator = generateReductionIterator (r ++ w ++ (map (\(x,_,_,_) -> x) l) ++ reductionVarNames)
 												workItem_LoopEnd = Bin [] nullSrcSpan (Plus []) startPosition localChunkSize
 												workItem_LoopCode = appendFortran_recursive workItem_reductionCode workItem_loopInitialiserCode 
 												workItem_Loop = generateLoop reductionIterator startPosition workItem_LoopEnd workItem_LoopCode
-												workItem_reductionCode = applyGeneratedSrcSpans (replaceAllOccurences_varnamePairs fortran rv workItem_reductionVars)
+												workItem_reductionCode = applyGeneratedSrcSpans (replaceAllOccurences_varnamePairs fortran reductionVarNames local_reductionVars)
 
 												workItem_loopInitialisers = generateLoopInitialisers l (generateVar reductionIterator) Nothing
 												workItem_loopInitialiserCode = foldl1 (\accum item -> appendFortran_recursive item accum) workItem_loopInitialisers
 
-												workGroup_reductionArrays = map (\(VarName anno str) -> VarName anno ("local_" ++ str ++ "_array")) rv
-												workGroup_reductionArrays_str =	foldl (\accum item -> accum ++ "\n\t__local " ++ (\(VarName _ str) -> str) item) "" workGroup_reductionArrays
-												workGroup_reductionArraysInitStr = foldl (\accum ((VarName _ s1),(VarName _ s2)) -> accum++s1++"("++(errorExprFormatting getLocalId)++") = "++s2++"\n") "" (zip workGroup_reductionArrays workItem_reductionVars)
+												workGroup_reductionArrays = map (\(VarName anno str) -> VarName anno ("local_" ++ str ++ "_array")) reductionVarNames
+												workGroup_reductionArrays_str =	foldl (\accum item -> accum ++ "\n\t__local " ++ varnameStr item) "" workGroup_reductionArrays
+												workGroup_reductionArraysInitStr = foldl (\accum ((VarName _ s1),(VarName _ s2)) -> accum++s1++"("++(errorExprFormatting getLocalId)++") = "++s2++"\n") "" (zip workGroup_reductionArrays local_reductionVars)
 
 localChunkSize = generateVar (VarName [] "local_chunk_size")
 startPosition  = generateVar (VarName [] "start_position")

@@ -6,16 +6,16 @@ program arrayLoop
         integer, intent(In) :: d
 
 if (1 > 2) then
-  dave = "hello"
+  dave = .FALSE.
 end if 
 
-! do loop1=0, d
-!   do loop2=0, c
-!     a(loop1,loop2) = 12+45
-!     a(loop1,loop2) = 12+45
-!     a(loop1,loop2) = 12+45
-!   end do
-! end do
+do loop1=0, d
+  do loop2=0, c
+    a(loop1,loop2) = 12+45
+    a(loop1,loop2) = 12+45
+    a(loop1,loop2) = 12+45
+  end do
+end do
 
 ! do i=0, i_r
 !   do j=0, j_r

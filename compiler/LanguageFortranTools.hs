@@ -7,6 +7,7 @@ import Data.Char
 import Data.List
 import System.Process
 import System.Directory
+import qualified Data.Map as DMap
 
 import PreProcessor
 
@@ -154,6 +155,9 @@ replaceVarname original replacement inp 	| 	original == inp = replacement
 											|	otherwise = inp
 
 
+varnameStr :: VarName [String] -> String
+varnameStr (VarName _ str) = str
+
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran [String] -> Fortran [String] -> Fortran [String]
 --appendFortran_recursive newFortran (FSeq _ _ _ (FSeq _ _ _ fortran1)) = appendFortran_recursive newFortran fortran1 
@@ -177,7 +181,7 @@ getEarliestSrcSpan [] = Nothing
 getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
 
 checkSrcSpanBefore :: SrcSpan -> SrcSpan -> Bool
-checkSrcSpanBefore ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after) && (column_before < column_after)
+checkSrcSpanBefore ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
 
 checkSrcSpanBefore_line :: SrcSpan -> SrcSpan -> Bool
 checkSrcSpanBefore_line ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after)
@@ -203,6 +207,35 @@ listSubtract a b = filter (\x -> notElem x b) a
 
 listIntersection :: Eq a => [a] -> [a] -> [a]
 listIntersection a b = filter (\x -> elem x b) a
+
+combineMaps :: Ord k => DMap.Map k [a] -> DMap.Map k [a] -> DMap.Map k [a]
+combineMaps map1 map2 = resultantAnalysis
+						where
+							map2List = DMap.toList map2
+							resultantAnalysis = foldl (\accum (key, value) -> DMap.insert key ((DMap.findWithDefault [] key accum) ++ value) accum) map1 map2List
+
+appendToMap :: Ord k => k -> a -> DMap.Map k [a] -> DMap.Map k [a]
+appendToMap key item map1 = DMap.insert key ((DMap.findWithDefault [] key map1) ++ [item]) map1
+
+extractPrimaryReductionOp :: Expr [String] -> Expr [String] -> Maybe(BinOp [String])
+extractPrimaryReductionOp assignee (Bin _ _ op expr1 expr2) = case assigneePresent of
+										True -> Just op
+										False -> childOp
+						where
+							primaryOp1 = extractPrimaryReductionOp assignee expr1
+							primaryOp2 = extractPrimaryReductionOp assignee expr2 
+							childOp = case primaryOp1 of
+										Just a -> primaryOp1
+										Nothing ->  primaryOp2
+							assigneePresent = standardiseSrcSpan_trans expr1 == standardiseSrcSpan_trans assignee ||
+												standardiseSrcSpan_trans expr2 == standardiseSrcSpan_trans assignee
+extractPrimaryReductionOp assignee assignment = Nothing
+
+extractPrimaryReductionFunction ::  Expr [String] -> Expr [String] -> String
+extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent "" list
+						where
+							assigneePresent = (\accum (var, exprList) -> if elem (standardiseSrcSpan_trans assignee) exprList then varnameStr var else accum)
+							standardisedList = map (\(var, exprList) -> (var, map (standardiseSrcSpan_trans) exprList)) list
 
 compilerName :: String
 compilerName = "ParallelFortran"

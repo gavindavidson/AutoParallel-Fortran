@@ -6,6 +6,7 @@ import Language.Fortran
 import Data.Char
 import Data.List
 import LanguageFortranTools
+import qualified Data.Map as DMap
 
 --	The code in this file is used to analyse which variables are read and written and where in a certain
 --	program. This information is then used to determine whether or not a variable in a loop can be deemed
@@ -14,12 +15,15 @@ import LanguageFortranTools
 --	Type used to colate data on variable accesses throughout a program.
 --						Name of variable 	All reads 	All writes
 type VarAccessRecord = (VarName [String], 	[SrcSpan], 	[SrcSpan])
+-- type VarValueRecord = (VarName [String], [(SrcSpan, Expr [String])])
+
 type LocalVarAccessAnalysis = [VarAccessRecord]
---													Subroutine arguments 	Declared var names
-type VarAccessAnalysis = (LocalVarAccessAnalysis,	[VarName [String]],	 	[VarName [String]])
+type LocalVarValueAnalysis = DMap.Map (VarName [String]) [(SrcSpan, Expr [String])]
+--																			Subroutine arguments 	Declared var names
+type VarAccessAnalysis = (LocalVarAccessAnalysis,	LocalVarValueAnalysis, [VarName [String]],	 	[VarName [String]])
 
 analyseAllVarAccess:: Program [String] -> VarAccessAnalysis
-analyseAllVarAccess prog = (localVarAccesses, arguments, declarations)
+analyseAllVarAccess prog = (localVarAccesses, localVarValues, arguments, declarations)
 						where 
 							--	LocalVarAccesses is made up of information on all of the reads and writes throughout
 							--	the program being analysed. It is a list of triplets where each triplet contains a 
@@ -36,6 +40,10 @@ analyseAllVarAccess prog = (localVarAccesses, arguments, declarations)
 							--	automatically it seems. 
 							declarations = everything (++) (mkQ [] getDeclaredVarNames) prog
 
+							localVarValues = everything (combineMaps) (mkQ DMap.empty analyseAllVarValues_fortran) prog
+
+
+
 --	Since Language-Fortran does not seem to differentate between function calls and array access, it was necessary
 --	to find a way to identify a function call. This function acheives that. When an expression is passed in, a top level
 --	VarNames is extracted (The possibility for multipe varnames is also dealt with here as the Language-Fortran
@@ -50,7 +58,7 @@ isFunctionCall accessAnalysis expr =  (all (\x -> not (elem x declaredVarNames))
 						where 
 							subVars = extractContainedVars expr
 							exprVarNames = extractVarNames expr
-							declaredVarNames = (\(_,_,x) -> x) accessAnalysis
+							declaredVarNames = (\(_,_,_,x) -> x) accessAnalysis
 
 isFunctionCall_varNames :: [VarName [String]] -> Expr [String] -> Bool
 isFunctionCall_varNames declaredVarNames expr =  (all (\x -> not (elem x declaredVarNames)) exprVarNames) && subVars /= []
@@ -77,6 +85,13 @@ getArgNamesAsVarNames _ = []
 getDeclaredVarNames :: Decl [String] -> [VarName [String]]
 getDeclaredVarNames (Decl _ _ lst _) = foldl (\accum (expr1, _, _) -> accum ++ extractVarNames expr1) [] lst
 getDeclaredVarNames decl = []
+
+analyseAllVarValues_fortran :: Fortran [String] -> LocalVarValueAnalysis
+analyseAllVarValues_fortran (Assg _ src expr1 expr2) = foldl (\accum item -> appendToMap item (src, expr2) accum) DMap.empty varnames
+								where
+									varnames = extractVarNames expr1
+analyseAllVarValues_fortran _ = DMap.empty
+
 
 --	Function compiles the lists of read and write accesses for the code in question. The function is recursive and makes use of SYB.
 --	There are two cases, either the current piece of code is an assignment to a variable or it is not. If the code is an assignment
@@ -109,6 +124,12 @@ analyseAllVarAccess_fortran declarations prevAnalysis codeSeg =  aggregateAnalys
 													readVarNames = foldl (\accum item -> accum ++ extractVarNames item) [] readExprs	
 													analysisWithReads = foldl (addVarReadAccess (srcSpan codeSeg)) prevAnalysis readVarNames	
 													currentAnalysis = combineVarAccessAnalysis prevAnalysis analysisWithReads	
+
+getValueAtSrcSpan :: VarName [String] -> SrcSpan -> VarAccessAnalysis -> Expr [String]
+getValueAtSrcSpan varname target_src (_, analysis, _, _) = valueAtSrc
+								where
+									values = DMap.findWithDefault [] varname analysis
+									valueAtSrc = foldl (\accum (item_src, expr) -> if checkSrcSpanBefore item_src target_src then expr else accum) (NullExpr [] nullSrcSpan) values
 
 getAccessedExprs :: [VarName [String]] -> [Expr [String]] -> Expr [String] -> [Expr [String]]
 getAccessedExprs declarations accum item = case fnCall of
@@ -150,8 +171,8 @@ addVarAccessAnalysis [] (newVarName, newReads, newWrites) = [(newVarName, newRea
 getNonTempVars :: SrcSpan -> VarAccessAnalysis -> [VarName [String]]
 getNonTempVars codeBlockSpan accessAnalysis = (map (\(x, _, _) -> x) hangingReads) ++ subroutineArguments
 						where
-							localVarAccesses = (\(x, _, _) -> x) accessAnalysis
-							subroutineArguments = (\(_, x, _) -> x) accessAnalysis
+							localVarAccesses = (\(x,_, _, _) -> x) accessAnalysis
+							subroutineArguments = (\(_,_, x, _) -> x) accessAnalysis
 							readsAfterBlock = varAccessAnalysis_readsAfter codeBlockSpan localVarAccesses
 							writesReadsAfterBlock = varAccessAnalysis_writesAfter codeBlockSpan readsAfterBlock
 							hangingReads = filter (checkHangingReads) writesReadsAfterBlock

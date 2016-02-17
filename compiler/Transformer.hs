@@ -40,13 +40,13 @@ main = do
 	--putStr (cppd)
 
 	putStr $ compileAnnotationListing parallelisedProg
-	putStr "\n"
-	putStr $ compileAnnotationListing combinedProg
+	-- putStr "\n"
+	-- putStr $ compileAnnotationListing combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	emit (filename) "" combinedProg
 	--emit (filename) "" parallelisedProg
-	--putStr $ show $ parsedProgram
+	-- putStr $ show $ parsedProgram
 	--putStr "\n\n\n"
 
 	putStr $ show $ combinedProg
@@ -213,11 +213,13 @@ isConstantSubtractionOf _ _ = False
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors.
 paralleliseLoop :: [VarName [String]] -> VarAccessAnalysis ->Fortran [String] -> Fortran [String]
-paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
+paralleliseLoop loopVars accessAnalysis loop 	= prependAnnotation (case mapAttempt_bool of
 										True	-> prependAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
 										False 	-> case reduceAttempt_bool of
 													True 	-> prependAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
 													False	-> prependAnnotation reduceAttempt_ast (compilerName ++ ": \nCannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
+													) (show varValueRecords)
+
 													--False	-> appendAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
 								--case paralleliseLoop_map loop newLoopVars of 
 								--	Just a -> a
@@ -227,6 +229,7 @@ paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
 										Just a -> loopVars ++ [a]
 										Nothing -> loopVars
 
+									varValueRecords = (\(_,x,_,_) -> x) accessAnalysis
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies accessAnalysis loop
 									loopWrites = extractWrites_query loop
@@ -267,12 +270,10 @@ paralleliseLoop_map loop loopVars loopWrites nonTempVars accessAnalysis	|	errors
 paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran [String])
 paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies accessAnalysis	|	errors_reduce == "" 	=	(True, 
 																									OpenCLReduce [] (generateSrcSpan (srcSpan loop))
-																					 				--(listRemoveDuplications (listSubtract (getVarNames_query loop) (Prelude.map (\(a, _, _, _) -> a) (loopCondtions_query loop))) ) 
 																					 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
 																					 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)))
-																									--(flattenLoopConditions Nothing (VarName [] "g_id") 
 																									(loopCondtions_query loop) --)   
-																									(listRemoveDuplications (foldl (++) [] (map extractVarNames reductionVariables)))
+																									(listRemoveDuplications (foldl (\accum item -> accum ++ [(item, getValueAtSrcSpan item (srcSpan loop) accessAnalysis)] ) [] (foldl (\accum item -> accum ++ extractVarNames item) [] reductionVariables)))
 																									(removeLoopConstructs_recursive loop))
 															|	otherwise				=	(False, appendAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
@@ -380,24 +381,32 @@ analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (erro
 
 																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
 																	== [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
-																	++ ":\t Non temporary, write variable (" ++ errorExprFormatting item ++ ") written to with use of full loop variable\n"  else "") nonTempWrittenOperands
+																	++ ":\tNon temporary, write variable (" ++ errorExprFormatting item ++ ") written to with use of full loop variable\n"  else "") nonTempWrittenOperands
 
 isAssociativeExpr :: Expr [String] -> Expr [String] -> Bool
-isAssociativeExpr assignee (Bin _ _ op expr1 expr2) = case assigneePresent of
-										True -> associativeOp
-										False -> isAssociativeExpr assignee expr1 || 
-													isAssociativeExpr assignee expr2 
-						where
-							assigneePresent = standardiseSrcSpan_trans expr1 == standardiseSrcSpan_trans assignee ||
-												standardiseSrcSpan_trans expr2 == standardiseSrcSpan_trans assignee
-							associativeOp = isAssociativeOp op
-isAssociativeExpr assignee assignment = foldl (||) False (map (\(VarName _ str) -> isAssociativeFunction str) (extractVarNames assignment))
+isAssociativeExpr assignee assignment = case assignment of
+							(Bin _ _ op expr1 expr2) -> associativeOp
+							_ -> associativeFunc -- foldl (||) False (map (\(VarName _ str) -> isAssociativeFunction str) (extractVarNames assignment))
+						where 
+							primaryOp = extractPrimaryReductionOp assignee assignment
+							primaryFunc = extractPrimaryReductionFunction assignee assignment
+							associativeOp = case primaryOp of
+												Just oper -> isAssociativeOp oper
+												Nothing -> False
+							associativeFunc = isAssociativeFunction primaryFunc
 
-isAssociativeOp :: BinOp p -> Bool
+isAssociativeOp :: BinOp [String] -> Bool
 isAssociativeOp (Plus p) = True
 isAssociativeOp (Mul p) = True
 isAssociativeOp (Or p) = True
 isAssociativeOp _ = False
+
+opIdentityValue :: BinOp [String] -> Expr [String]
+opIdentityValue (Plus p) = Con [] nullSrcSpan "0"
+opIdentityValue (Mul p) = Con [] nullSrcSpan "1"
+opIdentityValue (Or p) = Con [] nullSrcSpan ".FALSE."
+opIdentityValue _ = Null [] nullSrcSpan
+
 
 isAssociativeFunction :: String -> Bool
 isAssociativeFunction fnName = case (map (toLower) fnName) of
