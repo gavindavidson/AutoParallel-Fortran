@@ -12,6 +12,11 @@ import System.Process
 
 import LanguageFortranTools
 
+--	Code in this file handles the final emission of code. The function 'emit' is called against an AST that has been transformed and has had kernels fused.
+--	Trys to make as much use as it can of code that is the same as it was in the original source file. Otherwise, it uses mostly simple functions to generate
+--	code segments. Things get more complex when generating reduction kernels as a number of changes to the original source are needed to take full advantage
+--	of parallel hardware.
+
 emit :: String -> String -> Program [String] -> IO ()
 emit filename "" ast = do
 				let newFilename = defaultFilename (splitOn "/" filename)
@@ -193,6 +198,8 @@ isGenerated codeSeg = f == "generated"
 			where
 				((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = srcSpan codeSeg
 
+--	Function takes a list of lines from the original source and an object representing a range of line numbers and reproduces the original code
+--	in the range of those line numbers.
 extractOriginalCode :: [String] -> SrcSpan -> String
 extractOriginalCode originalLines src = orignalFileChunk
 					where 
@@ -224,26 +231,29 @@ generateWorkGroupReduction_assgs redVars codeSeg = []
 
 
 generateLoopInitialisers :: [(VarName [String], Expr [String], Expr [String], Expr [String])] -> Expr [String] -> Maybe(Expr [String]) -> [Fortran [String]]
-generateLoopInitialisers ((var, start, end, step):[]) iterator (Just offset) = [Assg [] nullSrcSpan 
-																		(generateVar var)
-																		(offset)]
+generateLoopInitialisers ((var, start, end, step):[]) iterator (Just offset) 
+			= 	[Assg [] nullSrcSpan 
+				(generateVar var)
+				(offset)]
 
-generateLoopInitialisers ((var, start, end, step):xs) iterator Nothing = [Assg [] nullSrcSpan 
-																	(generateVar var)
-																	(Bin [] nullSrcSpan (Div [])  iterator multipliedExprs)]
-																++
-																generateLoopInitialisers xs iterator (Just nextOffset)
+generateLoopInitialisers ((var, start, end, step):xs) iterator Nothing 
+			= 	[Assg [] nullSrcSpan 
+				(generateVar var)
+				(Bin [] nullSrcSpan (Div [])  iterator multipliedExprs)]
+				++
+				generateLoopInitialisers xs iterator (Just nextOffset)
 					where
 						--nextOffset = generateSubtractionExpr ([generateProductExpr ([generateVar var] ++ followingEndExprs)])
 						nextOffset = generateSubtractionExpr ([iterator] ++ [generateProductExpr ([generateVar var] ++ followingEndExprs)])
 						followingEndExprs = map (\(_,_,e,_) -> e) xs
-						multipliedExprs = generateProductExpr followingEndExprs  
-generateLoopInitialisers ((var, start, end, step):xs) iterator (Just offset) = [Assg [] nullSrcSpan (generateVar var)
-																	(Bin [] nullSrcSpan (Div []) 
-																		offset
-																		multipliedExprs)]
-																++
-																generateLoopInitialisers xs iterator (Just nextOffset)
+						multipliedExprs = generateProductExpr followingEndExprs 
+generateLoopInitialisers ((var, start, end, step):xs) iterator (Just offset) 
+			= 	[Assg [] nullSrcSpan (generateVar var)
+					(Bin [] nullSrcSpan (Div []) 
+						offset
+						multipliedExprs)]
+				++
+				generateLoopInitialisers xs iterator (Just nextOffset)
 					where
 						nextOffset = generateSubtractionExpr ([offset] ++ [generateProductExpr ([generateVar var] ++ followingEndExprs)])
 						followingEndExprs = map (\(_,_,e,_) -> e) xs

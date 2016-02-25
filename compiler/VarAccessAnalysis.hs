@@ -12,6 +12,7 @@ import qualified Data.Map as DMap
 --	program. This information is then used to determine whether or not a variable in a loop can be deemed
 --	temporary and therefore governs how variables are treated. 
 
+--	THIS WILL BE CHANGED TO A MAP, RATHER THAN A LIST.
 --	Type used to colate data on variable accesses throughout a program.
 --						Name of variable 	All reads 	All writes
 type VarAccessRecord = (VarName [String], 	[SrcSpan], 	[SrcSpan])

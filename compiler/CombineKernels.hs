@@ -5,6 +5,9 @@ import Language.Fortran
 
 import LanguageFortranTools
 
+--	This file contains code that handles combining adjacent and nested kernels. The intention is that the top level 'combineKernels' function will be called
+--	against an AST that has already been transformed with parallel kernels applied.
+
 combineKernels :: Program [String] -> Program [String]
 combineKernels codeSeg = map (everywhere (mkT (combineKernelsBlock))) codeSeg
 
@@ -14,6 +17,9 @@ combineKernelsBlock block = combinedAdjacentNested
 					combinedNested = everywhere (mkT (combineNestedKernels)) block
 					combinedAdjacentNested = everywhere (mkT (combineAdjacentKernels)) combinedNested
 
+--	In the case where a kernel only contains another kernel of the same type, the two can be combined into one larger kernel.
+--	The nested kernel is definitely compatible with the outer kernel as this check has been performed by Transformer.hs. This function
+--	essentially mops up the representation to make code generation a little easier.
 combineNestedKernels :: Fortran [String] -> Fortran [String]
 combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
@@ -39,7 +45,7 @@ combineNestedKernels codeSeg = case codeSeg of
 								otherwise -> codeSeg
 					otherwise -> codeSeg
 
-
+--	In the case that two maps are adjacent to one and other and their iterator conditions are compatible, the kernels can be combined.
 combineAdjacentKernels :: Fortran [String] -> Fortran [String]
 combineAdjacentKernels codeSeg = case codeSeg of
 					(FSeq anno1 src1 fortran1 (FSeq anno2 _ fortran2 fortran3)) -> case fortran1 of
@@ -63,6 +69,8 @@ combineAdjacentKernels codeSeg = case codeSeg of
 							otherwise	-> codeSeg
 					otherwise -> codeSeg
 
+--	This function constructs the combined adjacent maps. In the case that the iterator conditions differ slightly, it adds conditional constructs around appropriate
+--	parts of the body of the kernels.
 attemptCombineAdjacentMaps :: Fortran [String] -> Fortran [String] -> Maybe(Fortran [String])
 attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
 							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] = Nothing
@@ -76,8 +84,6 @@ attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran
 										fortran = appendFortran_recursive 	(if yPredicateList /= [] then (generateIf yAndPredicate fortran2) else fortran2) 
 																			(if xPredicateList /= [] then (generateIf xAndPredicate fortran1) else fortran1) 
 
-										--fortran = appendFortran_recursive fortran2 fortran1
-
 										combinedConditions = loopVariableCombinationConditions loopVs1 loopVs2
 										(xPredicateList, yPredicateList, resultLoopVars) = case combinedConditions of
 											Just conditions -> conditions
@@ -88,6 +94,10 @@ attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran
 
 										resultantMap = OpenCLMap anno newSrc combinedReads writes resultLoopVars fortran
 
+--	Recursive function to check sets of loop iterators against each other for compatibility. An OpenCLMap or OpenCLReduce can have more than one loop
+--	iterator defined because they can represent nested loops. The function checks that the iterator conditions in each object match, IN ORDER. For example,
+--	for i:10, j:20, k:30 would match to for i:10, j:20, k:30 but not to for j:20,i:10,k:30
+--	Handles loops with slightly different end points but not loop iterators having different names.
 loopVariableCombinationConditions :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
 									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
 									-> Maybe([Expr [String]], [Expr [String]], [(VarName [String], Expr [String], Expr [String], Expr [String])])
@@ -131,6 +141,8 @@ loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs)
 
 loopVariableCombinationConditions [] [] = Just([],[],[])
 
+--	The following functions are used to determine whether slightly differing loop conditions are compatible. If the end point of one is a constant
+--	addition or subtraction of the other then the loops can be fused.
 isConstantAdditionOf :: Expr [String] -> Expr [String] -> Bool
 isConstantAdditionOf (Bin anno2 src2 op expr1 expr2) var 	|	exprContainsVar && expr2Cons = case op of
 																								Plus _ -> True

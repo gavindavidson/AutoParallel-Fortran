@@ -14,6 +14,7 @@ import VarAccessAnalysis
 --	calculation of another variable's assignment. It is possible under this scheme for variables to depend upon themselves and this
 --	fact is ued by Transformer.hs when looking to determine whether or not a loop represnets a reduction.
 
+--	THIS WILL BE CHANGED TO A MAP, RATHER THAN A LIST.
 --	Type used to colate dependency data between variables within a particular block of code
 --							Variable A 			depends on all these variables
 type VarDependencyRecord = (VarName [String], 	[VarName [String]])
