@@ -129,7 +129,7 @@ synthesiseOpenCLReduce originalLines (OpenCLReduce _ _ r w l rv fortran)  = "\n!
 																			++ startPosition_str
 																			-- ++ "! " ++ compilerName ++ ": Synthesised loop variables\n"
 																			-- ++ produceCode_fortran originalLines local_loopInitialiserCode ++ "\n\n"
-																			++ "! " ++ compilerName ++ ": Local reduction\n" 
+																			++ "! " ++ compilerName ++ ": Work item reduction\n" 
 																			++ local_reductionVarsInitStr
 																			++ "\n"
 																			++ (mkQ "" (produceCode_fortran originalLines) workItem_Loop)
@@ -139,8 +139,9 @@ synthesiseOpenCLReduce originalLines (OpenCLReduce _ _ r w l rv fortran)  = "\n!
 																			++ localMemBarrier
 																			++ "\n"
 																			++ local_reductionVarsInitStr
-																			++ "! Workgroup reduction goes here\n"
-																			++ "! Write to output array(s) goes here\n"
+																			++ "! Workgroup reduction goes here\n\n"
+																			-- ++ (mkQ "" (produceCode_fortran originalLines) workGroup_reductionCode)
+																			++ "\n! Write to output array(s) goes here\n"
 																			++ "\n}\n"
 																			-- ++ "! " ++ compilerName ++ ": End of synthesised kernel\n\n" 
 											where
@@ -176,6 +177,8 @@ synthesiseOpenCLReduce originalLines (OpenCLReduce _ _ r w l rv fortran)  = "\n!
 												workGroup_reductionArrays = map (\(VarName anno str) -> VarName anno ("local_" ++ str ++ "_array")) reductionVarNames
 												workGroup_reductionArrays_str =	foldl (\accum item -> accum ++ "\n\t__local " ++ varnameStr item) "" workGroup_reductionArrays
 												workGroup_reductionArraysInitStr = foldl (\accum ((VarName _ s1),(VarName _ s2)) -> accum++s1++"("++(errorExprFormatting getLocalId)++") = "++s2++"\n") "" (zip workGroup_reductionArrays local_reductionVars)
+												workGroup_reductionCode = generateWorkGroupReduction reductionVarNames fortran
+
 
 localChunkSize = generateVar (VarName [] "local_chunk_size")
 startPosition  = generateVar (VarName [] "start_position")
@@ -200,6 +203,25 @@ generateLoop :: VarName [String] -> Expr [String] -> Expr [String] -> Fortran[St
 generateLoop r_iter start end fortran = For [] nullSrcSpan r_iter start end step fortran
 					where
 						step = Con [] nullSrcSpan "1"
+
+generateWorkGroupReduction :: [VarName [String]] -> Fortran [String] -> Fortran [String]
+generateWorkGroupReduction redVars codeSeg  = resultantCode
+					where
+						assignments = everything (++) (mkQ [] (generateWorkGroupReduction_assgs redVars)) codeSeg
+						resultantCode = foldl1 (\accum item -> appendFortran_recursive item accum) assignments
+
+generateWorkGroupReduction_assgs :: [VarName [String]] -> Fortran [String] -> [Fortran [String]]
+generateWorkGroupReduction_assgs redVars (Assg _ _ expr1 expr2) = resultantAssg
+					where 
+						-- expr1VarNames = extractVarNames expr1
+						-- assignmentToRedVar = foldl (\accum item -> accum && elem item redVars) True expr1VarNames
+						resultantAssg = case extractPrimaryReductionOp expr1 expr2 of
+											Just op -> [Assg [] nullSrcSpan expr1 (Bin [] nullSrcSpan op expr1 expr1)]
+											Nothing -> case extractPrimaryReductionFunction expr1 expr2 of
+														"" -> []
+														funcName -> [Assg [] nullSrcSpan expr1 (Var [] nullSrcSpan [(VarName [] funcName, [expr1, expr1])])]
+generateWorkGroupReduction_assgs redVars codeSeg = []
+
 
 generateLoopInitialisers :: [(VarName [String], Expr [String], Expr [String], Expr [String])] -> Expr [String] -> Maybe(Expr [String]) -> [Fortran [String]]
 generateLoopInitialisers ((var, start, end, step):[]) iterator (Just offset) = [Assg [] nullSrcSpan 

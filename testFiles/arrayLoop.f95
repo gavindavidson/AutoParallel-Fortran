@@ -9,13 +9,13 @@ if (1 > 2) then
   dave = .FALSE.
 end if 
 
-do loop1=0, d
-  do loop2=0, c
-    a(loop1,loop2) = 12+45
-    a(loop1,loop2) = 12+45
-    a(loop1,loop2) = 12+45
-  end do
-end do
+! do loop1=0, d
+!   do loop2=0, c
+!     a(loop1,loop2) = 12+45
+!     a(loop1,loop2) = 12+45
+!     a(loop1,loop2) = 12+45
+!   end do
+! end do
 
 ! do i=0, i_r
 !   do j=0, j_r
@@ -36,13 +36,13 @@ dave = get_local_size(0)
 !     b(loop1,loop2) = 12+45
 !   end do
 ! end do
-
-! do loop1=0, d
-!   do loop2=0, c+1
-!     sum = a(loop1, loop2) + sum
-!   end do
-! end do
-! dave = sum
+sum = 0
+do loop1=0, d
+  do loop2=0, c+1
+    sum = sum * (a(loop1, loop2) + 100*2)
+  end do
+end do
+dave = sum
 
 end program arrayLoop
 
