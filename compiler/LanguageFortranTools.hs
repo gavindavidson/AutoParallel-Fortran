@@ -93,6 +93,12 @@ generateAndExprFromList list = foldl1 (generateAndExpr) list
 generateVar :: VarName [String] -> Expr [String]
 generateVar varname = Var [] nullSrcSpan [(varname, [])]
 
+generateConstant :: Int -> Expr [String]
+generateConstant value = Con [] nullSrcSpan (show value)
+
+generateArrayVar :: VarName [String] -> Expr [String] -> Expr [String]
+generateArrayVar varname access = Var [] nullSrcSpan [(varname, [access])]
+
 generateIf :: Expr [String] -> Fortran [String] -> Fortran [String]
 generateIf expr fortran = If [] nullSrcSpan expr fortran [] Nothing
 
@@ -175,6 +181,9 @@ removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran) = removeLoopConstructs_
 --removeLoopConstructs_recursive (OpenCLReduce _ _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
 removeLoopConstructs_recursive (FSeq _ _ fortran (NullStmt _ _)) = removeLoopConstructs_recursive fortran
 removeLoopConstructs_recursive codeSeg = codeSeg
+
+extractLineNumber :: SrcSpan -> Int
+extractLineNumber ((SrcLoc _ line _), _) = line
 
 getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
 getEarliestSrcSpan [] = Nothing

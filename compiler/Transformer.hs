@@ -33,20 +33,31 @@ main = do
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	
 	putStr "STUFF TO DO:\n"
-	putStr "\t- Fix adjacent kernel fusion\n"
 	putStr "\t- Check for identity value (reduction)\n"
-	putStr "\t- Code emission\n"
+	putStr " <DONE>\t- Finish kernel emission\n"
+	putStr "\t- Emit code for final host reductions\n"
+	putStr "\t- Produce CPP'd version of code\n"
+	putStr "\t- Make kernels subroutines\n"
+	putStr " <DONE>\t- Unique kernel names\n"
+	putStr "\t- Add kernels/subroutines to module for each original source file\n"
+	putStr "\t- Add declarations for arguments to kernels\n"
+	putStr "\t- Update error messages\n"
+	putStr "\t- Test reduce and map combination\n"
+	putStr "\t- Array/scaler optimisations\n"
 	putStr "\n"
 
 	args <- getArgs
 	let filename = args!!0
+	let newFilename = case (length args > 1) of
+						True -> args!!1
+						False -> ""
 
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile filename
 	let parallelisedProg = paralleliseProgram (parsedProgram)
 	let combinedProg = combineKernels (removeAllAnnotations parallelisedProg)
 
-	--cppd <- cpp filename
+	-- cppd <- cpp filename
 	--putStr (cppd)
 
 	putStr $ compileAnnotationListing parallelisedProg
@@ -54,7 +65,7 @@ main = do
 	-- putStr $ compileAnnotationListing combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
-	emit (filename) "" combinedProg
+	emit filename newFilename combinedProg
 	--emit (filename) "" parallelisedProg
 	-- putStr $ show $ parsedProgram
 	--putStr "\n\n\n"

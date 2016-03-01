@@ -1,13 +1,15 @@
 folder="../testFiles"
-filename="velnw.f95"
+filename="press.f95"
+outfilename="press_out.f95"
 
 originalfile=$folder"/"$filename
-parfile=$folder"/par_"$filename
+outfile=$folder"/"$outfilename
+# parfile=$folder"/par_"$filename
 
 echo ""
 echo "Running on "$originalfile
 echo ""
-./Transformer $originalfile
+./Transformer $originalfile $outfile
 # ./Transformer $originalfile > treeWalker.out
 # python ../utils/astFormatter.py treeWalker.out > treeWalker.ast
 # python ../utils/astFormatter.py $parfile > treeWalker.ast
