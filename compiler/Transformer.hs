@@ -37,10 +37,11 @@ main = do
 	putStr " <DONE>\t- Finish kernel emission\n"
 	putStr "\t- Emit code for final host reductions\n"
 	putStr "\t- Produce CPP'd version of code\n"
-	putStr "\t- Make kernels subroutines\n"
+	putStr " <DONE>\t- Make kernels subroutines\n"
 	putStr " <DONE>\t- Unique kernel names\n"
-	putStr "\t- Add kernels/subroutines to module for each original source file\n"
-	putStr "\t- Add declarations for arguments to kernels\n"
+	putStr " <DONE>\t- Add kernels/subroutines to module for each original source file\n"
+	putStr " <DOING>\t- Add declarations for arguments to kernels\n"
+	putStr "\t- Make annotations String -> [String] maps\n"
 	putStr "\t- Update error messages\n"
 	putStr "\t- Test reduce and map combination\n"
 	putStr "\t- Array/scaler optimisations\n"
@@ -60,7 +61,9 @@ main = do
 	-- cppd <- cpp filename
 	--putStr (cppd)
 
-	putStr $ compileAnnotationListing parallelisedProg
+	-- putStr $ compileAnnotationListing parallelisedProg
+	
+
 	-- putStr "\n"
 	-- putStr $ compileAnnotationListing combinedProg
 	-- putStr "\n"
@@ -70,7 +73,7 @@ main = do
 	-- putStr $ show $ parsedProgram
 	--putStr "\n\n\n"
 
-	-- putStr $ show $ combinedProg
+	putStr $ show $ combinedProg
 	-- putStr "\n"
 
 	--putStr "\n"
@@ -134,31 +137,45 @@ extractWrites _ = []
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
 paralleliseLoop_map :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> (Bool, Fortran [String])
-paralleliseLoop_map loop loopVars loopWrites nonTempVars accessAnalysis	|	errors_map == "" 	=	(True,
+paralleliseLoop_map loop loopVarNames loopWrites nonTempVars accessAnalysis	|	errors_map == "" 	=	(True,
 											OpenCLMap [] (generateSrcSpan (srcSpan loop)) 	-- Node to represent the data needed for an OpenCL map kernel
-											(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop))) 	-- List of arguments to kernel that are READ
+											(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)) ++ varNames_loopVariables)	-- List of arguments to kernel that are READ
 							 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop))) 	-- List of arguments to kernel that are WRITTEN
-											(loopCondtions_query loop)	-- Loop variables of nested maps
+											(loopVariables)	-- Loop variables of nested maps
 											(removeLoopConstructs_recursive loop)) -- Body of kernel code
 
 									|	otherwise	=			(False, appendAnnotation loop (outputTab ++ "Cannot map due to:\n" ++ errors_map))
 									where
-										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis loop
+										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVarNames loopWrites nonTempVars accessAnalysis loop
+										loopVariables = loopCondtions_query loop
+
+										startVarNames = foldl (\accum (_,x,_,_) -> accum ++ extractVarNames x) [] loopVariables
+										endVarNames = foldl (\accum (_,_,x,_) -> accum ++ extractVarNames x) [] loopVariables
+										stepVarNames = foldl (\accum (_,_,_,x) -> accum ++ extractVarNames x) [] loopVariables
+
+										varNames_loopVariables = listSubtract (listRemoveDuplications (startVarNames ++ endVarNames ++ stepVarNames)) loopVarNames
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
 paralleliseLoop_reduce ::Fortran [String] -> [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran [String])
-paralleliseLoop_reduce loop loopVars loopWrites nonTempVars dependencies accessAnalysis	|	errors_reduce == "" 	=	(True, 
+paralleliseLoop_reduce loop loopVarNames loopWrites nonTempVars dependencies accessAnalysis	|	errors_reduce == "" 	=	(True, 
 											OpenCLReduce [] (generateSrcSpan (srcSpan loop))  
- 											(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop))) -- List of arguments to kernel that are READ
+ 											(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)) ++ varNames_loopVariables) -- List of arguments to kernel that are READ
 							 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop))) -- List of arguments to kernel that are WRITTEN
-											(loopCondtions_query loop) -- Loop variables of nested maps
+											(loopVariables) -- Loop variables of nested maps
 											(listRemoveDuplications (foldl (\accum item -> accum ++ [(item, getValueAtSrcSpan item (srcSpan loop) accessAnalysis)] ) [] (foldl (\accum item -> accum ++ extractVarNames item) [] reductionVariables))) -- List of variables that are considered 'reduction variables' along with their initial val
 											(removeLoopConstructs_recursive loop)) -- Body of kernel code
 
 									|	otherwise				=	(False, appendAnnotation loop (outputTab ++ "Cannot reduce due to:\n" ++ errors_reduce))
 									where
-										(errors_reduce, reductionVariables, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVars loopWrites nonTempVars dependencies accessAnalysis loop 
+										(errors_reduce, reductionVariables, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVarNames loopWrites nonTempVars dependencies accessAnalysis loop 
+										loopVariables = loopCondtions_query loop
+
+										startVarNames = foldl (\accum (_,x,_,_) -> accum ++ extractVarNames x) [] loopVariables
+										endVarNames = foldl (\accum (_,_,x,_) -> accum ++ extractVarNames x) [] loopVariables
+										stepVarNames = foldl (\accum (_,_,_,x) -> accum ++ extractVarNames x) [] loopVariables
+
+										varNames_loopVariables = listSubtract (listRemoveDuplications (startVarNames ++ endVarNames ++ stepVarNames)) loopVarNames
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map

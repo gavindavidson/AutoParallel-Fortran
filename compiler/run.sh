@@ -9,7 +9,7 @@ outfile=$folder"/"$outfilename
 echo ""
 echo "Running on "$originalfile
 echo ""
-./Transformer $originalfile $outfile
-# ./Transformer $originalfile > treeWalker.out
-# python ../utils/astFormatter.py treeWalker.out > treeWalker.ast
+# ./Transformer $originalfile $outfile
+./Transformer $originalfile $outfile > treeWalker.out
+python ../utils/astFormatter.py treeWalker.out > treeWalker.ast
 # python ../utils/astFormatter.py $parfile > treeWalker.ast
