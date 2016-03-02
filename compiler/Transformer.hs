@@ -48,7 +48,7 @@ main = do
 	putStr "\t- Update error messages\n"
 	putStr "\t- Test reduce and map combination\n"
 	putStr "\t- Array/scaler optimisations\n"
-	putStr "\t- Make output prettier\n"
+	putStr "<DONE>\t- Make output prettier\n"
 	putStr "\n"
 
 	args <- getArgs

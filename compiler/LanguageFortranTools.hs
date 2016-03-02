@@ -251,5 +251,8 @@ extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent 
 							assigneePresent = (\accum (var, exprList) -> if elem (applyGeneratedSrcSpans assignee) exprList then varnameStr var else accum)
 							standardisedList = map (\(var, exprList) -> (var, map (applyGeneratedSrcSpans) exprList)) list
 
+trimFront :: String -> String
+trimFront inp = filter (\x -> x /= ' ' && x /= '\t') inp
+
 compilerName :: String
 compilerName = "ParallelFortran"
