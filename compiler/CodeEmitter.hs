@@ -104,8 +104,8 @@ produceCode_fortran originalLines codeSeg = case codeSeg of
 									False -> extractOriginalCode originalLines (srcSpan codeSeg)
 
 synthesiseFor :: [String] -> Fortran [String] -> String
-synthesiseFor originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	f == "generated" = "\tdo " ++ (varnameStr varname) ++ "=" ++ errorExprFormatting expr1 
-																								++ ", " ++ errorExprFormatting expr2 ++ (if expr3isOne then "" else errorExprFormatting expr3)
+synthesiseFor originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	f == "generated" = "\tdo " ++ (varnameStr varname) ++ "=" ++ outputExprFormatting expr1 
+																								++ ", " ++ outputExprFormatting expr2 ++ (if expr3isOne then "" else outputExprFormatting expr3)
 																								++ "\n" ++ (mkQ "" (produceCode_fortran originalLines) fort) ++ "\tend do\n"
 																			|	otherwise = extractOriginalCode originalLines src
 																	where
@@ -115,35 +115,116 @@ synthesiseFor originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	f =
 																		((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
 
 synthesiseAssg :: [String] -> Fortran [String] -> String
-synthesiseAssg originalLines (Assg anno src expr1 expr2)	|	f == "generated" = errorExprFormatting expr1 ++ " = " ++ errorExprFormatting expr2 ++ "\n"
+synthesiseAssg originalLines (Assg anno src expr1 expr2)	|	f == "generated" = outputExprFormatting expr1 ++ " = " ++ outputExprFormatting expr2 ++ "\n"
 															|	otherwise = extractOriginalCode originalLines src
 											where 
 												((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
 
 synthesiseIf :: [String] -> Fortran [String] -> String
-synthesiseIf originalLines (If anno src expr fortran _ _) 	|	f == "generated" = "If (" ++ errorExprFormatting expr ++ ") then\n" 
+synthesiseIf originalLines (If anno src expr fortran _ _) 	|	f == "generated" = "If (" ++ outputExprFormatting expr ++ ") then\n" 
 																	++ (mkQ "" (produceCode_fortran originalLines) fortran)
 																	++ "end if\n"
 															|	otherwise = extractOriginalCode originalLines src
 											where 
 												((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
 
+synthesiseDecl :: Decl [String] -> String
+synthesiseDecl (Decl anno src lst typ) = (synthesiseType typ) ++ " :: " ++ (synthesiseDeclList lst) ++ "\n"
+synthesiseDecl (NullDecl [] nullSrcSpan) = "[Variable not declared in orignal source]\n"
+synthesiseDecl _ = "Unimplemented declaration syntax \n"
+
+synthesiseType :: Type [String] -> String
+synthesiseType (BaseType anno base attrList (expr1) (expr2)) = baseStr ++ kindStr ++ attrStr
+											where
+												baseStr = synthesiseBaseType base
+												kindStr = case outputExprFormatting expr1 of
+																"" -> ""
+																str -> "(kind=" ++ str ++ ")"
+												attrStr = case synthesiseAttrList attrList of
+																"" -> ""
+																str -> ", " ++ str
+
+synthesiseBaseType :: BaseType [String] -> String
+synthesiseBaseType (Integer _) = "integer"
+synthesiseBaseType (Real _) = "real"
+synthesiseBaseType (Character _) = "character"
+synthesiseBaseType typ = "[Incompatible type]"
+-- synthesiseBaseType (SomeType _) = "<SomeType>"
+-- synthesiseBaseType (DerivedType _ _) = "<DerivedType>"
+-- synthesiseBaseType (Recursive _) = "<Recursive>"
+-- synthesiseBaseType (Pure _) = "<Pure>"
+-- synthesiseBaseType (Elemental _) = "<Elemental>"
+-- synthesiseBaseType (Logical _) = "<Logical>"
+-- synthesiseBaseType (Complex _) = "<Complex>"
+
+synthesiseAttrList :: [Attr [String]] -> String
+synthesiseAttrList [] = ""
+synthesiseAttrList (attr:[]) = synthesiseAttr attr
+synthesiseAttrList attrList = attrStrs
+				where 
+					attrStrList = map (synthesiseAttr) attrList
+					attrStrs = foldl (\accum item -> accum ++ ", " ++ item) (head attrStrList) (tail attrStrList)
+
+synthesiseAttr :: Attr [String] -> String
+synthesiseAttr (Dimension _ exprList) = "Dimension(" ++ synthesiseRangeExpr exprList ++ ")"
+synthesiseAttr (Intent _ intentAttr) = "Intent(" ++ intentStr ++ ")"
+					where 
+						intentStr = case intentAttr of
+							In _ -> "In"
+							Out _ -> "Out"
+							_ -> "InOut"
+synthesiseAttr attr = "[Incompatible attribute]"
+-- synthesiseAttr (Parameter _) = ""
+-- synthesiseAttr (Allocatable _) = ""
+-- synthesiseAttr (External _) = ""
+-- synthesiseAttr (Intrinsic _) = ""
+-- synthesiseAttr (Optional _) = ""
+-- synthesiseAttr (Pointer _) = ""
+-- synthesiseAttr (Save _) = ""
+-- synthesiseAttr (Target _) = ""
+-- synthesiseAttr (Volatile _) = ""
+-- synthesiseAttr (Public _) = ""
+-- synthesiseAttr (Private _) = ""
+-- synthesiseAttr (Sequence _) = ""
+-- synthesiseAttr (MeasureUnit _ _) = ""
+
+synthesiseRangeExpr :: [(Expr [String], Expr [String])] -> String
+synthesiseRangeExpr [] = ""
+synthesiseRangeExpr ((expr1, expr2):[]) = outputExprFormatting expr1 ++ ":" ++ outputExprFormatting expr2
+synthesiseRangeExpr ((expr1, expr2):xs) = outputExprFormatting expr1 ++ ":" ++ outputExprFormatting expr2 ++ "," ++ synthesiseRangeExpr xs
+
+synthesiseDeclList :: [(Expr [String], Expr [String], Maybe Int)] -> String
+synthesiseDeclList ((expr1, expr2, maybeInt):xs) = "(" 
+												++ outputExprFormatting expr1 ++ 
+												(case expr2 of
+													NullExpr _ _ -> ""
+													_ ->  ", " ++ outputExprFormatting expr2)
+												++ maybeIntStr ++ ")"
+												++ followingItems
+						where
+							maybeIntStr = case maybeInt of
+											Just a -> ", " ++ show a
+											Nothing -> ""
+							followingItems = case xs of 
+												[] -> ""
+												_ -> ", " ++ synthesiseDeclList xs
+
 synthesiseOpenCLMap :: [String] -> Program [String] -> Fortran [String] -> String
 synthesiseOpenCLMap originalLines prog (OpenCLMap _ src r w l fortran) = -- "\n! " ++ compilerName ++ ": Synthesised kernel\n" 
 																	"subroutine " ++ kernelName
 																	++"(" 
-																					++ readArgsStr 
-																					++ writtenArgsStr 
-																					++ generalArgsStr ++ ")\n\n"
+																					++ allArgsStr ++ ")\n\n"
+																	++ readDeclStr
+																	++ writtenDeclStr
+																	++ generalDeclStr
 																	++ "! " ++ compilerName ++ ": Synthesised loop variables\n"
-																	++ readDecls
 																	++ produceCode_fortran originalLines loopInitialiserCode 
 																	++ "\n\n"
 																	++ "! " ++ compilerName ++ ": Original code\n" 
 																	++ (mkQ "" (produceCode_fortran originalLines) fortran) 
 																	++ "\n"
 																	++ "end subroutine " ++ kernelName
-																	++ "\n"
+																	++ "\n\n\n"
 																	-- ++ "! " ++ compilerName ++ ": End of synthesised kernel\n\n" 
 
 											where
@@ -153,14 +234,19 @@ synthesiseOpenCLMap originalLines prog (OpenCLMap _ src r w l fortran) = -- "\n!
 												writtenArgs = listSubtract w r
 												generalArgs = listIntersection w r
 
-												readArgsStr = foldl (\accum item -> accum ++ "\n\tread_only " ++ varnameStr item) "" readArgs
-												writtenArgsStr = foldl (\accum item -> accum ++ "\n\twrite_only " ++ varnameStr item) "" writtenArgs
-												generalArgsStr = foldl (\accum item -> accum ++ "\n\t" ++ varnameStr item) "" generalArgs
+												allArgs = readArgs ++ writtenArgs ++ generalArgs
+												allArgsStr = case allArgs of
+															[] -> ""
+															args -> foldl (\accum item -> accum ++ "," ++ varnameStr item) (varnameStr (head args)) (tail args)
 												
-												readDecls = foldl (\accum item -> accum ++ fromMaybe "Nothing" (getOriginalDeclaration originalLines item prog)) "" readArgs
-												-- testDecl = case getOriginalDeclaration originalLines (head readArgs) prog of
-												-- 				Just a -> a
-												-- 				Nothing -> "Nothing"
+												
+												readDecls = map (\x ->fromMaybe (NullDecl [] nullSrcSpan) (adaptOriginalDeclaration x (In []) prog)) readArgs
+												writtenDecls = map (\x ->fromMaybe (NullDecl [] nullSrcSpan) (adaptOriginalDeclaration x (Out []) prog)) writtenArgs
+												generalDecls = map (\x ->fromMaybe (NullDecl [] nullSrcSpan) (adaptOriginalDeclaration x (InOut []) prog)) generalArgs
+
+												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl item) "" (readDecls)
+												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl item) "" (writtenDecls)
+												generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl item) "" (generalDecls)
 
 												loopInitialisers = generateLoopInitialisers l getGlobalID Nothing
 												loopInitialiserCode = foldl1 (\accum item -> appendFortran_recursive item accum) loopInitialisers
@@ -169,12 +255,16 @@ synthesiseOpenCLMap originalLines prog (OpenCLMap _ src r w l fortran) = -- "\n!
 synthesiseOpenCLReduce :: [String] -> Program [String] -> Fortran [String] -> String
 synthesiseOpenCLReduce originalLines prog (OpenCLReduce _ src r w l rv fortran)  = -- "\n! " ++ compilerName ++ ": Synthesised kernel\n" 
 																			"subroutine " ++ kernelName
-																			++ "(" 				++ readArgs 
-																								++ writtenArgs 
-																								++ generalArgs 
+																			++ "(" 				++ allArgsStr
 																								++ workGroup_reductionArrays_str 
 																								++ global_reductionArrays_str 
 																								++ chunkSize_str ++ ")\n\n"
+																			++ readArgs 
+																			++ writtenArgs 
+																			++ generalArgs ++ "\n"
+																			++ readDeclStr
+																			++ writtenDeclStr
+																			++ generalDeclStr
 																			-- ++ "! " ++ compilerName ++ ": Reduction vars: " ++ global_reductionVars ++ "\n"
 																			++ localChunkSize_str
 																			++ startPosition_str
@@ -196,7 +286,7 @@ synthesiseOpenCLReduce originalLines prog (OpenCLReduce _ src r w l rv fortran) 
 																			++ global_reductionArraysAssignmentStr
 																			++ "\n"
 																			++ "end subroutine " ++ kernelName
-																			++"\n"
+																			++"\n\n\n"
 																			-- ++ "! " ++ compilerName ++ ": End of synthesised kernel\n\n" 
 											where
 												kernelName = generateKernelName "reduce" src (map (\(v, e) -> v) rv)
@@ -206,18 +296,32 @@ synthesiseOpenCLReduce originalLines prog (OpenCLReduce _ src r w l rv fortran) 
 												writtenVarNames = listSubtract (listSubtract w r) reductionVarNames
 												generalVarNames = listSubtract (listIntersection w r) reductionVarNames
 
-												readArgs = foldl (\accum item -> accum ++ "\n\t__global read_only " ++ varnameStr item) "" readVarNames
-												writtenArgs = foldl (\accum item -> accum ++ "\n\t__global write_only " ++ varnameStr item) "" writtenVarNames
-												generalArgs = foldl (\accum item -> accum ++ "\n\t__global " ++ varnameStr item) "" generalVarNames
+												readArgs = foldl (\accum item -> accum ++ "\n!\t__global read_only " ++ varnameStr item) "" readVarNames
+												writtenArgs = foldl (\accum item -> accum ++ "\n!\t__global write_only " ++ varnameStr item) "" writtenVarNames
+												generalArgs = foldl (\accum item -> accum ++ "\n!\t__global " ++ varnameStr item) "" generalVarNames
+
+												allArgs = readVarNames ++ writtenVarNames ++ generalVarNames
+												allArgsStr = case allArgs of
+															[] -> ""
+															args -> foldl (\accum item -> accum ++ "," ++ varnameStr item) (varnameStr (head args)) (tail args)
+												
+												
+												readDecls = map (\x ->fromMaybe (NullDecl [] nullSrcSpan) (adaptOriginalDeclaration x (In []) prog)) readVarNames
+												writtenDecls = map (\x ->fromMaybe (NullDecl [] nullSrcSpan) (adaptOriginalDeclaration x (Out []) prog)) writtenVarNames
+												generalDecls = map (\x ->fromMaybe (NullDecl [] nullSrcSpan) (adaptOriginalDeclaration x (InOut []) prog)) generalVarNames
+
+												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl item) "" (readDecls)
+												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl item) "" (writtenDecls)
+												generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl item) "" (generalDecls)
 												
 												local_reductionVars = map (generateLocalReductionVar) reductionVarNames
-												local_reductionVarsInitStr = foldl (\accum (var, expr) -> accum ++ "local_" ++ varnameStr var ++ " = " ++ errorExprFormatting expr ++ "\n") "" rv
+												local_reductionVarsInitStr = foldl (\accum (var, expr) -> accum ++ "local_" ++ varnameStr var ++ " = " ++ outputExprFormatting expr ++ "\n") "" rv
 
-												chunkSize_str = "\n\tconst " ++ errorExprFormatting chunk_size
-												localChunkSize_str = (errorExprFormatting localChunkSize) ++ " = " 
-														++ (errorExprFormatting chunk_size) ++ " / " ++ (errorExprFormatting getLocalSize) ++ "\n"
-												startPosition_str = (errorExprFormatting startPosition) ++ " = " ++ (errorExprFormatting localChunkSize) ++
-													" * " ++ (errorExprFormatting getGlobalID) ++ "\n"
+												chunkSize_str = "\n\tconst " ++ outputExprFormatting chunk_size
+												localChunkSize_str = (outputExprFormatting localChunkSize) ++ " = " 
+														++ (outputExprFormatting chunk_size) ++ " / " ++ (outputExprFormatting getLocalSize) ++ "\n"
+												startPosition_str = (outputExprFormatting startPosition) ++ " = " ++ (outputExprFormatting localChunkSize) ++
+													" * " ++ (outputExprFormatting getGlobalID) ++ "\n"
 
 												reductionIterator = generateReductionIterator (r ++ w ++ (map (\(x,_,_,_) -> x) l) ++ reductionVarNames)
 												workItem_loopEnd = Bin [] nullSrcSpan (Plus []) startPosition localChunkSize
@@ -249,7 +353,7 @@ generateLocalReductionArrayArgStr accum item = accum ++ "\n\t__local " ++ varnam
 generateGloablReductionArrayArgStr accum item = accum ++ "\n\t__global " ++ varnameStr item
 generateLocalReductionVar (VarName anno str) = VarName anno ("local_" ++ str)
 
-generateReductionArrayAssignment accessor accum ((VarName _ s1),(VarName _ s2)) = accum++s1++"("++(errorExprFormatting accessor)++") = "++s2++"\n"
+generateReductionArrayAssignment accessor accum ((VarName _ s1),(VarName _ s2)) = accum++s1++"("++(outputExprFormatting accessor)++") = "++s2++"\n"
 
 generateKernelName :: String -> SrcSpan -> [VarName [String]] -> String
 generateKernelName identifier src varnames = identifier
@@ -283,6 +387,31 @@ generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"call " ++ (generate
 										reductionVarNames)) 
 								++ ["chunk_size"]
 				allArgumentsStr =  (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
+
+adaptOriginalDeclaration :: VarName [String] -> IntentAttr [String] -> Program [String] -> Maybe(Decl [String])
+adaptOriginalDeclaration varname intent program = case decl_list of
+														[] -> Nothing
+														_ -> Just (decl)
+			where 
+				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
+				decl = applyGeneratedSrcSpans (applyIntent (intent) (head decl_list))
+
+applyIntent :: IntentAttr [String] -> Decl [String] -> Decl [String]
+applyIntent intent decl = everywhere (mkT (replaceIntent intent)) decl
+
+replaceIntent :: IntentAttr [String] -> IntentAttr [String] -> IntentAttr [String]
+replaceIntent newIntent oldIntent = newIntent
+
+extractDeclaration :: VarName [String] -> Decl [String] -> [Decl [String]]
+extractDeclaration varname  (Decl anno src lst typ)  	| firstHasVar || secondHasVar = [Decl anno src lst typ]
+														| otherwise = []
+			where
+				firstExprs = map (\(expr, _, _) -> expr) lst
+				secondExprs = map (\(_, expr, _) -> expr) lst
+
+				firstHasVar = foldl (\accum item -> accum || hasVarName [varname] item) False firstExprs
+				secondHasVar = foldl (\accum item -> accum || hasVarName [varname] item) False secondExprs
+extractDeclaration varname decl = []
 
 getOriginalDeclaration :: [String] -> VarName [String] -> Program [String] -> Maybe(String)
 getOriginalDeclaration originalLines varname program = case declSrc_list of

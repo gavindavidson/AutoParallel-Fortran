@@ -26,21 +26,21 @@ errorLocationFormatting ((SrcLoc filename line column), srcEnd) = show line ++ "
 errorLocationRangeFormatting :: SrcSpan -> String
 errorLocationRangeFormatting ((SrcLoc _ line_start _), (SrcLoc _ line_end _)) = "line " ++ show line_start ++ " and line " ++ show line_end -- ++ ", column " ++ show column
 
-errorExprFormatting :: Expr [String] -> String
-errorExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) -> ((\(VarName _ str) -> str) varname) ++ 
+outputExprFormatting :: Expr [String] -> String
+outputExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) -> ((\(VarName _ str) -> str) varname) ++ 
 															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
-																++ item) "" (map (errorExprFormatting) exprList)) ++ ")" else "")) list)
-errorExprFormatting (Con _ _ str) = str
-errorExprFormatting (Bin _ _ op expr1 expr2) = "(" ++ errorExprFormatting expr1 ++ " " ++ op_str ++ " " ++ errorExprFormatting expr2 ++ ")"
+																++ item) "" (map (outputExprFormatting) exprList)) ++ ")" else "")) list)
+outputExprFormatting (Con _ _ str) = str
+outputExprFormatting (Bin _ _ op expr1 expr2) = "(" ++ outputExprFormatting expr1 ++ " " ++ op_str ++ " " ++ outputExprFormatting expr2 ++ ")"
 							where
 								op_str = case op of
 									Plus p -> "+"
 									Minus p -> "-"
 									Mul p -> "*"
 									Div p -> "/"
-									Or p -> " or "
-									And p -> " and "
-									Concat p -> " concat "
+									Or p -> ".OR."
+									And p -> ".AND."
+									Concat p -> "//"
 									Power p -> "**"
 									RelEQ p -> "=="
 									RelNE p -> "/="
@@ -48,8 +48,15 @@ errorExprFormatting (Bin _ _ op expr1 expr2) = "(" ++ errorExprFormatting expr1 
 									RelLE p -> "<="
 									RelGT p -> ">"
 									RelGE p -> ">="
-errorExprFormatting (Null _ _) = "null"					
-errorExprFormatting codeSeg = show codeSeg
+outputExprFormatting (NullExpr _ _) = ""
+outputExprFormatting (Null _ _) = "null"
+outputExprFormatting (Unary _ _ unOp expr) = "(" ++ op_str ++ outputExprFormatting expr ++ ")"
+							where 
+								op_str = case unOp of
+									UMinus p -> "-"
+									Not p -> ".NOT."
+
+outputExprFormatting codeSeg = show codeSeg
 
 --	Generic function that removes all duplicate elements from a list.
 listRemoveDuplications :: Eq a => [a] -> [a]
@@ -102,20 +109,17 @@ generateArrayVar varname access = Var [] nullSrcSpan [(varname, [access])]
 generateIf :: Expr [String] -> Fortran [String] -> Fortran [String]
 generateIf expr fortran = If [] nullSrcSpan expr fortran [] Nothing
 
-applyGeneratedSrcSpans :: Fortran [String] -> Fortran [String]
-applyGeneratedSrcSpans = everywhere (mkT (standardiseSrcSpan))
-
 --	Used to standardise SrcSpans so that nodes of an AST may be matched up even if they appear in completely different
---	parts of a program
---standardiseSrcSpan_trans ::(Data a, Typeable a) =>  Expr a -> Expr a
-standardiseSrcSpan_trans :: Expr [String] -> Expr [String]
-standardiseSrcSpan_trans = everywhere (mkT (standardiseSrcSpan))
+--	parts of a program. Also used to signify that a node has been changed and cannot be copied from the orignal source during code
+--	generation
+applyGeneratedSrcSpans :: (Data (a [String])) => a [String] -> a [String]
+applyGeneratedSrcSpans = everywhere (mkT (standardiseSrcSpan))
 
 standardiseSrcSpan :: SrcSpan -> SrcSpan
 standardiseSrcSpan src = nullSrcSpan
 
 hasOperand :: Expr [String] -> Expr [String] -> Bool
-hasOperand container contains = all (== True) $ map (\x -> elem x (extractOperands $ standardiseSrcSpan_trans container)) (extractOperands $ standardiseSrcSpan_trans contains)
+hasOperand container contains = all (== True) $ map (\x -> elem x (extractOperands $ applyGeneratedSrcSpans container)) (extractOperands $ applyGeneratedSrcSpans contains)
 
 --	Appends a new item to the list of annotations already associated to a particular node
 appendAnnotation :: Fortran [String] -> String -> Fortran [String]
@@ -236,15 +240,15 @@ extractPrimaryReductionOp assignee (Bin _ _ op expr1 expr2) = case assigneePrese
 							childOp = case primaryOp1 of
 										Just a -> primaryOp1
 										Nothing ->  primaryOp2
-							assigneePresent = standardiseSrcSpan_trans expr1 == standardiseSrcSpan_trans assignee ||
-												standardiseSrcSpan_trans expr2 == standardiseSrcSpan_trans assignee
+							assigneePresent = applyGeneratedSrcSpans expr1 == applyGeneratedSrcSpans assignee ||
+												applyGeneratedSrcSpans expr2 == applyGeneratedSrcSpans assignee
 extractPrimaryReductionOp assignee assignment = Nothing
 
 extractPrimaryReductionFunction ::  Expr [String] -> Expr [String] -> String
 extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent "" list
 						where
-							assigneePresent = (\accum (var, exprList) -> if elem (standardiseSrcSpan_trans assignee) exprList then varnameStr var else accum)
-							standardisedList = map (\(var, exprList) -> (var, map (standardiseSrcSpan_trans) exprList)) list
+							assigneePresent = (\accum (var, exprList) -> if elem (applyGeneratedSrcSpans assignee) exprList then varnameStr var else accum)
+							standardisedList = map (\(var, exprList) -> (var, map (applyGeneratedSrcSpans) exprList)) list
 
 compilerName :: String
 compilerName = "ParallelFortran"

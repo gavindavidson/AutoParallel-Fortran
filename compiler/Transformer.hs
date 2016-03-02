@@ -201,17 +201,17 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
 										(if (not potentialReductionVar) && isNonTempAssignment then 
 											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\tPossible reduction variable (" 
-												++ errorExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" 
+												++ outputExprFormatting expr1 ++ ") is not assigned a value related to itself and does not appear in a preceeding conditional construct\n" 
 											else "")
 										++
 										(if potentialReductionVar && (not dependsOnSelfOnce) then
 											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\tPossible reduction variable (" 
-												++ errorExprFormatting expr1 ++ ") is related to itself more than once.\n" 
+												++ outputExprFormatting expr1 ++ ") is related to itself more than once.\n" 
 											else "")
 										++
 										(if potentialReductionVar && (not associative) && dependsOnSelfOnce then
 											outputTab ++ outputTab ++ (errorLocationFormatting srcspan) ++ ":\t(" 
-												++ errorExprFormatting expr2 ++ ") is not an associative function.\n" 
+												++ outputExprFormatting expr2 ++ ") is not an associative function.\n" 
 											else "")
 										,
 										if potentialReductionVar then [expr1] else [],
@@ -256,7 +256,7 @@ analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errors,
 
 																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
 																	/= [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
-																	++ ":\tNon temporary, write variable (" ++ errorExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
+																	++ ":\tNon temporary, write variable (" ++ outputExprFormatting item ++ ") accessed without use of full loop variable\n"  else "") nonTempWrittenOperands
 
 --	Determines whether or not an expression contains a non temporary variable and whether it is access correctly for a reduction. Produces and appropriate string error
 analyseAccess_reduce :: [VarName [String]] -> [VarName [String]] -> [VarName [String]] -> VarAccessAnalysis -> Expr [String] -> AnalysisInfo
@@ -272,7 +272,7 @@ analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (erro
 
 																if listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) 
 																	== [] then outputTab ++ outputTab ++ errorLocationFormatting (srcSpan item)  
-																	++ ":\tNon temporary, write variable (" ++ errorExprFormatting item ++ ") written to with use of full loop variable\n"  else "") nonTempWrittenOperands
+																	++ ":\tNon temporary, write variable (" ++ outputExprFormatting item ++ ") written to with use of full loop variable\n"  else "") nonTempWrittenOperands
 
 --	Function checks whether the primary in a reduction assignmnet is an associative operation. Checks both associative ops and functions.
 isAssociativeExpr :: Expr [String] -> Expr [String] -> Bool
