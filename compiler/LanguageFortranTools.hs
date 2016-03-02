@@ -157,7 +157,8 @@ replaceAllOccurences_varnamePairs codeSeg originals replacements = foldl (\accum
 					where
 						pairs = zip originals replacements
 
-replaceAllOccurences_varname :: Fortran [String] -> VarName [String] -> VarName [String] -> Fortran [String]
+-- replaceAllOccurences_varname :: Fortran [String] -> VarName [String] -> VarName [String] -> Fortran [String]
+replaceAllOccurences_varname :: (Data (a [String])) => a [String] -> VarName [String] -> VarName [String] -> a [String]
 replaceAllOccurences_varname codeSeg original replacement = everywhere (mkT (replaceVarname original replacement)) codeSeg
 
 replaceVarname :: VarName [String] -> VarName [String] -> VarName [String] -> VarName [String]

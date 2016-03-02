@@ -34,14 +34,17 @@ main = do
 	
 	putStr "STUFF TO DO:\n"
 	putStr "\t- Check for identity value (reduction)\n"
-	putStr " <DONE>\t- Finish kernel emission\n"
+	putStr "<DONE>\t- Finish kernel emission\n"
 	putStr "\t- Emit code for final host reductions\n"
-	putStr "\t- Produce CPP'd version of code\n"
-	putStr " <DONE>\t- Make kernels subroutines\n"
-	putStr " <DONE>\t- Unique kernel names\n"
-	putStr " <DONE>\t- Add kernels/subroutines to module for each original source file\n"
-	putStr " <DOING>\t- Add declarations for arguments to kernels\n"
+	putStr "<DONE>\t- Emit NDRange information to host\n"
+	putStr "<DONE>\t- Produce CPP'd version of code\n"
+	putStr "<DONE>\t- Make kernels subroutines\n"
+	putStr "<DONE>\t- Unique kernel names\n"
+	putStr "<DONE>\t- Add kernels/subroutines to module for each original source file\n"
+	putStr "<DONE>\t- Add declarations for arguments to kernels\n"
+	putStr "<DONE>\t- Add integer :: g_id, get_global_id(g_id,0) code segments\n"
 	putStr "\t- Make annotations String -> [String] maps\n"
+	putStr "\t- Make kernel loop variable calculations deal with different starts\n"
 	putStr "\t- Update error messages\n"
 	putStr "\t- Test reduce and map combination\n"
 	putStr "\t- Array/scaler optimisations\n"
@@ -73,7 +76,7 @@ main = do
 	-- putStr $ show $ parsedProgram
 	--putStr "\n\n\n"
 
-	putStr $ show $ combinedProg
+	-- putStr $ show $ combinedProg
 	-- putStr "\n"
 
 	--putStr "\n"
