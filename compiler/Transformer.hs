@@ -35,7 +35,7 @@ main = do
 	putStr "STUFF TO DO:\n"
 	putStr "\t- Check for identity value (reduction)\n"
 	putStr "<DONE>\t- Finish kernel emission\n"
-	putStr "\t- Emit code for final host reductions\n"
+	putStr "<DONE>\t- Emit code for final host reductions\n"
 	putStr "<DONE>\t- Emit NDRange information to host\n"
 	putStr "<DONE>\t- Produce CPP'd version of code\n"
 	putStr "<DONE>\t- Make kernels subroutines\n"
@@ -48,6 +48,7 @@ main = do
 	putStr "\t- Update error messages\n"
 	putStr "\t- Test reduce and map combination\n"
 	putStr "\t- Array/scaler optimisations\n"
+	putStr "\t- Make output prettier\n"
 	putStr "\n"
 
 	args <- getArgs

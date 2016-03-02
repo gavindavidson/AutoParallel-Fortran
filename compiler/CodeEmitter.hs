@@ -106,8 +106,15 @@ produceCode_fortran originalLines codeSeg = case codeSeg of
 						Assg _ _ _ _ -> synthesiseAssg originalLines codeSeg
 						For _ _ _ _ _ _ _ -> synthesiseFor originalLines codeSeg
 						NullStmt _ _ -> ""
-						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall codeSeg) -- ++ (synthesiseOpenCLMap originalLines codeSeg)
-						OpenCLReduce _ _ _ _ _ _ _ ->  (generateKernelCall codeSeg) -- ++ (synthesiseOpenCLReduce originalLines codeSeg)
+						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall codeSeg) 
+						OpenCLReduce _ _ _ _ _ rv f ->  (generateKernelCall codeSeg) ++ "! Replace n with number of work groups\n" 
+																++ (mkQ "" (produceCode_fortran originalLines) hostReductionLoop)
+								where 
+									reductionVarNames = map (\(varname, expr) -> varname) rv
+									r_iter = generateReductionIterator reductionVarNames
+									hostReduction = generateFinalHostReduction reductionVarNames r_iter f
+									hostReductionLoop = generateLoop r_iter (generateConstant 1) (generateVar (VarName [] "n")) hostReduction
+									
 						FSeq _ _ fortran1 fortran2 -> (mkQ "" (produceCode_fortran originalLines) fortran1) ++ (mkQ "" (produceCode_fortran originalLines) fortran2)
 						_ -> 	case anyChildGenerated codeSeg || isGenerated codeSeg of
 									True -> foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran originalLines)) codeSeg)
@@ -390,8 +397,8 @@ synthesiseOpenCLReduce originalLines prog (OpenCLReduce _ src r w l rv fortran) 
 												workGroup_reductionArraysDecl = map (\x -> fromMaybe (NullDecl [] nullSrcSpan) (declareLocalReductionArray x (groupSizeVar) prog)) reductionVarNames
 												workGroup_reductionArraysDeclStr = synthesiseDecls workGroup_reductionArraysDecl
 												workGroup_reductionArraysInitStr = foldl (generateReductionArrayAssignment localIdVar) "" (zip workGroup_reductionArrays local_reductionVars)
-												workGroup_reductionCode = generateWorkGroupReduction reductionIterator fortran
-												workGroup_loop = generateLoop reductionIterator (generateConstant 0) localSizeVar workGroup_reductionCode
+												workGroup_reductionCode = generateWorkGroupReduction reductionVarNames reductionIterator fortran
+												workGroup_loop = generateLoop reductionIterator (generateConstant 1) localSizeVar workGroup_reductionCode
 
 												global_reductionArrays = map (generateGlobalReductionArray) reductionVarNames
 												global_reductionArraysDecl = map (\x -> fromMaybe (NullDecl [] nullSrcSpan) (declareGlobalReductionArray x (numGroupsVar) prog)) reductionVarNames
@@ -421,7 +428,7 @@ generateKernelName identifier src varnames = identifier
 generateKernelCall :: Fortran [String] -> String
 generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Workgroup size: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
 														++ "call " ++ (generateKernelName "map" src w) 
-														++ "(" ++ allArgumentsStr ++ ")"++ "\t! Call to synthesised, external kernel\n"++ "\n"
+														++ "(" ++ allArgumentsStr ++ ")"++ "\t! Call to synthesised, external kernel\n"
 			where
 				readArgs = map (varnameStr) (listSubtract r w)
 				writtenArgs = map (varnameStr) (listSubtract w r)
@@ -434,7 +441,7 @@ generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Workgroup size: " ++ ou
 
 generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"! Workgroup size: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
 															++"call " ++ (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
-															++ "(" ++ allArgumentsStr ++ ")" ++ "\t! Call to synthesised, external kernel\n"++ "\n"
+															++ "(" ++ allArgumentsStr ++ ")" ++ "\t! Call to synthesised, external kernel\n"
 			where 
 				reductionVarNames = map (\(varname, expr) -> varname) rv
 				workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames
@@ -588,23 +595,47 @@ generateLoop r_iter start end fortran = For [] nullSrcSpan r_iter start end step
 					where
 						step = Con [] nullSrcSpan "1"
 
-generateWorkGroupReduction :: VarName [String] -> Fortran [String] -> Fortran [String]
-generateWorkGroupReduction redIter codeSeg  = resultantCode
+generateWorkGroupReduction :: [VarName [String]] -> VarName [String] -> Fortran [String] -> Fortran [String]
+generateWorkGroupReduction reductionVars redIter codeSeg  = resultantCode
 					where
-						assignments = everything (++) (mkQ [] (generateWorkGroupReduction_assgs redIter)) codeSeg
+						assignments = everything (++) (mkQ [] (generateWorkGroupReduction_assgs reductionVars redIter)) codeSeg
 						resultantCode = foldl1 (\accum item -> appendFortran_recursive item accum) assignments
 
-generateWorkGroupReduction_assgs :: VarName [String] -> Fortran [String] -> [Fortran [String]]
-generateWorkGroupReduction_assgs redIter (Assg _ _ expr1 expr2) = resultantAssg
+generateWorkGroupReduction_assgs :: [VarName [String]] -> VarName [String] -> Fortran [String] -> [Fortran [String]]
+generateWorkGroupReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	| isReductionExpr = resultantAssg
+																				| otherwise = []
 					where 
+						isReductionExpr = hasVarName reductionVars expr1
 						resultantAssg = case extractPrimaryReductionOp expr1 expr2 of
-											Just op -> [Assg [] nullSrcSpan localReductioVar (Bin [] nullSrcSpan op localReductioVar localReductionArray)]
+											Just op -> [Assg [] nullSrcSpan localReductionVar (Bin [] nullSrcSpan op localReductionVar localReductionArray)]
 											Nothing -> case extractPrimaryReductionFunction expr1 expr2 of
 														"" -> []
-														funcName -> [Assg [] nullSrcSpan localReductioVar (Var [] nullSrcSpan [(VarName [] funcName, [localReductioVar, localReductionArray])])]
+														funcName -> [Assg [] nullSrcSpan localReductionVar (Var [] nullSrcSpan [(VarName [] funcName, [localReductionVar, localReductionArray])])]
 						localReductionArray = generateArrayVar (generateLocalReductionArray (head (extractVarNames expr1))) (generateVar redIter)
-						localReductioVar = generateVar (generateLocalReductionVar (head (extractVarNames expr1)))
-generateWorkGroupReduction_assgs redIter codeSeg = []
+						localReductionVar = generateVar (generateLocalReductionVar (head (extractVarNames expr1)))
+generateWorkGroupReduction_assgs reductionVars redIter codeSeg = []
+
+generateFinalHostReduction :: [VarName [String]] -> VarName [String] -> Fortran [String] -> Fortran [String]
+generateFinalHostReduction reductionVars redIter codeSeg  = resultantCode
+					where
+						assignments = everything (++) (mkQ [] (generateFinalHostReduction_assgs reductionVars redIter)) codeSeg
+						resultantCode = foldl1 (\accum item -> appendFortran_recursive item accum) assignments
+
+generateFinalHostReduction_assgs :: [VarName [String]] -> VarName [String] -> Fortran [String] -> [Fortran [String]]
+generateFinalHostReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	| isReductionExpr = resultantAssg
+																				| otherwise = []
+					where 
+						isReductionExpr = hasVarName reductionVars expr1
+						resultantAssg = case extractPrimaryReductionOp expr1 expr2 of
+											Just op -> [Assg [] nullSrcSpan finalReductionVar (Bin [] nullSrcSpan op finalReductionVar finalReductionArray)]
+											Nothing -> case extractPrimaryReductionFunction expr1 expr2 of
+														"" -> []
+														funcName -> [Assg [] nullSrcSpan finalReductionVar (Var [] nullSrcSpan [(VarName [] funcName, [finalReductionVar, finalReductionArray])])]
+						--localReductionArray = generateArrayVar (generateLocalReductionArray (head (extractVarNames expr1))) (generateVar redIter)
+						--localReductionVar = generateVar (generateLocalReductionVar (head (extractVarNames expr1)))
+						finalReductionArray = generateArrayVar (generateGlobalReductionArray (head (extractVarNames expr1))) (generateVar redIter)
+						finalReductionVar = generateVar (head (extractVarNames expr1))
+generateFinalHostReduction_assgs reductionVars redIter codeSeg = []
 
 generateLoopInitialisers :: [(VarName [String], Expr [String], Expr [String], Expr [String])] -> Expr [String] -> Maybe(Expr [String]) -> [Fortran [String]]
 generateLoopInitialisers ((var, start, end, step):[]) iterator (Just offset) 
