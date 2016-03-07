@@ -8,10 +8,10 @@ import LanguageFortranTools
 --	This file contains code that handles combining adjacent and nested kernels. The intention is that the top level 'combineKernels' function will be called
 --	against an AST that has already been transformed with parallel kernels applied.
 
-combineKernels :: Program [String] -> Program [String]
+combineKernels :: Program Anno -> Program Anno
 combineKernels codeSeg = map (everywhere (mkT (combineKernelsBlock))) codeSeg
 
-combineKernelsBlock :: Block [String] -> Block [String]
+combineKernelsBlock :: Block Anno -> Block Anno
 combineKernelsBlock block = combinedAdjacentNested
 				where
 					combinedNested = everywhere (mkT (combineNestedKernels)) block
@@ -20,40 +20,46 @@ combineKernelsBlock block = combinedAdjacentNested
 --	In the case where a kernel only contains another kernel of the same type, the two can be combined into one larger kernel.
 --	The nested kernel is definitely compatible with the outer kernel as this check has been performed by Transformer.hs. This function
 --	essentially mops up the representation to make code generation a little easier.
-combineNestedKernels :: Fortran [String] -> Fortran [String]
+combineNestedKernels :: Fortran Anno -> Fortran Anno
 combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
 								(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
-
-										OpenCLMap (anno1++anno2++[newAnnotation]) src1 reads writes loopVs innerFortran
+										OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran
+										--OpenCLMap (anno1++anno2++[newAnnotation]) src1 reads writes loopVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
 												writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
 												newAnnotation = compilerName ++ ": Nested map at " ++ errorLocationFormatting src2 ++ " fused into surrounding map\n"
+												combinedAnnotations = combineAnnotations anno1 anno2
 								otherwise -> codeSeg
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
 								(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
-										OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
+										OpenCLReduce (combinedAnnotations) src1 reads writes loopVs redVs innerFortran
+										--OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
 												reads = listRemoveDuplications $ outerReads ++ innerReads
 												writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
 												redVs = listRemoveDuplications $ outerRedVs ++ innerRedVs
 												newAnnotation = compilerName ++ ": Nested reduction at " ++ errorLocationFormatting src2 ++ " fused into surrounding reduction\n"
+												combinedAnnotations = combineAnnotations anno1 anno2
 								otherwise -> codeSeg
 					otherwise -> codeSeg
 
 --	In the case that two maps are adjacent to one and other and their iterator conditions are compatible, the kernels can be combined.
-combineAdjacentKernels :: Fortran [String] -> Fortran [String]
+combineAdjacentKernels :: Fortran Anno -> Fortran Anno
 combineAdjacentKernels codeSeg = case codeSeg of
 					(FSeq anno1 src1 fortran1 (FSeq anno2 _ fortran2 fortran3)) -> case fortran1 of
 							OpenCLMap _ src2 _ _ _ _ -> case fortran2 of
 									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
-																Just oclmap -> FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
+																--Just oclmap -> FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
+																Just oclmap -> FSeq (combinedAnnotations) src1 oclmap fortran3  
+
 																	where
-																		newAnnotation = compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 ++ " and " ++ errorLocationFormatting src3 ++ " fused\n"
+																		--newAnnotation = compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 ++ " and " ++ errorLocationFormatting src3 ++ " fused\n"
+																		combinedAnnotations = combineAnnotations anno1 anno2
 																Nothing -> codeSeg
 									otherwise	-> codeSeg
 							otherwise	-> codeSeg
@@ -62,8 +68,9 @@ combineAdjacentKernels codeSeg = case codeSeg of
 									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
 																Just oclmap -> appendAnnotation oclmap newAnnotation -- FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
 																	where
-																		newAnnotation = (foldl (++) "" anno1) ++ compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 
-																						++ " and " ++ errorLocationFormatting src3 ++ " fused\n"
+																		--newAnnotation = (foldl (++) "" anno1) ++ compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 
+																		--				++ " and " ++ errorLocationFormatting src3 ++ " fused\n"
+																		newAnnotation = ""
 																Nothing -> codeSeg
 									otherwise	-> codeSeg
 							otherwise	-> codeSeg
@@ -71,7 +78,7 @@ combineAdjacentKernels codeSeg = case codeSeg of
 
 --	This function constructs the combined adjacent maps. In the case that the iterator conditions differ slightly, it adds conditional constructs around appropriate
 --	parts of the body of the kernels.
-attemptCombineAdjacentMaps :: Fortran [String] -> Fortran [String] -> Maybe(Fortran [String])
+attemptCombineAdjacentMaps :: Fortran Anno -> Fortran Anno -> Maybe(Fortran Anno)
 attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
 							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] = Nothing
 																					| otherwise = Just(resultantMap)
@@ -79,7 +86,7 @@ attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran
 										newSrc = generateSrcSpanMerge src1 src2
 										combinedReads = listRemoveDuplications $ reads1 ++ reads2
 										writes = listRemoveDuplications $ writes1 ++ writes2
-										anno = anno1 ++ anno2
+										anno = combineAnnotations anno1 anno2
 
 										fortran = appendFortran_recursive 	(if yPredicateList /= [] then (generateIf yAndPredicate fortran2) else fortran2) 
 																			(if xPredicateList /= [] then (generateIf xAndPredicate fortran1) else fortran1) 
@@ -98,9 +105,9 @@ attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran
 --	iterator defined because they can represent nested loops. The function checks that the iterator conditions in each object match, IN ORDER. For example,
 --	for i:10, j:20, k:30 would match to for i:10, j:20, k:30 but not to for j:20,i:10,k:30
 --	Handles loops with slightly different end points but not loop iterators having different names.
-loopVariableCombinationConditions :: [(VarName [String], Expr [String], Expr [String], Expr [String])] 
-									-> [(VarName [String], Expr [String], Expr [String], Expr [String])] 
-									-> Maybe([Expr [String]], [Expr [String]], [(VarName [String], Expr [String], Expr [String], Expr [String])])
+loopVariableCombinationConditions :: [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] 
+									-> [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] 
+									-> Maybe([Expr Anno], [Expr Anno], [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)])
 loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs) 
 									((yVarName, yStart, yEnd, yStep):ys) 	|	sameVarNames && sameStart && sameStep && sameEnd && nextCombines = Just(xNext,yNext, [loopVars] ++ loopVarsNext)
 																			|	sameVarNames && sameStart && sameStep && endLinearFunction && nextCombines = Just(predicatListX ++ xNext, predicatListY ++ yNext, [loopVars] ++ loopVarsNext)
@@ -143,7 +150,7 @@ loopVariableCombinationConditions [] [] = Just([],[],[])
 
 --	The following functions are used to determine whether slightly differing loop conditions are compatible. If the end point of one is a constant
 --	addition or subtraction of the other then the loops can be fused.
-isConstantAdditionOf :: Expr [String] -> Expr [String] -> Bool
+isConstantAdditionOf :: Expr Anno -> Expr Anno -> Bool
 isConstantAdditionOf (Bin anno2 src2 op expr1 expr2) var 	|	exprContainsVar && expr2Cons = case op of
 																								Plus _ -> True
 																								otherwise -> False
@@ -157,7 +164,7 @@ isConstantAdditionOf (Bin anno2 src2 op expr1 expr2) var 	|	exprContainsVar && e
 																			_	-> False
 isConstantAdditionOf _ _ = False
 
-isConstantSubtractionOf :: Expr [String] -> Expr [String] -> Bool
+isConstantSubtractionOf :: Expr Anno -> Expr Anno -> Bool
 isConstantSubtractionOf (Bin anno2 src2 op expr1 expr2) var |	exprContainsVar && expr2Cons = case op of
 																								Minus _ -> True
 																								otherwise -> False

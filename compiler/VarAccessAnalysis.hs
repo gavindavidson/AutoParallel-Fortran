@@ -15,15 +15,15 @@ import qualified Data.Map as DMap
 --	THIS WILL BE CHANGED TO A MAP, RATHER THAN A LIST.
 --	Type used to colate data on variable accesses throughout a program.
 --						Name of variable 	All reads 	All writes
-type VarAccessRecord = (VarName [String], 	[SrcSpan], 	[SrcSpan])
--- type VarValueRecord = (VarName [String], [(SrcSpan, Expr [String])])
+type VarAccessRecord = (VarName Anno, 	[SrcSpan], 	[SrcSpan])
+-- type VarValueRecord = (VarName Anno, [(SrcSpan, Expr Anno)])
 
 type LocalVarAccessAnalysis = [VarAccessRecord]
-type LocalVarValueAnalysis = DMap.Map (VarName [String]) [(SrcSpan, Expr [String])]
+type LocalVarValueAnalysis = DMap.Map (VarName Anno) [(SrcSpan, Expr Anno)]
 --																			Subroutine arguments 	Declared var names
-type VarAccessAnalysis = (LocalVarAccessAnalysis,	LocalVarValueAnalysis, [VarName [String]],	 	[VarName [String]])
+type VarAccessAnalysis = (LocalVarAccessAnalysis,	LocalVarValueAnalysis, [VarName Anno],	 	[VarName Anno])
 
-analyseAllVarAccess:: Program [String] -> VarAccessAnalysis
+analyseAllVarAccess:: Program Anno -> VarAccessAnalysis
 analyseAllVarAccess prog = (localVarAccesses, localVarValues, arguments, declarations)
 						where 
 							--	LocalVarAccesses is made up of information on all of the reads and writes throughout
@@ -54,40 +54,40 @@ analyseAllVarAccess prog = (localVarAccesses, localVarValues, arguments, declara
 --	called with are stored in a list inside the original expr. If there are no arguments to the function, a NullExpr
 --	object can be found. For a normal scaler value, there would be absolutely nothing in this internal list, not even a 
 --	NullExpr object)
-isFunctionCall :: VarAccessAnalysis -> Expr [String] -> Bool
+isFunctionCall :: VarAccessAnalysis -> Expr Anno -> Bool
 isFunctionCall accessAnalysis expr =  (all (\x -> not (elem x declaredVarNames)) exprVarNames) && subVars /= []
 						where 
 							subVars = extractContainedVars expr
 							exprVarNames = extractVarNames expr
 							declaredVarNames = (\(_,_,_,x) -> x) accessAnalysis
 
-isFunctionCall_varNames :: [VarName [String]] -> Expr [String] -> Bool
+isFunctionCall_varNames :: [VarName Anno] -> Expr Anno -> Bool
 isFunctionCall_varNames declaredVarNames expr =  (all (\x -> not (elem x declaredVarNames)) exprVarNames) && subVars /= []
 						where 
 							subVars = extractContainedVars expr
 							exprVarNames = extractVarNames expr
 
-isNullExpr :: Expr [String] -> Bool
+isNullExpr :: Expr Anno -> Bool
 isNullExpr (NullExpr _ _) = True
 isNullExpr _ = False
 
-getArguments :: Program [String] -> [VarName [String]]
+getArguments :: Program Anno -> [VarName Anno]
 getArguments prog = argNames
 		where
 			argNames = everything (++) (mkQ [] getArgNamesAsVarNames) prog--foldl (++) [] (foldl (++) [] (map (gmapQ (mkQ [] getArguments_list)) prog))
 
-getArguments_list :: Arg [String] -> [VarName [String]]
+getArguments_list :: Arg Anno -> [VarName Anno]
 getArguments_list arg = everything (++) (mkQ [] getArgNamesAsVarNames) arg
 
-getArgNamesAsVarNames :: ArgName [String] -> [VarName [String]]
-getArgNamesAsVarNames (ArgName _ str) = [VarName [] str]
+getArgNamesAsVarNames :: ArgName Anno -> [VarName Anno]
+getArgNamesAsVarNames (ArgName _ str) = [VarName nullAnno str]
 getArgNamesAsVarNames _ = []
 
-getDeclaredVarNames :: Decl [String] -> [VarName [String]]
+getDeclaredVarNames :: Decl Anno -> [VarName Anno]
 getDeclaredVarNames (Decl _ _ lst _) = foldl (\accum (expr1, _, _) -> accum ++ extractVarNames expr1) [] lst
 getDeclaredVarNames decl = []
 
-analyseAllVarValues_fortran :: Fortran [String] -> LocalVarValueAnalysis
+analyseAllVarValues_fortran :: Fortran Anno -> LocalVarValueAnalysis
 analyseAllVarValues_fortran (Assg _ src expr1 expr2) = foldl (\accum item -> appendToMap item (src, expr2) accum) DMap.empty varnames
 								where
 									varnames = extractVarNames expr1
@@ -98,9 +98,9 @@ analyseAllVarValues_fortran _ = DMap.empty
 --	There are two cases, either the current piece of code is an assignment to a variable or it is not. If the code is an assignment
 --	then there must be additions made to the set of writes for a variable, as well as the set(s) of reads for some variable(s). In
 --	the other case, only reads must be added.
---analyseAllVarAccess_fortran :: LocalVarAccessAnalysis -> Fortran [String] -> LocalVarAccessAnalysis
+--analyseAllVarAccess_fortran :: LocalVarAccessAnalysis -> Fortran Anno -> LocalVarAccessAnalysis
 --analyseAllVarAccess_fortran prevAnalysis (Assg _ _ writeExpr readExpr) = aggregateAnalysis
-analyseAllVarAccess_fortran :: [VarName [String]] -> LocalVarAccessAnalysis -> Fortran [String] -> LocalVarAccessAnalysis
+analyseAllVarAccess_fortran :: [VarName Anno] -> LocalVarAccessAnalysis -> Fortran Anno -> LocalVarAccessAnalysis
 analyseAllVarAccess_fortran declarations prevAnalysis (Assg _ _ writeExpr readExpr) = aggregateAnalysis
 												where
 													aggregateAnalysis = combineVarAccessAnalysis prevAnalysis analysisWithWritesReads
@@ -119,20 +119,20 @@ analyseAllVarAccess_fortran declarations prevAnalysis codeSeg =  aggregateAnalys
 												where 
 													aggregateAnalysis = foldl (combineVarAccessAnalysis) [] (gmapQ (mkQ [] (analyseAllVarAccess_fortran declarations currentAnalysis)) codeSeg)						
 
-													extractedExprs = gmapQ (mkQ (Null [] nullSrcSpan) extractExprs) codeSeg
+													extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExprs) codeSeg
 													--readExprs = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
 													readExprs = foldl (getAccessedExprs declarations) [] extractedExprs
 													readVarNames = foldl (\accum item -> accum ++ extractVarNames item) [] readExprs	
 													analysisWithReads = foldl (addVarReadAccess (srcSpan codeSeg)) prevAnalysis readVarNames	
 													currentAnalysis = combineVarAccessAnalysis prevAnalysis analysisWithReads	
 
-getValueAtSrcSpan :: VarName [String] -> SrcSpan -> VarAccessAnalysis -> Expr [String]
+getValueAtSrcSpan :: VarName Anno -> SrcSpan -> VarAccessAnalysis -> Expr Anno
 getValueAtSrcSpan varname target_src (_, analysis, _, _) = valueAtSrc
 								where
 									values = DMap.findWithDefault [] varname analysis
-									valueAtSrc = foldl (\accum (item_src, expr) -> if checkSrcSpanBefore item_src target_src then expr else accum) (NullExpr [] nullSrcSpan) values
+									valueAtSrc = foldl (\accum (item_src, expr) -> if checkSrcSpanBefore item_src target_src then expr else accum) (NullExpr nullAnno nullSrcSpan) values
 
-getAccessedExprs :: [VarName [String]] -> [Expr [String]] -> Expr [String] -> [Expr [String]]
+getAccessedExprs :: [VarName Anno] -> [Expr Anno] -> Expr Anno -> [Expr Anno]
 getAccessedExprs declarations accum item = case fnCall of
 											True ->	accum ++ extractContainedVars item
 											False -> accum ++ extractOperands item
@@ -140,13 +140,13 @@ getAccessedExprs declarations accum item = case fnCall of
 											fnCall = isFunctionCall_varNames declarations item
 
 -- 	Recursive function to add a record of a read for a certain VarName
-addVarReadAccess :: SrcSpan -> LocalVarAccessAnalysis -> VarName [String] -> LocalVarAccessAnalysis
+addVarReadAccess :: SrcSpan -> LocalVarAccessAnalysis -> VarName Anno -> LocalVarAccessAnalysis
 addVarReadAccess srcspan ((varnameAnalysis, src_reads, src_writes):xs) varname  | varnameAnalysis == varname = [(varname, src_reads ++ [srcspan], src_writes)] ++ xs
 																				| otherwise = [(varnameAnalysis, src_reads, src_writes)] ++ (addVarReadAccess srcspan xs varname)
 addVarReadAccess srcspan [] varname	= [(varname, [srcspan], [])]
 
 -- 	Recursive function to add a record of a write for a certain VarName
-addVarWriteAccess :: SrcSpan -> LocalVarAccessAnalysis -> VarName [String] -> LocalVarAccessAnalysis
+addVarWriteAccess :: SrcSpan -> LocalVarAccessAnalysis -> VarName Anno -> LocalVarAccessAnalysis
 addVarWriteAccess srcspan ((varnameAnalysis, src_reads, src_writes):xs) varname  | varnameAnalysis == varname = [(varname, src_reads, src_writes ++ [srcspan])] ++ xs
 																				| otherwise = [(varnameAnalysis, src_reads, src_writes)] ++ (addVarWriteAccess srcspan xs varname)
 addVarWriteAccess srcspan [] varname	= [(varname, [], [srcspan])]															
@@ -155,7 +155,7 @@ addVarWriteAccess srcspan [] varname	= [(varname, [], [srcspan])]
 combineVarAccessAnalysis :: LocalVarAccessAnalysis -> LocalVarAccessAnalysis -> LocalVarAccessAnalysis
 combineVarAccessAnalysis a b = foldl (addVarAccessAnalysis) a b 
 
-addVarAccessAnalysis :: LocalVarAccessAnalysis -> (VarName [String], [SrcSpan], 	[SrcSpan]) -> LocalVarAccessAnalysis
+addVarAccessAnalysis :: LocalVarAccessAnalysis -> (VarName Anno, [SrcSpan], 	[SrcSpan]) -> LocalVarAccessAnalysis
 addVarAccessAnalysis ((varnameAnalysis, readsAnalysis, writesAnalysis):xs) (newVarName, newReads, newWrites) 	| varnameAnalysis == newVarName = [(varnameAnalysis, combinedReads, combinedWrites)] ++ xs
 																												| otherwise = [(varnameAnalysis, readsAnalysis, writesAnalysis)] ++ (addVarAccessAnalysis xs (newVarName, newReads, newWrites))
 																												where
@@ -169,7 +169,7 @@ addVarAccessAnalysis [] (newVarName, newReads, newWrites) = [(newVarName, newRea
 --	considdered non temporary for that loop. For a variable to be considered non temporary, it must either be an argument to this code block or
 --	it must be read after the end of the loop, before any data is written to it. In the second case, this means that a variable is non temporary
 --	if the final value left in it by the loop is read and used elsewhere.
-getNonTempVars :: SrcSpan -> VarAccessAnalysis -> [VarName [String]]
+getNonTempVars :: SrcSpan -> VarAccessAnalysis -> [VarName Anno]
 getNonTempVars codeBlockSpan accessAnalysis = (map (\(x, _, _) -> x) hangingReads) ++ subroutineArguments
 						where
 							localVarAccesses = (\(x,_, _, _) -> x) accessAnalysis

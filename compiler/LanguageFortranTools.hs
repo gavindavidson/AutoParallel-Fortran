@@ -11,6 +11,11 @@ import qualified Data.Map as DMap
 
 import PreProcessor
 
+type Anno = DMap.Map (String) [String]
+nullAnno :: Anno
+nullAnno = DMap.empty
+--type Anno = [String]
+
 --	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
 parseFile s = do inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
                  return $ parse $ preProcess inp
@@ -26,7 +31,7 @@ errorLocationFormatting ((SrcLoc filename line column), srcEnd) = show line ++ "
 errorLocationRangeFormatting :: SrcSpan -> String
 errorLocationRangeFormatting ((SrcLoc _ line_start _), (SrcLoc _ line_end _)) = "line " ++ show line_start ++ " and line " ++ show line_end -- ++ ", column " ++ show column
 
-outputExprFormatting :: Expr [String] -> String
+outputExprFormatting :: Expr Anno -> String
 outputExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) -> ((\(VarName _ str) -> str) varname) ++ 
 															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
 																++ item) "" (map (outputExprFormatting) exprList)) ++ ")" else "")) list)
@@ -63,7 +68,7 @@ listRemoveDuplications :: Eq a => [a] -> [a]
 listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a
 
 --	Used by SYB query to extract expressions
-extractExprs :: Expr [String] -> Expr [String] 
+extractExprs :: Expr Anno -> Expr Anno 
 extractExprs expr = expr
 
 --	Used to break down a tree of expressions that might form a calculation into a list of expressions for analysis.
@@ -88,98 +93,108 @@ nullSrcSpan = (SrcLoc {srcFilename = "generated", srcLine = -1, srcColumn = -1},
 generateSrcSpan :: SrcSpan -> SrcSpan
 generateSrcSpan ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
 
-generateLTExpr :: Expr [String] -> Expr [String] -> Expr [String]
-generateLTExpr expr1 expr2 = Bin [] nullSrcSpan (RelLT []) expr1 expr2
+generateLTExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateLTExpr expr1 expr2 = Bin nullAnno nullSrcSpan (RelLT nullAnno) expr1 expr2
 
-generateAndExpr :: Expr [String] -> Expr [String] -> Expr [String]
-generateAndExpr expr1 expr2 = Bin [] nullSrcSpan (And []) expr1 expr2
+generateAndExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateAndExpr expr1 expr2 = Bin nullAnno nullSrcSpan (And nullAnno) expr1 expr2
 
-generateAndExprFromList :: [Expr [String]] -> Expr [String]
+generateAndExprFromList :: [Expr Anno] -> Expr Anno
 generateAndExprFromList list = foldl1 (generateAndExpr) list
 
-generateVar :: VarName [String] -> Expr [String]
-generateVar varname = Var [] nullSrcSpan [(varname, [])]
+generateVar :: VarName Anno -> Expr Anno
+generateVar varname = Var nullAnno nullSrcSpan [(varname, [])]
 
-generateConstant :: Int -> Expr [String]
-generateConstant value = Con [] nullSrcSpan (show value)
+generateConstant :: Int -> Expr Anno
+generateConstant value = Con nullAnno nullSrcSpan (show value)
 
-generateArrayVar :: VarName [String] -> Expr [String] -> Expr [String]
-generateArrayVar varname access = Var [] nullSrcSpan [(varname, [access])]
+generateArrayVar :: VarName Anno -> Expr Anno -> Expr Anno
+generateArrayVar varname access = Var nullAnno nullSrcSpan [(varname, [access])]
 
-generateIf :: Expr [String] -> Fortran [String] -> Fortran [String]
-generateIf expr fortran = If [] nullSrcSpan expr fortran [] Nothing
+generateIf :: Expr Anno -> Fortran Anno -> Fortran Anno
+generateIf expr fortran = If nullAnno nullSrcSpan expr fortran [] Nothing
 
 --	Used to standardise SrcSpans so that nodes of an AST may be matched up even if they appear in completely different
 --	parts of a program. Also used to signify that a node has been changed and cannot be copied from the orignal source during code
 --	generation
-applyGeneratedSrcSpans :: (Data (a [String])) => a [String] -> a [String]
+applyGeneratedSrcSpans :: (Data (a Anno)) => a Anno -> a Anno
 applyGeneratedSrcSpans = everywhere (mkT (standardiseSrcSpan))
 
 standardiseSrcSpan :: SrcSpan -> SrcSpan
 standardiseSrcSpan src = nullSrcSpan
 
-hasOperand :: Expr [String] -> Expr [String] -> Bool
+hasOperand :: Expr Anno -> Expr Anno -> Bool
 hasOperand container contains = all (== True) $ map (\x -> elem x (extractOperands $ applyGeneratedSrcSpans container)) (extractOperands $ applyGeneratedSrcSpans contains)
 
 --	Appends a new item to the list of annotations already associated to a particular node
-appendAnnotation :: Fortran [String] -> String -> Fortran [String]
-appendAnnotation original appendage = case original of
-		For anno f2 f3 f4 f5 f6 f7 -> For (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
-		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (anno ++ [appendage]) f2 f3 f4 f5 f6
-		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
-		_ -> original
+--appendAnnotation :: Fortran Anno -> String -> String -> Fortran Anno
+--appendAnnotation original key appendage = case original of
+--		For anno f2 f3 f4 f5 f6 f7 -> For (appendToMap key appendage anno) f2 f3 f4 f5 f6 f7
+--		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (appendToMap key appendage anno) f2 f3 f4 f5 f6
+--		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (appendToMap key appendage anno) f2 f3 f4 f5 f6 f7
+--		--For anno f2 f3 f4 f5 f6 f7 -> For (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
+--		--OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (anno ++ [appendage]) f2 f3 f4 f5 f6
+--		--OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
+--		_ -> original
+
+		-- appendToMap
+
+appendAnnotation original appendage = original
 
 --	Prepends a new item to the list of annotations already associated to a particular node
-prependAnnotation :: Fortran [String] -> String -> Fortran [String]
+prependAnnotation :: Fortran Anno -> String -> Fortran Anno
 prependAnnotation original appendage = case original of
-		For anno f2 f3 f4 f5 f6 f7 -> For ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
-		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap ([appendage] ++ anno) f2 f3 f4 f5 f6
-		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
+		--For anno f2 f3 f4 f5 f6 f7 -> For ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
+		--OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap ([appendage] ++ anno) f2 f3 f4 f5 f6
+		--OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
 		_ -> original
 
---removeAllAnnotations :: Fortran [String] -> Fortran [String]
+--removeAllAnnotations :: Fortran Anno -> Fortran Anno
 removeAllAnnotations original = everywhere (mkT removeAnnotations) original
 
-removeAnnotations :: Fortran [String] -> Fortran [String]
+removeAnnotations :: Fortran Anno -> Fortran Anno
 removeAnnotations original = case original of
-		For anno f2 f3 f4 f5 f6 f7 -> For [] f2 f3 f4 f5 f6 f7
-		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap [] f2 f3 f4 f5 f6
-		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce [] f2 f3 f4 f5 f6 f7
+		For anno f2 f3 f4 f5 f6 f7 -> For nullAnno f2 f3 f4 f5 f6 f7
+		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap nullAnno f2 f3 f4 f5 f6
+		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce nullAnno f2 f3 f4 f5 f6 f7
 		_ -> original
 
+combineAnnotations :: Anno -> Anno -> Anno
+combineAnnotations a b = combineMaps a b
 
-hasVarName :: [VarName [String]] -> Expr [String] -> Bool
+
+hasVarName :: [VarName Anno] -> Expr Anno -> Bool
 hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
 hasVarName loopWrites _ = False
 
-replaceAllOccurences_varnamePairs :: Fortran [String] -> [VarName [String]] -> [VarName [String]] -> Fortran [String]
+replaceAllOccurences_varnamePairs :: Fortran Anno -> [VarName Anno] -> [VarName Anno] -> Fortran Anno
 replaceAllOccurences_varnamePairs codeSeg originals replacements = foldl (\accum (v1, v2) -> replaceAllOccurences_varname accum v1 v2) codeSeg pairs
 					where
 						pairs = zip originals replacements
 
--- replaceAllOccurences_varname :: Fortran [String] -> VarName [String] -> VarName [String] -> Fortran [String]
-replaceAllOccurences_varname :: (Data (a [String])) => a [String] -> VarName [String] -> VarName [String] -> a [String]
+-- replaceAllOccurences_varname :: Fortran Anno -> VarName Anno -> VarName Anno -> Fortran Anno
+replaceAllOccurences_varname :: (Data (a Anno)) => a Anno -> VarName Anno -> VarName Anno -> a Anno
 replaceAllOccurences_varname codeSeg original replacement = everywhere (mkT (replaceVarname original replacement)) codeSeg
 
-replaceVarname :: VarName [String] -> VarName [String] -> VarName [String] -> VarName [String]
+replaceVarname :: VarName Anno -> VarName Anno -> VarName Anno -> VarName Anno
 replaceVarname original replacement inp 	| 	original == inp = replacement
 											|	otherwise = inp
 
 
-varnameStr :: VarName [String] -> String
+varnameStr :: VarName Anno -> String
 varnameStr (VarName _ str) = str
 
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
-appendFortran_recursive :: Fortran [String] -> Fortran [String] -> Fortran [String]
+appendFortran_recursive :: Fortran Anno -> Fortran Anno -> Fortran Anno
 --appendFortran_recursive newFortran (FSeq _ _ _ (FSeq _ _ _ fortran1)) = appendFortran_recursive newFortran fortran1 
 --appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 (FSeq anno2 src2 fortran2 fortran3)) = FSeq anno1 src1 fortran1 (FSeq anno2 src2 fortran2 (appendFortran_recursive newFortran fortran3)) 
 appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 (NullStmt anno2 src2)) = FSeq anno1 src1 fortran1 newFortran
 appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 fortran2) = FSeq anno1 src1 fortran1 (appendFortran_recursive newFortran fortran2)
-appendFortran_recursive newFortran codeSeg = FSeq [] nullSrcSpan codeSeg newFortran
+appendFortran_recursive newFortran codeSeg = FSeq nullAnno nullSrcSpan codeSeg newFortran
 
 --	Takes an AST and removes the loop statements from the node and joins up the rest of the code so that is it represented in the
 --	format that language-fortran uses.
-removeLoopConstructs_recursive :: Fortran [String] -> Fortran [String]
+removeLoopConstructs_recursive :: Fortran Anno -> Fortran Anno
 removeLoopConstructs_recursive (FSeq anno _ (For _ _ _ _ _ _ fortran1) fortran2) = removeLoopConstructs_recursive $ appendFortran_recursive fortran2 fortran1
 removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran) = removeLoopConstructs_recursive fortran
 --removeLoopConstructs_recursive (OpenCLMap _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
@@ -229,9 +244,9 @@ combineMaps map1 map2 = resultantAnalysis
 							resultantAnalysis = foldl (\accum (key, value) -> DMap.insert key ((DMap.findWithDefault [] key accum) ++ value) accum) map1 map2List
 
 appendToMap :: Ord k => k -> a -> DMap.Map k [a] -> DMap.Map k [a]
-appendToMap key item map1 = DMap.insert key ((DMap.findWithDefault [] key map1) ++ [item]) map1
+appendToMap key item map = DMap.insert key ((DMap.findWithDefault [] key map) ++ [item]) map
 
-extractPrimaryReductionOp :: Expr [String] -> Expr [String] -> Maybe(BinOp [String])
+extractPrimaryReductionOp :: Expr Anno -> Expr Anno -> Maybe(BinOp Anno)
 extractPrimaryReductionOp assignee (Bin _ _ op expr1 expr2) = case assigneePresent of
 										True -> Just op
 										False -> childOp
@@ -245,7 +260,7 @@ extractPrimaryReductionOp assignee (Bin _ _ op expr1 expr2) = case assigneePrese
 												applyGeneratedSrcSpans expr2 == applyGeneratedSrcSpans assignee
 extractPrimaryReductionOp assignee assignment = Nothing
 
-extractPrimaryReductionFunction ::  Expr [String] -> Expr [String] -> String
+extractPrimaryReductionFunction ::  Expr Anno -> Expr Anno -> String
 extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent "" list
 						where
 							assigneePresent = (\accum (var, exprList) -> if elem (applyGeneratedSrcSpans assignee) exprList then varnameStr var else accum)

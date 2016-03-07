@@ -17,23 +17,23 @@ import VarAccessAnalysis
 --	THIS WILL BE CHANGED TO A MAP, RATHER THAN A LIST.
 --	Type used to colate dependency data between variables within a particular block of code
 --							Variable A 			depends on all these variables
-type VarDependencyRecord = (VarName [String], 	[VarName [String]])
+type VarDependencyRecord = (VarName Anno, 	[VarName Anno])
 type VarDependencyAnalysis = [VarDependencyRecord]
 
-analyseDependencies :: VarAccessAnalysis -> Fortran [String] -> VarDependencyAnalysis
+analyseDependencies :: VarAccessAnalysis -> Fortran Anno -> VarDependencyAnalysis
 analyseDependencies accessAnalysis codeSeg = foldl (\accum item -> constructDependencies accessAnalysis accum item) [] assignments
 						where
 							assignments = extractAssigments codeSeg
 
-extractAssigments :: Fortran [String] -> [Fortran [String]]
+extractAssigments :: Fortran Anno -> [Fortran Anno]
 extractAssigments = everything (++) (mkQ [] extractAssigments')
 
-extractAssigments' :: Fortran [String] -> [Fortran [String]]
+extractAssigments' :: Fortran Anno -> [Fortran Anno]
 extractAssigments' codeSeg = case codeSeg of
 								Assg _ _ _ _ -> [codeSeg]
 								_	-> []
 
-constructDependencies :: VarAccessAnalysis -> VarDependencyAnalysis -> Fortran [String] -> VarDependencyAnalysis
+constructDependencies :: VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> VarDependencyAnalysis
 constructDependencies accessAnalysis prevAnalysis (Assg _ _ expr1 expr2) = foldl (\accum item -> addDependencies accum item readVars) prevAnalysis writtenVars
 							where
 								--	As part of Language-Fortran's assignment type, the first expression represents the 
@@ -52,25 +52,25 @@ constructDependencies accessAnalysis prevAnalysis (Assg _ _ expr1 expr2) = foldl
 
 constructDependencies accessAnalysis prevAnalysis _ = prevAnalysis
 
-addDependencies :: VarDependencyAnalysis -> VarName [String] -> [VarName [String]] -> VarDependencyAnalysis
+addDependencies :: VarDependencyAnalysis -> VarName Anno -> [VarName Anno] -> VarDependencyAnalysis
 addDependencies prevAnalysis dependent dependees = foldl (\accum item -> addDependency accum dependent item) prevAnalysis dependees
 
-addDependency :: VarDependencyAnalysis -> VarName [String] -> VarName [String] -> VarDependencyAnalysis
+addDependency :: VarDependencyAnalysis -> VarName Anno -> VarName Anno -> VarDependencyAnalysis
 addDependency ((dependent_prev, dependeeList):xs) dependent dependee 	|	dependent_prev == dependent =	[(dependent_prev, (if not (elem dependee dependeeList) then dependeeList ++ [dependee] else dependeeList))] ++ xs
 																		|	otherwise =	[(dependent_prev, dependeeList)] ++ addDependency xs dependent dependee
 addDependency [] dependent dependee 	= [(dependent, [dependee])]
 
-getDependencies :: VarDependencyAnalysis -> VarName [String] -> [VarName [String]]
+getDependencies :: VarDependencyAnalysis -> VarName Anno -> [VarName Anno]
 getDependencies ((dependent, dependeeList):xs) queryVarname 	|	queryVarname == dependent = dependeeList
 																|	otherwise = getDependencies xs queryVarname
 getDependencies [] queryVarname	= []
 
-isDirectlyDependentOn :: VarDependencyAnalysis -> VarName [String] -> VarName [String] -> Bool
+isDirectlyDependentOn :: VarDependencyAnalysis -> VarName Anno -> VarName Anno -> Bool
 isDirectlyDependentOn analysis potDependent potDependee = elem potDependee dependencies
 										where
 											dependencies = getDependencies analysis potDependent 
 
-isIndirectlyDependentOn:: VarDependencyAnalysis -> VarName [String] -> VarName [String] -> Bool
+isIndirectlyDependentOn:: VarDependencyAnalysis -> VarName Anno -> VarName Anno -> Bool
 isIndirectlyDependentOn analysis potDependent potDependee	|	isDirectlyDependentOn analysis potDependent potDependee = True
 															|	otherwise = foldl (||) False $ map (\x -> isIndirectlyDependentOn analysis x potDependee) dependencies
 																	where 
