@@ -24,26 +24,28 @@ combineNestedKernels :: Fortran Anno -> Fortran Anno
 combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
 								(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
-										OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran
-										--OpenCLMap (anno1++anno2++[newAnnotation]) src1 reads writes loopVs innerFortran
+										--OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran
+										newCodeSeg
 											where 
+												newCodeSeg = appendAnnotation (OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran) newAnnotation ""
 												reads = listRemoveDuplications $ outerReads ++ innerReads
 												writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
-												newAnnotation = compilerName ++ ": Nested map at " ++ errorLocationFormatting src2 ++ " fused into surrounding map\n"
+												newAnnotation = compilerName ++ ": Nested map at " ++ errorLocationFormatting src2 ++ " fused into surrounding map"
 												combinedAnnotations = combineAnnotations anno1 anno2
 								otherwise -> codeSeg
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
 								(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
-										OpenCLReduce (combinedAnnotations) src1 reads writes loopVs redVs innerFortran
+										newCodeSeg
 										--OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
+												newCodeSeg = appendAnnotation (OpenCLReduce (combinedAnnotations) src1 reads writes loopVs redVs innerFortran) newAnnotation ""
 												reads = listRemoveDuplications $ outerReads ++ innerReads
 												writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
 												redVs = listRemoveDuplications $ outerRedVs ++ innerRedVs
-												newAnnotation = compilerName ++ ": Nested reduction at " ++ errorLocationFormatting src2 ++ " fused into surrounding reduction\n"
+												newAnnotation = compilerName ++ ": Nested reduction at " ++ errorLocationFormatting src2 ++ " fused into surrounding reduction"
 												combinedAnnotations = combineAnnotations anno1 anno2
 								otherwise -> codeSeg
 					otherwise -> codeSeg
@@ -54,11 +56,10 @@ combineAdjacentKernels codeSeg = case codeSeg of
 					(FSeq anno1 src1 fortran1 (FSeq anno2 _ fortran2 fortran3)) -> case fortran1 of
 							OpenCLMap _ src2 _ _ _ _ -> case fortran2 of
 									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
-																--Just oclmap -> FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
-																Just oclmap -> FSeq (combinedAnnotations) src1 oclmap fortran3  
+																Just oclmap -> appendAnnotation (FSeq (combinedAnnotations) src1 oclmap fortran3) newAnnotation "" 
 
 																	where
-																		--newAnnotation = compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 ++ " and " ++ errorLocationFormatting src3 ++ " fused\n"
+																		newAnnotation = compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 ++ " and " ++ errorLocationFormatting src3 ++ " fused"
 																		combinedAnnotations = combineAnnotations anno1 anno2
 																Nothing -> codeSeg
 									otherwise	-> codeSeg
@@ -66,11 +67,9 @@ combineAdjacentKernels codeSeg = case codeSeg of
 					(FSeq anno1 src1 fortran1 fortran2) -> case fortran1 of
 							OpenCLMap _ src2 _ _ _ _ -> case fortran2 of
 									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
-																Just oclmap -> oclmap-- appendAnnotation oclmap newAnnotation -- FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
+																Just oclmap -> appendAnnotation (appendAnnotationMap oclmap anno1) newAnnotation "" -- FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
 																	where
-																		--newAnnotation = (foldl (++) "" anno1) ++ compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 
-																		--				++ " and " ++ errorLocationFormatting src3 ++ " fused\n"
-																		newAnnotation = ""
+																		newAnnotation = compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 ++ " and " ++ errorLocationFormatting src3 ++ " fused"
 																Nothing -> codeSeg
 									otherwise	-> codeSeg
 							otherwise	-> codeSeg

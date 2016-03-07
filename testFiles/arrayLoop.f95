@@ -28,30 +28,30 @@ a = sum
 a = sum1
 a = sum2
 
-! do loop1=0, d
-!   do loop2=0, c
-!     b(loop1,loop2) = 12+45
-!     b(loop1,loop2) = 12+45
-!     b(loop1,loop2) = 12+45
-!   end do
-! end do
-sum = 0
 do loop1=0, d
-  do loop2=0, c+1
-    b(d,c) = 12
-    sum = sum * (a(loop1, loop2) + 100*2)
+  do loop2=0, c
+    b(loop1,loop2) = 12+45
+    b(loop1,loop2) = 12+45
+    b(loop1,loop2) = 12+45
   end do
 end do
+do loop1=0, d
+  do loop2=0, c
+    b(loop1,loop2) = 12+45
+    b(loop1,loop2) = 12+45
+    b(loop1,loop2) = 12+45
+  end do
+end do
+sum = 0
+! do loop1=0, d
+!   do loop2=0, c+1
+!     b(d,c) = 12
+!     sum = sum * (a(loop1, loop2) + 100*2)
+!   end do
+! end do
 dave = sum
 
 end program arrayLoop
-
-REAL FUNCTION AVRAGE(X,Y,Z)
-     REAL X,Y,Z,SUM
-     SUM = X + Y + Z
-     AVRAGE = SUM /3.0
-     RETURN
-END
 
 ! end module arrayLoop
 

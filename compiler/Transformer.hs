@@ -44,7 +44,7 @@ main = do
 	putStr "<DONE>\t- Add kernels/subroutines to module for each original source file\n"
 	putStr "<DONE>\t- Add declarations for arguments to kernels\n"
 	putStr "<DONE>\t- Add integer :: g_id, get_global_id(g_id,0) code segments\n"
-	putStr "\t- Make annotations String -> Anno maps\n"
+	putStr "<DONE>\t- Make annotations String -> Anno maps\n"
 	putStr "\t- Make kernel loop variable calculations deal with different starts\n"
 	putStr "\t- Update error messages\n"
 	putStr "<WORKS>\t- Test reduce and map combination\n"
@@ -68,9 +68,8 @@ main = do
 
 	putStr $ compileAnnotationListing parallelisedProg
 	
-
-	-- putStr "\n"
-	-- putStr $ compileAnnotationListing combinedProg
+	putStr "\n"
+	putStr $ compileAnnotationListing combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	emit filename newFilename combinedProg
@@ -103,10 +102,10 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis ->Fortran Anno -> Fortran Anno
 paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
-										True	-> prependAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
+										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
 										False 	-> case reduceAttempt_bool of
-													True 	-> prependAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
-													False	-> prependAnnotation reduceAttempt_ast (compilerName ++ ": \nCannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop) ++ "\n")
+													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
+													False	-> reduceAttempt_ast --appendAnnotation reduceAttempt_ast (compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop)) ""
 
 													--False	-> appendAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
 								--case paralleliseLoop_map loop newLoopVars of 
@@ -230,19 +229,19 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				--potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 
 				errorMap1 = if (not potentialReductionVar) && isNonTempAssignment then 
-											DMap.insert ("Variables that do not use all loop iterators cannot be reduction variables beacause they are not " ++
-													"assigned values related to themselves and do not appear in a preceeding conditional constructs:" )
-												[errorLocationFormatting srcspan ++ "\t" ++ outputExprFormatting expr1]
+											DMap.insert (outputTab ++ "Cannot reduce: variables that do not use all loop iterators cannot be reduction variables beacause they are not " ++
+													"assigned values related to themselves and do not appear in a preceeding conditional constructs:\n" )
+												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
 												DMap.empty
 											else DMap.empty
 				errorMap2 = if potentialReductionVar && (not dependsOnSelfOnce) then
-											DMap.insert "Possible reduction variables must only appear once on the right hand side of an assignment:"
-												[errorLocationFormatting srcspan ++ "\t" ++ outputExprFormatting expr1]
+											DMap.insert (outputTab ++ "Cannot reduce: possible reduction variables must only appear once on the right hand side of an assignment:\n")
+												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
 												errorMap1
 											else errorMap1
 				errorMap3 = if potentialReductionVar && (not associative) && dependsOnSelfOnce then
-											DMap.insert "Not associative function:"
-												[errorLocationFormatting srcspan ++ "\t" ++ outputExprFormatting expr2]
+											DMap.insert (outputTab ++ "Cannot reduce: not associative function:\n")
+												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr2]
 												errorMap2
 											else errorMap2
 
@@ -263,12 +262,12 @@ analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr = (errorMa
 									nonTempWrittenOperands = filter(hasVarName nonTempVars) writtenOperands
 									
 									badExprs =  filter (\item -> listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) /= []) nonTempWrittenOperands
-									badExprStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ "\t" ++ outputExprFormatting item) badExprs
+									badExprStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) badExprs
 
 									errorMap = if (badExprStrs == []) 
 												then nullAnno
 												else 
-													DMap.insert "Non temporary, write variables accessed without full use of loop iterator" badExprStrs nullAnno
+													DMap.insert (outputTab ++ "Cannot map: Non temporary, write variables accessed without full use of loop iterator:\n") badExprStrs nullAnno
 
 
 --	Determines whether or not an expression contains a non temporary variable and whether it is access correctly for a reduction. Produces and appropriate string error
@@ -283,12 +282,12 @@ analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (erro
 									nonTempWrittenOperands = filter(hasVarName nonTempVars) writtenOperands
 									
 									badExprs =  filter (\item -> listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) == []) nonTempWrittenOperands
-									badExprStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ "\t" ++ outputExprFormatting item) badExprs
+									badExprStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) badExprs
 
 									errorMap = if (badExprStrs == []) 
 												then nullAnno
 												else 
-													DMap.insert "Non temporary, write variables written to without full use of loop iterator" badExprStrs nullAnno
+													DMap.insert (outputTab ++ "Cannot reduce: Non temporary, write variables written to without full use of loop iterator:\n") badExprStrs nullAnno
 
 --	Function checks whether the primary in a reduction assignmnet is an associative operation. Checks both associative ops and functions.
 isAssociativeExpr :: Expr Anno -> Expr Anno -> Bool
@@ -345,12 +344,25 @@ compileAnnotationListing codeSeg = everything (++) (mkQ [] getAnnotations) codeS
 getAnnotations :: Fortran Anno -> String
 getAnnotations codeSeg = case (tag codeSeg) == nullAnno of
 	True -> ""
-	False -> foldl (\errorDescription key -> errorDescription ++ key ++ 
-												(foldl (\errorInstance item -> errorInstance ++ "\n\t" ++ item) "" (DMap.findWithDefault [] key errorMap)) ++ "\n"
-					) "" keys 
+	False -> leadMessageCheck
 		where
+			leadMessageCheck = case DMap.findWithDefault [] (head keys) errorMap == [""] of
+				True -> errorListing
+				False -> leadMessage ++ errorListing ++ "\n"
+			leadMessage = compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan codeSeg) ++ "\n"
+			errorListing = foldl (\errorDescription key -> errorDescription ++ key ++ 
+												(foldl (\errorInstance item -> errorInstance ++ "\t" ++ item) "" (applyAnnotationFormatting 3 (DMap.findWithDefault [] key errorMap))) ++ "\n"
+					) "" keys 
 			keys = DMap.keys errorMap
 			errorMap = tag codeSeg
+
+applyAnnotationFormatting :: Int -> [String] -> [String]
+applyAnnotationFormatting itemsPerLine items = formattedList
+			where
+				indexorList = [1..(length items)]
+				indexoredItems = zip indexorList items
+				formattedList = map (\(index, item) -> if (mod index itemsPerLine) == 0 && index /= (length items) 
+															then item ++ "\n" else item) indexoredItems 
 
 --	Returns a list of all of the names of variables that are used in a particular AST. getVarNames_query performs the traversal and applies
 --	getVarNames at appropriate moments.
