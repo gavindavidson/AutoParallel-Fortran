@@ -39,6 +39,7 @@ dave = get_local_size(0)
 sum = 0
 do loop1=0, d
   do loop2=0, c+1
+    b(d,c) = 12
     sum = sum * (a(loop1, loop2) + 100*2)
   end do
 end do

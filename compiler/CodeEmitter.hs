@@ -85,7 +85,7 @@ produceCodeProgUnit originalLines progUnit =   	nonGeneratedBeforeCode ++
 												
 							where
 								progUnitSrc = srcSpan progUnit
-								firstFortranSrc = (everything (++) (mkQ [] (getFirstFortranSrc)) progUnit)!!0
+								firstFortranSrc = head (everything (++) (mkQ [] (getFirstFortranSrc)) progUnit)
 								(nonGeneratedBeforeSrc, nonGeneratedAfterSrc) = getSrcSpanNonIntersection progUnitSrc firstFortranSrc
 
 								((SrcLoc _ nonGeneratedBefore_ls _), (SrcLoc _ nonGeneratedBefore_le _)) = nonGeneratedBeforeSrc
@@ -107,8 +107,8 @@ produceCode_fortran tabs originalLines codeSeg = case codeSeg of
 						For _ _ _ _ _ _ _ -> synthesiseFor tabs originalLines codeSeg
 						NullStmt _ _ -> ""
 						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall codeSeg) 
-						OpenCLReduce _ _ _ _ _ rv f ->  (generateKernelCall codeSeg) ++ "! Replace n with number of work groups\n" 
-																++ (mkQ "" (produceCode_fortran "" originalLines) hostReductionLoop)
+						OpenCLReduce _ _ _ _ _ rv f ->  (generateKernelCall codeSeg) ++ "! Replace n with number of work groups\n " 
+																++ (mkQ "" (produceCode_fortran "" originalLines) hostReductionLoop) ++ "\n"
 								where 
 									reductionVarNames = map (\(varname, expr) -> varname) rv
 									r_iter = generateReductionIterator reductionVarNames
@@ -427,9 +427,9 @@ generateKernelName identifier src varnames = identifier
 											++ "_" ++ show (extractLineNumber src)
 
 generateKernelCall :: Fortran [String] -> String
-generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Workgroup size: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
+generateKernelCall (OpenCLMap _ src r w l fortran) = 	"\n! Global work items: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
 														++ "call " ++ (generateKernelName "map" src w) 
-														++ "(" ++ allArgumentsStr ++ ")"++ "\t! Call to synthesised, external kernel\n"
+														++ "(" ++ allArgumentsStr ++ ")"++ "\t! Call to synthesised, external kernel\n\n"
 			where
 				readArgs = map (varnameStr) (listSubtract r w)
 				writtenArgs = map (varnameStr) (listSubtract w r)
@@ -440,7 +440,7 @@ generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Workgroup size: " ++ ou
 
 				workGroupSizeExpr = generateProductExpr (map (generateLoopIterationsExpr) l)
 
-generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"! Workgroup size: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
+generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"\n! Global work items: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
 															++"call " ++ (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
 															++ "(" ++ allArgumentsStr ++ ")" ++ "\t! Call to synthesised, external kernel\n"
 			where 

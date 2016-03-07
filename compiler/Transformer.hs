@@ -46,7 +46,7 @@ main = do
 	putStr "\t- Make annotations String -> [String] maps\n"
 	putStr "\t- Make kernel loop variable calculations deal with different starts\n"
 	putStr "\t- Update error messages\n"
-	putStr "\t- Test reduce and map combination\n"
+	putStr "<WORKS>\t- Test reduce and map combination\n"
 	putStr "\t- Array/scaler optimisations\n"
 	putStr "<DONE>\t- Make output prettier\n"
 	putStr "\n"

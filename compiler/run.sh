@@ -1,6 +1,6 @@
 folder="../testFiles"
-filename="press.f95"
-outfilename="press_out.f95"
+filename="arrayLoop.f95"
+outfilename="arrayLoop_out.f95"
 
 originalfile=$folder"/"$filename
 outfile=$folder"/"$outfilename
