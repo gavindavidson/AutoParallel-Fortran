@@ -66,7 +66,7 @@ combineAdjacentKernels codeSeg = case codeSeg of
 					(FSeq anno1 src1 fortran1 fortran2) -> case fortran1 of
 							OpenCLMap _ src2 _ _ _ _ -> case fortran2 of
 									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
-																Just oclmap -> appendAnnotation oclmap newAnnotation -- FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
+																Just oclmap -> oclmap-- appendAnnotation oclmap newAnnotation -- FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
 																	where
 																		--newAnnotation = (foldl (++) "" anno1) ++ compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 
 																		--				++ " and " ++ errorLocationFormatting src3 ++ " fused\n"

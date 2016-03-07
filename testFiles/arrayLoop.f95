@@ -5,10 +5,6 @@ program arrayLoop
         integer, intent(In) :: c
         integer, intent(In) :: d
 
-if (1 > 2) then
-  dave = .FALSE.
-end if 
-
 ! do loop1=0, d
 !   do loop2=0, c
 !     a(loop1,loop2) = 12+45
@@ -17,17 +13,20 @@ end if
 !   end do
 ! end do
 
-! do i=0, i_r
-!   do j=0, j_r
-!     do k=0, k_r
-!       do l=0, l_r
-!         a(i,j,k,l) = (a+b)-(c*d)
-!       end do
-!     end do
-!   end do
-! end do
-
-dave = get_local_size(0)
+do i=0, i_r
+  do j=0, j_r
+    do k=0, k_r
+      do l=0, l_r
+        sum = sum + sum + a(i,j,k,l)
+        sum1 = sum1 + sum1 + a(i,j,k,l)
+        sum2 = sum2 + sum2 + a(i,j,k,l)
+      end do
+    end do
+  end do
+end do
+a = sum
+a = sum1
+a = sum2
 
 ! do loop1=0, d
 !   do loop2=0, c

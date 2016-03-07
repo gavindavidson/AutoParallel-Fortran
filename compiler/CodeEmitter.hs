@@ -426,13 +426,8 @@ generateKernelName identifier src varnames = identifier
 											++ (foldl (\accum item -> accum ++ "_" ++ (varnameStr item)) "" varnames) 
 											++ "_" ++ show (extractLineNumber src)
 
-<<<<<<< HEAD
-generateKernelCall :: Fortran [String] -> String
-generateKernelCall (OpenCLMap _ src r w l fortran) = 	"\n! Global work items: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
-=======
 generateKernelCall :: Fortran Anno -> String
 generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Workgroup size: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
->>>>>>> 0d01b6984a67345d8b3860df154946526994f5ce
 														++ "call " ++ (generateKernelName "map" src w) 
 														++ "(" ++ allArgumentsStr ++ ")"++ "\t! Call to synthesised, external kernel\n\n"
 			where

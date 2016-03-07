@@ -12,9 +12,9 @@ import qualified Data.Map as DMap
 import PreProcessor
 
 type Anno = DMap.Map (String) [String]
+
 nullAnno :: Anno
 nullAnno = DMap.empty
---type Anno = [String]
 
 --	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
 parseFile s = do inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
@@ -127,19 +127,25 @@ hasOperand :: Expr Anno -> Expr Anno -> Bool
 hasOperand container contains = all (== True) $ map (\x -> elem x (extractOperands $ applyGeneratedSrcSpans container)) (extractOperands $ applyGeneratedSrcSpans contains)
 
 --	Appends a new item to the list of annotations already associated to a particular node
---appendAnnotation :: Fortran Anno -> String -> String -> Fortran Anno
---appendAnnotation original key appendage = case original of
---		For anno f2 f3 f4 f5 f6 f7 -> For (appendToMap key appendage anno) f2 f3 f4 f5 f6 f7
---		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (appendToMap key appendage anno) f2 f3 f4 f5 f6
---		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (appendToMap key appendage anno) f2 f3 f4 f5 f6 f7
---		--For anno f2 f3 f4 f5 f6 f7 -> For (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
---		--OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (anno ++ [appendage]) f2 f3 f4 f5 f6
---		--OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
---		_ -> original
+appendAnnotation :: Fortran Anno -> String -> String -> Fortran Anno
+appendAnnotation original key appendage = case original of
+		For anno f2 f3 f4 f5 f6 f7 -> For (appendToMap key appendage anno) f2 f3 f4 f5 f6 f7
+		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (appendToMap key appendage anno) f2 f3 f4 f5 f6
+		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (appendToMap key appendage anno) f2 f3 f4 f5 f6 f7
+		--For anno f2 f3 f4 f5 f6 f7 -> For (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
+		--OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (anno ++ [appendage]) f2 f3 f4 f5 f6
+		--OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
+		_ -> original
 
 		-- appendToMap
 
-appendAnnotation original appendage = original
+appendAnnotationMap :: Fortran Anno -> Anno -> Fortran Anno
+appendAnnotationMap codeSeg newMap = case codeSeg of
+		For anno f2 f3 f4 f5 f6 f7 -> For (combineAnnotations newMap anno) f2 f3 f4 f5 f6 f7
+		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (combineAnnotations newMap anno) f2 f3 f4 f5 f6
+		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (combineAnnotations newMap anno) f2 f3 f4 f5 f6 f7
+
+-- appendAnnotation original appendage = original
 
 --	Prepends a new item to the list of annotations already associated to a particular node
 prependAnnotation :: Fortran Anno -> String -> Fortran Anno
