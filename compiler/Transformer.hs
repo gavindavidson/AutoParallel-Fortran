@@ -29,6 +29,26 @@ combineAnalysisInfo accum item = (combineMaps accumErrors itemErrors, accumReduc
 									(accumErrors, accumReductionVars, accumReads, accumWrites) = accum
 									(itemErrors, itemReductionVars, itemReads, itemWrites) = item
 
+-- 3/
+
+-- module_kernels_press_out.f95:16.34:
+
+--     real(kind=4), Dimension((-1):(ip + 1)), Intent(In) :: dx1
+--                                   1
+-- Error: Variable 'ip' cannot appear in the expression at (1)
+
+-- ip/jp/kp should be declared statically, currently they are not declared at all
+
+-- 4/
+
+-- module_kernels_press_out.f95:26.30:
+
+--     real(kind=4), Dimension(1:num_groups), Intent(Out) :: global_rhsav_array
+--                               1
+-- Error: Variable 'num_groups' cannot appear in the expression at (1)
+
+-- You can't use a run-time computed value to dimension an array, so num_groups must become a compile_time constant. So these should not be API calls. I suggest you replace them by macros that would become constants constants. Same for group_size.
+
 main :: IO ()
 main = do
 	--a <- parseFile "../testFiles/arrayLoop.f95"
@@ -46,10 +66,11 @@ main = do
 	putStr "<DONE>\t- Add integer :: g_id, get_global_id(g_id,0) code segments\n"
 	putStr "<DONE>\t- Make annotations String -> Anno maps\n"
 	putStr "\t- Make kernel loop variable calculations deal with different starts\n"
-	putStr "\t- Update error messages\n"
+	putStr "\t- Update error messages (\"i, j, k were not used\")\n"
 	putStr "<WORKS>\t- Test reduce and map combination\n"
 	putStr "\t- Array/scaler optimisations\n"
 	putStr "<DONE>\t- Make output prettier\n"
+	putStr "\t- Fix generated kernel code (Wim's email)\n"
 	putStr "\n"
 
 	args <- getArgs
@@ -77,7 +98,7 @@ main = do
 	-- putStr $ show $ parsedProgram
 	--putStr "\n\n\n"	
 
-	-- putStr $ show $ combinedProg
+	putStr $ show $ combinedProg
 	-- putStr "\n"
 
 	--putStr "\n"

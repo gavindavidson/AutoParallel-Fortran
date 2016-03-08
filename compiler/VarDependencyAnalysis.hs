@@ -39,15 +39,10 @@ constructDependencies accessAnalysis prevAnalysis (Assg _ _ expr1 expr2) = foldl
 								--	As part of Language-Fortran's assignment type, the first expression represents the 
 								--	variable being assigned to and the second expression is the thing being assigned
 								writtenOperands = extractOperands expr1
-								--readOperands = case fnCall of
-								--			True ->	extractContainedVars expr2
-								--			False -> extractOperands expr2
-								--fnCall = isFunctionCall accessAnalysis expr2
 								readOperands = extractOperands expr2
 								readDependencies = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 
 								writtenVars = foldl (\accum item -> accum ++ extractVarNames item) [] writtenOperands
-								--readVars = foldl (\accum item -> accum ++ extractVarNames item) [] readOperands
 								readVars = foldl (\accum item -> accum ++ extractVarNames item) [] readDependencies
 
 constructDependencies accessAnalysis prevAnalysis _ = prevAnalysis

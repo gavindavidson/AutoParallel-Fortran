@@ -32,7 +32,7 @@ emit filename specified ast = do
 										_ -> foldl (\accum item -> accum ++ "\n" ++ item) (head originalLines) (tail originalLines)
 				let originalFileName = generateOriginalFileName (splitOn "/" newFilename)
 
-				let code = produceCodeProg originalLines ast
+				let code = produceCodeProg kernelModuleName originalLines ast
 				let kernels = extractKernels originalLines ast
 				let kernelModuleHeader = "module " ++ kernelModuleName ++ "\n\n\tcontains\n\n"
 				let kernelModuleFooter = "end module " ++ kernelModuleName
@@ -72,30 +72,41 @@ synthesiseKernels originalLines prog codeSeg = case codeSeg of
 				OpenCLReduce _ _ _ _ _ _ _ ->  synthesiseOpenCLReduce "" originalLines prog codeSeg
 				_ -> ""
 
-produceCodeProg :: [String] -> Program Anno -> String
-produceCodeProg originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit originalLines item) "" prog
+produceCodeProg :: String -> [String] -> Program Anno -> String
+produceCodeProg kernelModuleName originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit kernelModuleName originalLines item) "" prog
 
-produceCodeProgUnit :: [String] -> ProgUnit Anno -> String
-produceCodeProgUnit originalLines progUnit =   	nonGeneratedBeforeCode ++
-												everything (++) (mkQ "" (produceCodeBlock originalLines)) progUnit
-												++ nonGeneratedAfterCode
-												-- ++ "\nnonGeneratedBeforeSrc: " ++ show nonGeneratedBeforeSrc
-												-- ++ "\nnonGeneratedAfterSrc: " ++ show nonGeneratedAfterSrc
+produceCodeProgUnit :: String -> [String] -> ProgUnit Anno -> String
+produceCodeProgUnit kernelModuleName originalLines progUnit =   	nonGeneratedHeaderCode 
+												++ tabInc ++ "use " ++ kernelModuleName ++ "\n" 
+												++ nonGeneratedBlockCode 
+												++ everything (++) (mkQ "" (produceCodeBlock originalLines)) progUnit
+												++ nonGeneratedFooterCode
+												-- ++ "\nnonGeneratedHeaderSrc: " ++ show nonGeneratedHeaderSrc
+												-- ++ "\nnonGeneratedFooterSrc: " ++ show nonGeneratedFooterSrc
 												-- ++ show firstFortranSrc
 												
 							where
 								progUnitSrc = srcSpan progUnit
 								firstFortranSrc = head (everything (++) (mkQ [] (getFirstFortranSrc)) progUnit)
-								(nonGeneratedBeforeSrc, nonGeneratedAfterSrc) = getSrcSpanNonIntersection progUnitSrc firstFortranSrc
+								firstBlockSrc = head (everything (++) (mkQ [] (getFirstBlockSrc)) progUnit)
+								(nonGeneratedHeaderSrc, nonGeneratedFooterSrc) = getSrcSpanNonIntersection progUnitSrc firstBlockSrc
+								-- (nonGeneratedHeaderSrc, nonGeneratedFooterSrc) = getSrcSpanNonIntersection progUnitSrc firstFortranSrc
 
-								((SrcLoc _ nonGeneratedBefore_ls _), (SrcLoc _ nonGeneratedBefore_le _)) = nonGeneratedBeforeSrc
-								nonGeneratedBeforeCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedBefore_ls..nonGeneratedBefore_le-1]
+								((SrcLoc _ nonGeneratedHeader_ls _), (SrcLoc _ nonGeneratedHeader_le _)) = nonGeneratedHeaderSrc
+								nonGeneratedHeaderCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedHeader_ls..nonGeneratedHeader_le-1]
 
-								((SrcLoc _ nonGeneratedAfter_ls _), (SrcLoc _ nonGeneratedAfter_le _)) = nonGeneratedAfterSrc
-								nonGeneratedAfterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedAfter_ls+1..nonGeneratedAfter_le-1]
+								((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
+								nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls+1..nonGeneratedFooter_le-1]
+
+								((SrcLoc _ block_ls _), (SrcLoc _ _ _)) = firstBlockSrc
+								((SrcLoc _ fortran_ls _), (SrcLoc _ _ _)) = firstFortranSrc
+								nonGeneratedBlockCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [block_ls+1..fortran_ls-1]
 
 getFirstFortranSrc :: Block Anno -> [SrcSpan]
 getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
+
+getFirstBlockSrc :: Block Anno -> [SrcSpan]
+getFirstBlockSrc codeSeg = [srcSpan codeSeg]
 
 produceCodeBlock :: [String] -> Block Anno -> String
 produceCodeBlock originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran "" originalLines)) block)
@@ -214,12 +225,11 @@ synthesiseRangeExpr ((expr1, expr2):[]) = outputExprFormatting expr1 ++ ":" ++ o
 synthesiseRangeExpr ((expr1, expr2):xs) = outputExprFormatting expr1 ++ ":" ++ outputExprFormatting expr2 ++ "," ++ synthesiseRangeExpr xs
 
 synthesiseDeclList :: [(Expr Anno, Expr Anno, Maybe Int)] -> String
-synthesiseDeclList ((expr1, expr2, maybeInt):xs) = "(" 
-												++ outputExprFormatting expr1 ++ 
+synthesiseDeclList ((expr1, expr2, maybeInt):xs) = outputExprFormatting expr1 ++ 
 												(case expr2 of
 													NullExpr _ _ -> ""
 													_ ->  ", " ++ outputExprFormatting expr2)
-												++ maybeIntStr ++ ")"
+												++ maybeIntStr
 												++ followingItems
 						where
 							maybeIntStr = case maybeInt of
@@ -263,9 +273,9 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap _ src r w l fortran) = 
 															args -> foldl (\accum item -> accum ++ "," ++ varnameStr item) (varnameStr (head args)) (tail args)
 												
 												
-												readDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration x (In nullAnno) prog)) readArgs
-												writtenDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration x (Out nullAnno) prog)) writtenArgs
-												generalDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration x (InOut nullAnno) prog)) generalArgs
+												readDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
+												writtenDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
+												generalDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (writtenDecls)
@@ -284,6 +294,14 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																								-- ++ global_reductionArrays_str 
 																								-- ++ chunkSize_str 
 																								++ ")\n\n"
+																			++ readDeclStr
+																			++ writtenDeclStr
+																			++ generalDeclStr
+																			++ "\n"
+																			++ workGroup_reductionArraysDeclStr
+																			++ global_reductionArraysDeclStr
+																			++ local_reductionVarsDeclatationStr
+																			++ "\n"
 																			++ tabs ++ chunk_sizeDeclaration
 																			++ tabs ++ localSizeDeclaration 
 																			++ tabs ++ localIdDeclaration
@@ -291,6 +309,9 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																			++ tabs ++ numGroupsDeclaration
 																			++ tabs ++ groupSizeDeclaration
 																			++ tabs ++ globalIdDeclaration 
+																			++ tabs ++ reductionIteratorDeclaration
+																			++ tabs ++ localChunkSizeDeclaration
+																			++ tabs ++ startPositionDeclaration
 
 																			++ tabs ++ localSizeInitialisation
 																			++ tabs ++ localIdInitialisation
@@ -298,13 +319,6 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																			++ tabs ++ numGroupsInitialisation
 																			++ tabs ++ groupSizeInitialisation
 																			++ tabs ++ globalIdInitialisation
-																			++ "\n"
-																			++ readDeclStr
-																			++ writtenDeclStr
-																			++ generalDeclStr
-																			++ "\n"
-																			++ workGroup_reductionArraysDeclStr
-																			++ global_reductionArraysDeclStr
 																			++ "\n"
 																			-- ++ "! " ++ compilerName ++ ": Reduction vars: " ++ global_reductionVars ++ "\n"
 																			++ tabs ++ localChunkSize_str
@@ -351,6 +365,10 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												numGroupsDeclaration = "integer :: " ++ outputExprFormatting numGroupsVar ++ "\n"
 												groupSizeDeclaration = "integer :: " ++ outputExprFormatting groupSizeVar ++ "\n"
 												globalIdDeclaration = "integer :: " ++ outputExprFormatting globalIdVar ++ "\n"
+												reductionIteratorDeclaration = "integer :: " ++ varnameStr reductionIterator ++ "\n"
+												localChunkSizeDeclaration = "integer :: " ++ outputExprFormatting localChunkSize ++ "\n"
+												startPositionDeclaration = "integer :: " ++ outputExprFormatting startPosition ++ "\n"
+												chunk_sizeDeclaration = "integer :: " ++ outputExprFormatting chunk_size ++ "\n"
 
 												localSizeInitialisation = "call " ++ outputExprFormatting (getLocalSize localSizeVar) ++ "\n"
 												localIdInitialisation = "call " ++ outputExprFormatting (getLocalId localIdVar) ++ "\n"
@@ -359,17 +377,15 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												groupSizeInitialisation = "call " ++ outputExprFormatting (getGroupSize groupSizeVar) ++ "\n"
 												globalIdInitialisation = "call " ++ outputExprFormatting (getGlobalID globalIdVar) ++ "\n"
 
-												chunk_sizeDeclaration = "integer :: " ++ outputExprFormatting chunk_size ++ "\n"
-
 												allArgs = readVarNames ++ writtenVarNames ++ generalVarNames ++ workGroup_reductionArrays ++ global_reductionArrays ++ [chunk_size_varname]
 												allArgsStr = case allArgs of
 															[] -> ""
 															args -> foldl (\accum item -> accum ++ "," ++ varnameStr item) (varnameStr (head args)) (tail args)
 												
 												
-												readDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration x (In nullAnno) prog)) readVarNames
-												writtenDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration x (Out nullAnno) prog)) writtenVarNames
-												generalDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration x (InOut nullAnno) prog)) generalVarNames
+												readDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readVarNames
+												writtenDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenVarNames
+												generalDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalVarNames
 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (writtenDecls)
@@ -377,7 +393,8 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												
 												local_reductionVars = map (generateLocalReductionVar) reductionVarNames
 												local_reductionVarsInitStr = foldl (\accum (var, expr) -> accum ++ tabs ++ "local_" ++ varnameStr var ++ " = " ++ outputExprFormatting expr ++ "\n") "" rv
-
+												local_reductionVarsDeclatation = map (\(red, local) -> stripDeclAttrs $ fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_varname red local prog)) (zip reductionVarNames local_reductionVars)
+												local_reductionVarsDeclatationStr = synthesiseDecls tabs local_reductionVarsDeclatation
 
 												localChunkSize_str = (outputExprFormatting localChunkSize) ++ " = " 
 														++ (outputExprFormatting chunk_size) ++ " / " ++ (outputExprFormatting localSizeVar) ++ "\n"
@@ -514,13 +531,27 @@ extractDimensionAttr attr = case attr of
 								Dimension _ _ -> [attr]
 								_ -> [] 
 
-adaptOriginalDeclaration :: VarName Anno -> IntentAttr Anno -> Program Anno -> Maybe(Decl Anno)
-adaptOriginalDeclaration varname intent program = case decl_list of
+adaptOriginalDeclaration_intent :: VarName Anno -> IntentAttr Anno -> Program Anno -> Maybe(Decl Anno)
+adaptOriginalDeclaration_intent varname intent program = case decl_list of
 														[] -> Nothing
 														_ -> Just (decl)
 			where 
 				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
 				decl = applyGeneratedSrcSpans (applyIntent (intent) (head decl_list))
+
+adaptOriginalDeclaration_varname :: VarName Anno -> VarName Anno -> Program Anno -> Maybe(Decl Anno)
+adaptOriginalDeclaration_varname varname newVarname program = case decl_list of
+														[] -> Nothing
+														_ -> Just (decl)
+			where 
+				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
+				decl = applyGeneratedSrcSpans (replaceAllOccurences_varname (head decl_list) varname newVarname)
+
+stripDeclAttrs :: Decl Anno -> Decl Anno
+stripDeclAttrs decl = everywhere (mkT stripAttrs) decl
+
+stripAttrs :: [Attr Anno] -> [Attr Anno]
+stripAttrs a = []
 
 applyIntent :: IntentAttr Anno -> Decl Anno -> Decl Anno
 applyIntent intent decl =  newDecl
@@ -700,4 +731,4 @@ generateReductionIterator usedNames = VarName nullAnno choice
 				choice = foldl1 (\accum item -> if not (elem (VarName nullAnno item) usedNames) then item else accum) possibles
 
 tabInc :: String
-tabInc = "\t"
+tabInc = "    "
