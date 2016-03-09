@@ -1,6 +1,7 @@
 module LanguageFortranTools where
 
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
+import Data.Typeable
 import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
@@ -271,6 +272,7 @@ extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent 
 						where
 							assigneePresent = (\accum (var, exprList) -> if elem (applyGeneratedSrcSpans assignee) exprList then varnameStr var else accum)
 							standardisedList = map (\(var, exprList) -> (var, map (applyGeneratedSrcSpans) exprList)) list
+extractPrimaryReductionFunction assignee expr = "" -- error ("Error: extractPrimaryReductionFunction\nType: " ++ (show $ typeOf expr) ++ "\nShow: " ++ (show expr))
 
 trimFront :: String -> String
 trimFront inp = filter (\x -> x /= ' ' && x /= '\t') inp

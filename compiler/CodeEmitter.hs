@@ -34,7 +34,7 @@ emit filename specified ast = do
 
 				let code = produceCodeProg kernelModuleName originalLines ast
 				let kernels = extractKernels originalLines ast
-				let kernelModuleHeader = "module " ++ kernelModuleName ++ "\n\n\tcontains\n\n"
+				let kernelModuleHeader = "module " ++ kernelModuleName ++ "\n\n" ++ tabInc ++ "contains\n\n"
 				let kernelModuleFooter = "end module " ++ kernelModuleName
 
 				writeFile originalFileName originalListing
@@ -76,11 +76,11 @@ produceCodeProg :: String -> [String] -> Program Anno -> String
 produceCodeProg kernelModuleName originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit kernelModuleName originalLines item) "" prog
 
 produceCodeProgUnit :: String -> [String] -> ProgUnit Anno -> String
-produceCodeProgUnit kernelModuleName originalLines progUnit =   	nonGeneratedHeaderCode 
-												++ tabInc ++ "use " ++ kernelModuleName ++ "\n" 
-												++ nonGeneratedBlockCode 
-												++ everything (++) (mkQ "" (produceCodeBlock originalLines)) progUnit
-												++ nonGeneratedFooterCode
+produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeaderCode 
+												 ++ tabInc ++ "use " ++ kernelModuleName ++ "\n" 
+												 ++ nonGeneratedBlockCode 
+												 ++ everything (++) (mkQ "" (produceCodeBlock originalLines)) progUnit
+												 ++ nonGeneratedFooterCode
 												-- ++ "\nnonGeneratedHeaderSrc: " ++ show nonGeneratedHeaderSrc
 												-- ++ "\nnonGeneratedFooterSrc: " ++ show nonGeneratedFooterSrc
 												-- ++ show firstFortranSrc
@@ -282,7 +282,9 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap _ src r w l fortran) = 
 												generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (generalDecls)
 
 												loopInitialisers = generateLoopInitialisers l globalIdVar Nothing
-												loopInitialiserCode = foldl1 (\accum item -> appendFortran_recursive item accum) loopInitialisers
+												loopInitialiserCode = case loopInitialisers of
+																		[] -> error "synthesiseOpenCLMap: loopInitialiserCode - empty list"
+																		_ -> foldl1 (\accum item -> appendFortran_recursive item accum) loopInitialisers
 
 
 synthesiseOpenCLReduce :: String ->  [String] -> Program Anno -> Fortran Anno -> String
@@ -408,7 +410,9 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												workItem_reductionCode = applyGeneratedSrcSpans (replaceAllOccurences_varnamePairs fortran reductionVarNames local_reductionVars)
 
 												workItem_loopInitialisers = generateLoopInitialisers l (generateVar reductionIterator) Nothing
-												workItem_loopInitialiserCode = foldl1 (\accum item -> appendFortran_recursive item accum) workItem_loopInitialisers
+												workItem_loopInitialiserCode = case workItem_loopInitialisers of
+																				[] -> error "synthesiseOpenCLReduce: workItem_loopInitialiserCode - empty list"
+																				_ -> foldl1 (\accum item -> appendFortran_recursive item accum) workItem_loopInitialisers
 
 												workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames
 												-- workGroup_reductionArrays_str =	foldl (generateLocalReductionArrayArgStr) "" workGroup_reductionArrays
@@ -432,8 +436,8 @@ localMemBarrier = "call barrier(CLK_LOCAL_MEM_FENCE)\n"
 
 generateLocalReductionArray (VarName anno str) = VarName anno ("local_" ++ str ++ "_array")
 generateGlobalReductionArray (VarName anno str) = VarName anno ("global_" ++ str ++ "_array")
-generateLocalReductionArrayArgStr accum item = accum ++ "\n\t__local " ++ varnameStr item
-generateGloablReductionArrayArgStr accum item = accum ++ "\n\t__global " ++ varnameStr item
+generateLocalReductionArrayArgStr accum item = accum ++ "\n" ++ tabInc ++ "__local " ++ varnameStr item
+generateGloablReductionArrayArgStr accum item = accum ++ "\n" ++ tabInc ++ "__global " ++ varnameStr item
 generateLocalReductionVar (VarName anno str) = VarName anno ("local_" ++ str)
 
 generateReductionArrayAssignment tabs accessor accum ((VarName _ s1),(VarName _ s2)) = accum++tabs++s1++"("++(outputExprFormatting accessor)++") = "++s2++"\n"
@@ -446,7 +450,7 @@ generateKernelName identifier src varnames = identifier
 generateKernelCall :: Fortran Anno -> String
 generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Workgroup size: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
 														++ "call " ++ (generateKernelName "map" src w) 
-														++ "(" ++ allArgumentsStr ++ ")"++ "\t! Call to synthesised, external kernel\n\n"
+														++ "(" ++ allArgumentsStr ++ ")"++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n\n"
 			where
 				readArgs = map (varnameStr) (listSubtract r w)
 				writtenArgs = map (varnameStr) (listSubtract w r)
@@ -459,7 +463,7 @@ generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Workgroup size: " ++ ou
 
 generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"\n! Global work items: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
 															++"call " ++ (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
-															++ "(" ++ allArgumentsStr ++ ")" ++ "\t! Call to synthesised, external kernel\n"
+															++ "(" ++ allArgumentsStr ++ ")" ++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
 			where 
 				reductionVarNames = map (\(varname, expr) -> varname) rv
 				workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames
@@ -631,11 +635,14 @@ generateWorkGroupReduction :: [VarName Anno] -> VarName Anno -> Fortran Anno -> 
 generateWorkGroupReduction reductionVars redIter codeSeg  = resultantCode
 					where
 						assignments = everything (++) (mkQ [] (generateWorkGroupReduction_assgs reductionVars redIter)) codeSeg
+						--resultantCode = case assignments of
+						--			[] -> error "generateWorkGroupReduction: resultantCode - empty list"
+						--			_ -> foldl1 (\accum item -> appendFortran_recursive item accum) assignments
 						resultantCode = foldl1 (\accum item -> appendFortran_recursive item accum) assignments
 
 generateWorkGroupReduction_assgs :: [VarName Anno] -> VarName Anno -> Fortran Anno -> [Fortran Anno]
 generateWorkGroupReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	| isReductionExpr = resultantAssg
-																				| otherwise = []
+																				| otherwise = resultantAssg -- []
 					where 
 						isReductionExpr = hasVarName reductionVars expr1
 						resultantAssg = case extractPrimaryReductionOp expr1 expr2 of
@@ -651,11 +658,15 @@ generateFinalHostReduction :: [VarName Anno] -> VarName Anno -> Fortran Anno -> 
 generateFinalHostReduction reductionVars redIter codeSeg  = resultantCode
 					where
 						assignments = everything (++) (mkQ [] (generateFinalHostReduction_assgs reductionVars redIter)) codeSeg
+						--resultantCode = case assignments of
+						--			[] -> error "generateFinalHostReduction: resultantCode - empty list"
+						--			_ -> foldl1 (\accum item -> appendFortran_recursive item accum) assignments
 						resultantCode = foldl1 (\accum item -> appendFortran_recursive item accum) assignments
 
+-- THIS ONE CAUSES THE Transformer: Prelude.foldl1: empty list ISSUE
 generateFinalHostReduction_assgs :: [VarName Anno] -> VarName Anno -> Fortran Anno -> [Fortran Anno]
 generateFinalHostReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	| isReductionExpr = resultantAssg
-																				| otherwise = []
+																				| otherwise = resultantAssg -- []
 					where 
 						isReductionExpr = hasVarName reductionVars expr1
 						resultantAssg = case extractPrimaryReductionOp expr1 expr2 of
@@ -728,7 +739,9 @@ generateReductionIterator :: [VarName Anno] -> VarName Anno
 generateReductionIterator usedNames = VarName nullAnno choice
 			where
 				possibles = ["reduction_iterator", "reduction_iter", "r_iter"]
-				choice = foldl1 (\accum item -> if not (elem (VarName nullAnno item) usedNames) then item else accum) possibles
+				choice = case possibles of
+						[] -> error "generateReductionIterator: choice - empty list"
+						_ -> foldl1 (\accum item -> if not (elem (VarName nullAnno item) usedNames) then item else accum) possibles
 
 tabInc :: String
 tabInc = "    "

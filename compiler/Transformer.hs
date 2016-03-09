@@ -91,6 +91,7 @@ main = do
 	
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
+	putStr $ show $ combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	emit filename newFilename combinedProg
@@ -98,7 +99,6 @@ main = do
 	-- putStr $ show $ parsedProgram
 	--putStr "\n\n\n"	
 
-	putStr $ show $ combinedProg
 	-- putStr "\n"
 
 	--putStr "\n"
@@ -244,7 +244,9 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				referencedSelf = (hasOperand expr2 expr1)
 				associative = isAssociativeExpr expr1 expr2
 				dependsOnSelf = dependsOnSelfOnce || (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames)
+				--usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
 				usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
+
 
 				potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelf) && ((\(errorMap, _, _, _) -> errorMap == nullAnno) usesFullLoopVarError)
 				--potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
@@ -314,7 +316,7 @@ analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (erro
 isAssociativeExpr :: Expr Anno -> Expr Anno -> Bool
 isAssociativeExpr assignee assignment = case assignment of
 							(Bin _ _ op expr1 expr2) -> associativeOp
-							_ -> associativeFunc -- foldl (||) False (map (\(VarName _ str) -> isAssociativeFunction str) (extractVarNames assignment))
+							_ -> error "Non binary op" -- associativeFunc
 						where 
 							primaryOp = extractPrimaryReductionOp assignee assignment
 							primaryFunc = extractPrimaryReductionFunction assignee assignment
