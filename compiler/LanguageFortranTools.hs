@@ -69,8 +69,11 @@ listRemoveDuplications :: Eq a => [a] -> [a]
 listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a
 
 --	Used by SYB query to extract expressions
-extractExprs :: Expr Anno -> Expr Anno 
-extractExprs expr = expr
+extractExpr :: Expr Anno -> Expr Anno 
+extractExpr expr = expr
+
+extractExpr_list :: Expr Anno -> [Expr Anno] 
+extractExpr_list expr = [expr]
 
 --	Used to break down a tree of expressions that might form a calculation into a list of expressions for analysis.
 extractOperands :: (Typeable p, Data p) => Expr p -> [Expr p]

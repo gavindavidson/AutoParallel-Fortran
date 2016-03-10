@@ -132,29 +132,32 @@ produceCode_fortran tabs originalLines codeSeg = case codeSeg of
 									False -> extractOriginalCode tabs originalLines (srcSpan codeSeg)
 
 synthesiseFor :: String -> [String] -> Fortran Anno -> String
-synthesiseFor tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	f == "generated" = tabs ++ "do " ++ (varnameStr varname) ++ "=" ++ outputExprFormatting expr1 
+synthesiseFor tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	partialGenerated = tabs ++ "do " ++ (varnameStr varname) ++ "=" ++ outputExprFormatting expr1 
 																								++ ", " ++ outputExprFormatting expr2 ++ (if expr3isOne then "" else outputExprFormatting expr3)
 																								++ "\n" ++ (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) fort) ++ tabs ++ "end do\n"
-																			|	otherwise = extractOriginalCode tabs originalLines src
+																				|	otherwise = extractOriginalCode tabs originalLines src
 																	where
 																		expr3isOne = case expr3 of
 																						Con _ _ "1" -> True
 																						_ -> False
-																		((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
+																		partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
+																		codeSeg = For anno src varname expr1 expr2 expr3 fort
 
 synthesiseAssg :: String -> [String] -> Fortran Anno -> String
-synthesiseAssg tabs originalLines (Assg anno src expr1 expr2)	|	f == "generated" = tabs ++ outputExprFormatting expr1 ++ " = " ++ outputExprFormatting expr2 ++ "\n"
+synthesiseAssg tabs originalLines (Assg anno src expr1 expr2)	|	partialGenerated = tabs ++ outputExprFormatting expr1 ++ " = " ++ outputExprFormatting expr2 ++ "\n"
 															|	otherwise = extractOriginalCode tabs originalLines src
 											where 
-												((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
+												partialGenerated = isGenerated codeSeg
+												codeSeg = Assg anno src expr1 expr2
 
 synthesiseIf :: String -> [String] -> Fortran Anno -> String
-synthesiseIf tabs originalLines (If anno src expr fortran _ _) 	|	f == "generated" = tabs ++ "If (" ++ outputExprFormatting expr ++ ") then\n" 
+synthesiseIf tabs originalLines (If anno src expr fortran lst maybeFort) 	|	partialGenerated = tabs ++ "If (" ++ outputExprFormatting expr ++ ") then\n" 
 																	++ (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) fortran)
 																	++ tabs ++ "end if\n"
 															|	otherwise = extractOriginalCode tabs originalLines src
 											where 
-												((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = src
+												partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
+												codeSeg = If anno src expr fortran lst maybeFort
 
 synthesiseDecl :: String -> Decl Anno -> String
 synthesiseDecl tabs (Decl anno src lst typ) = tabs ++ (synthesiseType typ) ++ " :: " ++ (synthesiseDeclList lst) ++ "\n"
@@ -394,7 +397,7 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (generalDecls)
 												
 												local_reductionVars = map (generateLocalReductionVar) reductionVarNames
-												local_reductionVarsInitStr = foldl (\accum (var, expr) -> accum ++ tabs ++ "local_" ++ varnameStr var ++ " = " ++ outputExprFormatting expr ++ "\n") "" rv
+												local_reductionVarsInitStr = "! local_reductionVarsInitStr\n" ++ foldl (\accum (var, expr) -> accum ++ tabs ++ "local_" ++ varnameStr var ++ " = " ++ outputExprFormatting expr ++ "\n") "" rv
 												local_reductionVarsDeclatation = map (\(red, local) -> stripDeclAttrs $ fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_varname red local prog)) (zip reductionVarNames local_reductionVars)
 												local_reductionVarsDeclatationStr = synthesiseDecls tabs local_reductionVarsDeclatation
 
@@ -642,7 +645,7 @@ generateWorkGroupReduction reductionVars redIter codeSeg  = resultantCode
 
 generateWorkGroupReduction_assgs :: [VarName Anno] -> VarName Anno -> Fortran Anno -> [Fortran Anno]
 generateWorkGroupReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	| isReductionExpr = resultantAssg
-																				| otherwise = resultantAssg -- []
+																				| otherwise = []
 					where 
 						isReductionExpr = hasVarName reductionVars expr1
 						resultantAssg = case extractPrimaryReductionOp expr1 expr2 of

@@ -122,16 +122,11 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis ->Fortran Anno -> Fortran Anno
-paralleliseLoop loopVars accessAnalysis loop 	= case mapAttempt_bool of
+paralleliseLoop loopVars accessAnalysis loop 	= appendAnnotation (case mapAttempt_bool of
 										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
 										False 	-> case reduceAttempt_bool of
 													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
-													False	-> reduceAttempt_ast --appendAnnotation reduceAttempt_ast (compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop)) ""
-
-													--False	-> appendAnnotation (reduceAttempt_ast) (show $ accessAnalysis)
-								--case paralleliseLoop_map loop newLoopVars of 
-								--	Just a -> a
-								--	Nothing -> loop
+													False	-> reduceAttempt_ast) ("Non temp vars" ++  errorLocationFormatting (srcSpan loop)) (show nonTempVars) --appendAnnotation reduceAttempt_ast (compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop)) ""
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
@@ -222,8 +217,10 @@ analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case co
 --	doesn't represent a reduction. If the returned string is empty, the loop represents a possible parallel reduction
 analyseLoop_reduce :: [Expr Anno] -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran Anno -> AnalysisInfo
 analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
+		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
-											errorMap3
+											errorMap_debug -- errorMap3
 											,
 											if potentialReductionVar then [expr1] else [],
 											extractOperands expr2,
@@ -267,10 +264,18 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr2]
 												errorMap2
 											else errorMap2
+				errorMap_debug = if referencedSelf then
+											DMap.insert (outputTab ++ "References self:\n")
+												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
+												errorMap3
+											else errorMap3
+		Call _ srcspan expr arglist -> (errorMap_call, [], [], argExprs)
+			where
+				errorMap_call = DMap.insert (outputTab ++ "Cannot reduce: Call to external function:\n")
+												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr]
+												DMap.empty
+				argExprs = everything (++) (mkQ [] extractExpr_list) arglist
 
-
-		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)	
 
 --	Determines whether or not an expression contains a non temporary variable and whether it is access correctly for a map. Produces and appropriate string error
@@ -316,7 +321,7 @@ analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (erro
 isAssociativeExpr :: Expr Anno -> Expr Anno -> Bool
 isAssociativeExpr assignee assignment = case assignment of
 							(Bin _ _ op expr1 expr2) -> associativeOp
-							_ -> error "Non binary op" -- associativeFunc
+							_ -> associativeFunc
 						where 
 							primaryOp = extractPrimaryReductionOp assignee assignment
 							primaryFunc = extractPrimaryReductionFunction assignee assignment

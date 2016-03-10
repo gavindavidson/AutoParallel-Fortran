@@ -25,7 +25,7 @@ do i=0, i_r
   end do
 end do
 a = sum
-a = sum1
+! a = sum1
 a = sum2
 
 do loop1=0, d
@@ -43,6 +43,8 @@ do loop1=0, d
   end do
 end do
 sum = 0
+
+if (sor < pjuge) goto 510      
 ! do loop1=0, d
 !   do loop2=0, c+1
 !     b(d,c) = 12
