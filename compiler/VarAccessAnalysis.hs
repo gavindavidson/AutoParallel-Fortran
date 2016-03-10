@@ -106,6 +106,7 @@ analyseAllVarAccess_fortran :: [VarName Anno] -> LocalVarAccessAnalysis -> Fortr
 analyseAllVarAccess_fortran declarations prevAnalysis (Assg _ _ writeExpr readExpr) = aggregateAnalysis
 												where
 													aggregateAnalysis = combineVarAccessAnalysis prevAnalysis analysisWithWritesReads
+													--aggregateAnalysis = analysisWithWritesReads
 
 													fnCall = isFunctionCall_varNames declarations readExpr
 													readExprs = case fnCall of
@@ -118,7 +119,8 @@ analyseAllVarAccess_fortran declarations prevAnalysis (Assg _ _ writeExpr readEx
 
 analyseAllVarAccess_fortran declarations prevAnalysis codeSeg = aggregateAnalysis
 												where 
-													aggregateAnalysis = combineVarAccessAnalysis childAnalysis analysisWithReads
+													aggregateAnalysis = childAnalysis
+													--aggregateAnalysis = combineVarAccessAnalysis childAnalysis analysisWithReads
 													childAnalysis = foldl (combineVarAccessAnalysis) DMap.empty (gmapQ (mkQ DMap.empty (analyseAllVarAccess_fortran declarations currentAnalysis)) codeSeg)
 
 													extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExpr) codeSeg
@@ -163,7 +165,6 @@ addVarWriteAccess srcspan analysis varname = DMap.insert varname (newAccessRecor
 
 --	Helper function used to bring together sets of variable access analysis records.
 combineVarAccessAnalysis :: LocalVarAccessAnalysis -> LocalVarAccessAnalysis -> LocalVarAccessAnalysis
--- combineVarAccessAnalysis a b = foldl (addVarAccessAnalysis) a b 
 combineVarAccessAnalysis analysis1 analysis2 = resultantAnalysis
 						where
 							analysis2List = DMap.toList analysis2
