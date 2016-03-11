@@ -13,13 +13,10 @@ import qualified Data.Map as DMap
 --	program. This information is then used to determine whether or not a variable in a loop can be deemed
 --	temporary and therefore governs how variables are treated. 
 
---	THIS WILL BE CHANGED TO A MAP, RATHER THAN A LIST.
 --	Type used to colate data on variable accesses throughout a program.
---						Name of variable 	All reads 	All writes
+--						All reads 	All writes
 type VarAccessRecord = ([SrcSpan], 	[SrcSpan])
--- type VarValueRecord = (VarName Anno, [(SrcSpan, Expr Anno)])
 
---type LocalVarAccessAnalysis = [VarAccessRecord]
 type LocalVarAccessAnalysis = DMap.Map (VarName Anno) VarAccessRecord
 
 type LocalVarValueAnalysis = DMap.Map (VarName Anno) [(SrcSpan, Expr Anno)]
@@ -27,13 +24,19 @@ type LocalVarValueAnalysis = DMap.Map (VarName Anno) [(SrcSpan, Expr Anno)]
 type VarAccessAnalysis = (LocalVarAccessAnalysis,	LocalVarValueAnalysis, [VarName Anno], 	[VarName Anno])
 
 analyseAllVarAccess:: Program Anno -> VarAccessAnalysis
-analyseAllVarAccess prog = (localVarAccesses, localVarValues, arguments, declarations)
+analyseAllVarAccess prog = (localVarAccesses'', localVarValues, arguments, declarations)
 						where 
 							--	LocalVarAccesses is made up of information on all of the reads and writes throughout
 							--	the program being analysed. It is a list of triplets where each triplet contains a 
 							--	VarName, a list of read locations of that VarName and a list of write locations of that
 							--	VarName
-							localVarAccesses = everything (combineLocalVarAccessAnalysis) (mkQ DMap.empty (analyseAllVarAccess_fortran declarations)) prog
+							--localVarAccesses = everything (combineLocalVarAccessAnalysis) (mkQ DMap.empty (analyseAllVarAccess_fortran declarations)) prog
+							localVarAccesses =  map (analyse_block) prog
+							localVarAccesses' = foldl (++) [] localVarAccesses
+							localVarAccesses'' = foldl (combineLocalVarAccessAnalysis) DMap.empty localVarAccesses'
+
+							analyse_block = (\x -> gmapQ (mkQ DMap.empty (analyseAllVarAccess_block declarations)) x)
+
 							--localVarAccesses_expr = everything (combineLocalVarAccessAnalysis) (mkQ DMap.empty (analyseAllVarAccess_expr declarations)) prog
 							--localVarAccesses = combineLocalVarAccessAnalysis localVarAccesses_fortran localVarAccesses_expr
 							--(_, localVarAccesses) = runState (analyseLocalVarAccess declarations prog) DMap.empty
@@ -100,66 +103,14 @@ analyseAllVarValues_fortran (Assg _ src expr1 expr2) = foldl (\accum item -> app
 analyseAllVarValues_fortran _ = DMap.empty
 
 
---stAddVarAccess_read :: VarName Anno -> SrcSpan -> State LocalVarAccessAnalysis ()
---stAddVarAccess_read varname src = do
---	analysis <- get
---	let (reads, writes) = DMap.findWithDefault ([],[]) varname analysis
---	let newAnalysis = DMap.insert varname (reads ++ [src], writes) analysis
---	put newAnalysis
---	return ()
-
---stAddVarAccess_reads :: [VarName Anno] -> SrcSpan -> State LocalVarAccessAnalysis ()
---stAddVarAccess_reads varnames src = do
---	analysis <- get
---	let newAnalysis = foldl (addVarReadAccess src) analysis varnames
---	put newAnalysis
---	return ()
-
---stAddVarAccess_write :: VarName Anno -> SrcSpan -> State LocalVarAccessAnalysis ()
---stAddVarAccess_write varname src = do
---	analysis <- get
---	let (reads, writes) = DMap.findWithDefault ([],[]) varname analysis
---	let newAnalysis = DMap.insert varname (reads, writes ++ [src]) analysis
---	put newAnalysis
---	return ()
-
---stAddVarAccess_writes :: [VarName Anno] -> SrcSpan -> State LocalVarAccessAnalysis ()
---stAddVarAccess_writes varnames src = do
---	analysis <- get
---	let newAnalysis = foldl (addVarWriteAccess src) analysis varnames
---	put newAnalysis
---	return ()
-
---analyseLocalVarAccess :: [VarName Anno] -> Program Anno -> State LocalVarAccessAnalysis ()
---analyseLocalVarAccess declarations codeSeg = result
---				where
---					result = mapM_ (analyseAllVarAccess_fortran_state declarations) allFortran 
---					allFortran = everything (++) (mkQ [] extractFortran) codeSeg
-
---analyseAllVarAccess_fortran_state :: [VarName Anno] -> Fortran Anno -> State LocalVarAccessAnalysis ()
---analyseAllVarAccess_fortran_state declarations (Assg _ src writeExpr readExpr) = do
---													let readExprs = extractOperands readExpr
---													let readVarNames = foldl (collectVarNames_foldl declarations) [] readExprs
---													let writtenVarNames = extractVarNames writeExpr
-
---													stAddVarAccess_reads readVarNames src
---													stAddVarAccess_writes writtenVarNames src
---													--analysis = foldl (addVarReadAccess (srcSpan readExpr)) DMap.empty readVarNames
---													--analysis' = foldl (addVarWriteAccess (srcSpan writeExpr)) DMap.empty writtenVarNames
-
---analyseAllVarAccess_fortran_state declarations codeSeg = do
---													let extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExpr) codeSeg
---													let extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
---													let readVarNames = foldl (collectVarNames_foldl declarations) [] extractedOperands
-
---													stAddVarAccess_reads readVarNames (srcSpan codeSeg)
+analyseAllVarAccess_block :: [VarName Anno] -> Block Anno -> LocalVarAccessAnalysis
+analyseAllVarAccess_block declarations (Block _ _ _ _ _ fort) = everything (combineLocalVarAccessAnalysis) (mkQ DMap.empty (analyseAllVarAccess_fortran declarations)) fort
 
 --	Function compiles the lists of read and write accesses for the code in question. The function is recursive and makes use of SYB.
 --	There are two cases, either the current piece of code is an assignment to a variable or it is not. If the code is an assignment
 --	then there must be additions made to the set of writes for a variable, as well as the set(s) of reads for some variable(s). In
 --	the other case, only reads must be added.
 --analyseAllVarAccess_fortran :: LocalVarAccessAnalysis -> Fortran Anno -> LocalVarAccessAnalysis
---analyseAllVarAccess_fortran prevAnalysis (Assg _ _ writeExpr readExpr) = aggregateAnalysis
 analyseAllVarAccess_fortran :: [VarName Anno] -> Fortran Anno -> LocalVarAccessAnalysis
 analyseAllVarAccess_fortran declarations (Assg _ _ writeExpr readExpr) = analysis'
 												where
@@ -170,46 +121,13 @@ analyseAllVarAccess_fortran declarations (Assg _ _ writeExpr readExpr) = analysi
 
 													analysis = foldl (addVarReadAccess (srcSpan readExpr)) DMap.empty readVarNames
 													analysis' = foldl (addVarWriteAccess (srcSpan writeExpr)) DMap.empty writtenVarNames
-													--aggregateAnalysis = combineLocalVarAccessAnalysis prevAnalysis analysisWithWritesReads
-													--aggregateAnalysis = analysisWithWritesReads
+analyseAllVarAccess_fortran declarations codeSeg = analysis
+												where 
+													extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExpr) codeSeg
+													extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
+													readVarNames = foldl (collectVarNames_foldl declarations) [] extractedOperands
 
-													--fnCall = isFunctionCall_varNames declarations readExpr
-													--readExprs = case fnCall of
-													--	True ->	extractContainedVars readExpr
-													--	False -> extractOperands readExpr
-													--readVarNames = foldl (\accum item -> accum ++ (extractVarNames item)) [] readExprs
-													--writtenVarNames = foldl (\accum item -> accum ++ (extractVarNames item)) [] (extractOperands writeExpr)
-													--analysisWithReads = foldl (addVarReadAccess (srcSpan readExpr)) prevAnalysis readVarNames
-													--analysisWithWritesReads = foldl (addVarWriteAccess (srcSpan readExpr)) analysisWithReads writtenVarNames
-analyseAllVarAccess_fortran declarations (If _ src exp1 _ elseList _) = analysis
-												where
-
-													readExprs = extractOperands exp1
-													readVarNames = foldl (collectVarNames_foldl declarations) [] readExprs
-
-													analysis = foldl (addVarReadAccess (srcSpan exp1)) DMap.empty readVarNames
-analyseAllVarAccess_fortran declarations codeSeg = DMap.empty
-												--where 
-												--	extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExpr) codeSeg
-												--	extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
-												--	readVarNames = foldl (collectVarNames_foldl declarations) [] extractedOperands
-
-												--	analysis = foldl (addVarReadAccess (srcSpan codeSeg)) DMap.empty readVarNames
-
-													--childrenAnalysis = gmapQ (mkQ DMap.empty (analyseAllVarAccess_fortran declarations)) codeSeg
-
-													--analysis' = foldl (combineLocalVarAccessAnalysis) DMap.empty (childrenAnalysis ++ [analysis])
-
-													--aggregateAnalysis = childAnalysis
-													----aggregateAnalysis = combineLocalVarAccessAnalysis childAnalysis analysisWithReads
-													--childAnalysis = foldl (combineLocalVarAccessAnalysis) DMap.empty (gmapQ (mkQ DMap.empty (analyseAllVarAccess_fortran declarations currentAnalysis)) codeSeg)
-
-													--extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExpr) codeSeg
-													----readExprs = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
-													--readExprs = foldl (getAccessedExprs declarations) [] extractedExprs
-													--readVarNames = foldl (\accum item -> accum ++ extractVarNames item) [] readExprs	
-													--analysisWithReads = foldl (addVarReadAccess (srcSpan codeSeg)) prevAnalysis readVarNames	
-													--currentAnalysis = combineLocalVarAccessAnalysis prevAnalysis analysisWithReads	
+													analysis = foldl (addVarReadAccess (srcSpan codeSeg)) DMap.empty readVarNames	
 
 
 collectVarNames :: [VarName Anno] -> Expr Anno -> [VarName Anno]
@@ -267,15 +185,6 @@ combineLocalVarAccessAnalysis analysis1 analysis2 = resultantAnalysis
 combineBinaryListTuples :: ([a], [b]) -> ([a], [b]) -> ([a], [b])
 combineBinaryListTuples (a1, b1) (a2, b2) = (a1 ++ a2, b1 ++ b2)
 
---addVarAccessAnalysis :: LocalVarAccessAnalysis -> (VarName Anno, [SrcSpan], 	[SrcSpan]) -> LocalVarAccessAnalysis
---addVarAccessAnalysis ((varnameAnalysis, readsAnalysis, writesAnalysis):xs) (newVarName, newReads, newWrites) 	| varnameAnalysis == newVarName = [(varnameAnalysis, combinedReads, combinedWrites)] ++ xs
---																												| otherwise = [(varnameAnalysis, readsAnalysis, writesAnalysis)] ++ (addVarAccessAnalysis xs (newVarName, newReads, newWrites))
---																												where
---																													combinedReads = listRemoveDuplications (readsAnalysis ++ newReads)
---																													combinedWrites = listRemoveDuplications (writesAnalysis ++ newWrites)
---addVarAccessAnalysis [] (newVarName, newReads, newWrites) = [(newVarName, newReads, newWrites)]
-
-
 --	The function is directly called by Transformer.hs when it is attempting to parallelise a certain loop. This function is supplied with a start
 --	and end point for a loop (SrcSpan) and the VarAccessAnalysis record for the program. The returned list is all of the VarNames that must be
 --	considdered non temporary for that loop. For a variable to be considered non temporary, it must either be an argument to this code block or
@@ -290,14 +199,6 @@ getNonTempVars codeBlockSpan accessAnalysis = hangingReads ++ subroutineArgument
 							writesReadsAfterBlock = varAccessAnalysis_writesAfter codeBlockSpan readsAfterBlock
 							--hangingReads = filter (checkHangingReads) writesReadsAfterBlock
 							hangingReads = filter (checkHangingReads writesReadsAfterBlock) (DMap.keys writesReadsAfterBlock)							
-
---varAccessAnalysis_writesAfter :: SrcSpan -> LocalVarAccessAnalysis -> LocalVarAccessAnalysis
---varAccessAnalysis_writesAfter codeBlockSpan accessAnalysis = foldl (\accum item -> accum ++ varAccessAnalysis_writesAfter' codeBlockSpan item) [] accessAnalysis
-
---varAccessAnalysis_writesAfter' :: SrcSpan -> VarAccessRecord ->  LocalVarAccessAnalysis
---varAccessAnalysis_writesAfter' (start, SrcLoc file_end line_end column_end) (varname, readSpans, writeSpans) = [(varname, readSpans, newWriteSpans)]
---										where
---											newWriteSpans = filter (\((SrcLoc _ line_write column_write), _) -> line_write >= line_end) writeSpans
 
 varAccessAnalysis_writesAfter :: SrcSpan -> LocalVarAccessAnalysis -> LocalVarAccessAnalysis
 varAccessAnalysis_writesAfter codeBlockSpan accessAnalysis = foldl (varAccessAnalysis_writesAfter' codeBlockSpan accessAnalysis) DMap.empty (DMap.keys accessAnalysis)
@@ -322,21 +223,6 @@ varAccessAnalysis_readsAfter' (_, SrcLoc _ line_end _) accessAnalysis accumAnaly
 							newReadSpans = filter (\((SrcLoc _ line_read column_read), _) -> line_read >= line_end) readSpans
 							outputAnalysis = DMap.insert varname (newReadSpans, writeSpans) DMap.empty
 
-
---varAccessAnalysis_readsAfter' :: SrcSpan -> VarAccessRecord ->  LocalVarAccessAnalysis
---varAccessAnalysis_readsAfter' (start, SrcLoc file_end line_end column_end) (varname, readSpans, writeSpans) = if newReadSpans /= [] then [(varname, newReadSpans, writeSpans)] else []
---										where
---											newReadSpans = filter (\((SrcLoc _ line_read column_read), _) -> line_read >= line_end) readSpans
-
---checkHangingReads :: VarAccessAnalysis -> VarName Anno -> Bool
--- checkHangingReads analysis (varname, readSpans, writeSpans) = case earliestRead of
---														Just r ->	case earliestWrite of
---																		Just w -> not (checkSrcSpanBefore_line w r)-- checkSrcSpanBefore_line r w
---																		Nothing -> True
---														Nothing ->	False
---								where 
---									earliestRead = getEarliestSrcSpan readSpans
---									earliestWrite = getEarliestSrcSpan writeSpans
 checkHangingReads :: LocalVarAccessAnalysis -> VarName Anno -> Bool
 checkHangingReads analysis varname = case earliestRead of
 														Just r ->	case earliestWrite of

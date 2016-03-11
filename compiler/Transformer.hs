@@ -91,7 +91,7 @@ main = do
 	
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
-	putStr $ show $ combinedProg
+	--putStr $ show $ combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	emit filename newFilename combinedProg
@@ -122,11 +122,12 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis ->Fortran Anno -> Fortran Anno
-paralleliseLoop loopVars accessAnalysis loop 	= appendAnnotation (case mapAttempt_bool of
+paralleliseLoop loopVars accessAnalysis loop 	= -- appendAnnotation (
+												case mapAttempt_bool of
 										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
 										False 	-> case reduceAttempt_bool of
 													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
-													False	-> reduceAttempt_ast) ("Non temp vars" ++  errorLocationFormatting (srcSpan loop)) (show nonTempVars) --appendAnnotation reduceAttempt_ast (compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop)) ""
+													False	-> reduceAttempt_ast --) ("Non temp vars" ++  errorLocationFormatting (srcSpan loop)) (show nonTempVars) --appendAnnotation reduceAttempt_ast (compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop)) ""
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
@@ -220,7 +221,7 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
-											errorMap_debug -- errorMap3
+											errorMap3
 											,
 											if potentialReductionVar then [expr1] else [],
 											extractOperands expr2,
