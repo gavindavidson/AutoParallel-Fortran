@@ -71,6 +71,9 @@ main = do
 	putStr "\t- Array/scaler optimisations\n"
 	putStr "<DONE>\t- Make output prettier\n"
 	putStr "\t- Fix generated kernel code (Wim's email)\n"
+	putStr "\t- Fix if block generation to include elses\n"
+	putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
+
 	putStr "\n"
 
 	args <- getArgs
@@ -91,7 +94,7 @@ main = do
 	
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
-	--putStr $ show $ combinedProg
+	putStr $ show $ combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	emit filename newFilename combinedProg
@@ -122,18 +125,19 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis ->Fortran Anno -> Fortran Anno
-paralleliseLoop loopVars accessAnalysis loop 	= -- appendAnnotation (
+paralleliseLoop loopVars accessAnalysis loop 	=  appendAnnotation (
 												case mapAttempt_bool of
 										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
 										False 	-> case reduceAttempt_bool of
 													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
-													False	-> reduceAttempt_ast --) ("Non temp vars" ++  errorLocationFormatting (srcSpan loop)) (show nonTempVars) --appendAnnotation reduceAttempt_ast (compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan loop)) ""
+													False	-> reduceAttempt_ast ) ("localVarRecords " ++  errorLocationFormatting (srcSpan loop) ++ "\n\n") (show localVarRecords)
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
 										Nothing -> loopVars
 
 									-- varValueRecords = (\(_,x,_,_) -> x) accessAnalysis
+									localVarRecords = (\(x,_,_,_) -> x) accessAnalysis
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies accessAnalysis loop
 									loopWrites = extractWrites_query loop
@@ -270,6 +274,11 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
 												errorMap3
 											else errorMap3
+				errorMap_debug' = if isNonTempAssignment then
+											DMap.insert (outputTab ++ "Non temp assignments:\n")
+												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
+												errorMap_debug
+											else errorMap_debug
 		Call _ srcspan expr arglist -> (errorMap_call, [], [], argExprs)
 			where
 				errorMap_call = DMap.insert (outputTab ++ "Cannot reduce: Call to external function:\n")

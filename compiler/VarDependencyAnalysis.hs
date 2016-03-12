@@ -5,6 +5,7 @@ import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
 import Data.List
+import qualified Data.Map.Strict as DMap
 
 import LanguageFortranTools
 import VarAccessAnalysis
@@ -17,21 +18,27 @@ import VarAccessAnalysis
 --	THIS WILL BE CHANGED TO A MAP, RATHER THAN A LIST.
 --	Type used to colate dependency data between variables within a particular block of code
 --							Variable A 			depends on all these variables
-type VarDependencyRecord = (VarName Anno, 	[VarName Anno])
-type VarDependencyAnalysis = [VarDependencyRecord]
+--type VarDependencyRecord = (VarName Anno, 	[VarName Anno])
+--type VarDependencyAnalysis = [VarDependencyRecord]
+type VarDependencyAnalysis = DMap.Map (VarName Anno) [VarName Anno]
 
 analyseDependencies :: VarAccessAnalysis -> Fortran Anno -> VarDependencyAnalysis
-analyseDependencies accessAnalysis codeSeg = foldl (\accum item -> constructDependencies accessAnalysis accum item) [] assignments
+analyseDependencies accessAnalysis codeSeg = foldl (\accum item -> constructDependencies accessAnalysis accum item) DMap.empty assignments
 						where
 							assignments = extractAssigments codeSeg
 
 extractAssigments :: Fortran Anno -> [Fortran Anno]
-extractAssigments = everything (++) (mkQ [] extractAssigments')
-
-extractAssigments' :: Fortran Anno -> [Fortran Anno]
-extractAssigments' codeSeg = case codeSeg of
+extractAssigments codeSeg = case codeSeg of 
 								Assg _ _ _ _ -> [codeSeg]
-								_	-> []
+								_	-> foldl (++) [] (gmapQ (mkQ [] extractAssigments) codeSeg)
+
+--extractAssigments :: Fortran Anno -> [Fortran Anno]
+--extractAssigments = everything (++) (mkQ [] extractAssigments')
+
+--extractAssigments' :: Fortran Anno -> [Fortran Anno]
+--extractAssigments' codeSeg = case codeSeg of
+--								Assg _ _ _ _ -> [codeSeg]
+--								_	-> []
 
 constructDependencies :: VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> VarDependencyAnalysis
 constructDependencies accessAnalysis prevAnalysis (Assg _ _ expr1 expr2) = foldl (\accum item -> addDependencies accum item readVars) prevAnalysis writtenVars
@@ -51,15 +58,20 @@ constructDependencies accessAnalysis prevAnalysis _ = prevAnalysis
 addDependencies :: VarDependencyAnalysis -> VarName Anno -> [VarName Anno] -> VarDependencyAnalysis
 addDependencies prevAnalysis dependent dependees = foldl (\accum item -> addDependency accum dependent item) prevAnalysis dependees
 
+-- appendToMap
+
 addDependency :: VarDependencyAnalysis -> VarName Anno -> VarName Anno -> VarDependencyAnalysis
-addDependency ((dependent_prev, dependeeList):xs) dependent dependee 	|	dependent_prev == dependent =	[(dependent_prev, (if not (elem dependee dependeeList) then dependeeList ++ [dependee] else dependeeList))] ++ xs
-																		|	otherwise =	[(dependent_prev, dependeeList)] ++ addDependency xs dependent dependee
-addDependency [] dependent dependee 	= [(dependent, [dependee])]
+addDependency prevAnalysis dependent dependee = appendToMap dependent dependee prevAnalysis
+
+--addDependency ((dependent_prev, dependeeList):xs) dependent dependee 	|	dependent_prev == dependent =	[(dependent_prev, (if not (elem dependee dependeeList) then dependeeList ++ [dependee] else dependeeList))] ++ xs
+--																		|	otherwise =	[(dependent_prev, dependeeList)] ++ addDependency xs dependent dependee
+--addDependency [] dependent dependee 	= [(dependent, [dependee])]
 
 getDependencies :: VarDependencyAnalysis -> VarName Anno -> [VarName Anno]
-getDependencies ((dependent, dependeeList):xs) queryVarname 	|	queryVarname == dependent = dependeeList
-																|	otherwise = getDependencies xs queryVarname
-getDependencies [] queryVarname	= []
+getDependencies analysis queryVarname = DMap.findWithDefault [] queryVarname analysis
+--getDependencies ((dependent, dependeeList):xs) queryVarname 	|	queryVarname == dependent = dependeeList
+--																|	otherwise = getDependencies xs queryVarname
+--getDependencies [] queryVarname	= []
 
 isDirectlyDependentOn :: VarDependencyAnalysis -> VarName Anno -> VarName Anno -> Bool
 isDirectlyDependentOn analysis potDependent potDependee = elem potDependee dependencies
