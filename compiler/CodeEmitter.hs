@@ -86,6 +86,7 @@ produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeader
 												-- ++ show firstFortranSrc
 												
 							where
+
 								progUnitSrc = srcSpan progUnit
 								firstFortranSrc = head (everything (++) (mkQ [] (getFirstFortranSrc)) progUnit)
 								firstBlockSrc = head (everything (++) (mkQ [] (getFirstBlockSrc)) progUnit)
@@ -101,6 +102,9 @@ produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeader
 								((SrcLoc _ block_ls _), (SrcLoc _ _ _)) = firstBlockSrc
 								((SrcLoc _ fortran_ls _), (SrcLoc _ _ _)) = firstFortranSrc
 								nonGeneratedBlockCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [block_ls+1..fortran_ls-1]
+
+getUses :: Uses Anno -> [Uses Anno]
+getUses uses = [uses]
 
 getFirstFortranSrc :: Block Anno -> [SrcSpan]
 getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
@@ -131,6 +135,10 @@ produceCode_fortran tabs originalLines codeSeg = case codeSeg of
 									True -> foldl (++) tabs (gmapQ (mkQ "" (produceCode_fortran "" originalLines)) codeSeg)
 									False -> extractOriginalCode tabs originalLines (srcSpan codeSeg)
 
+synthesisUses :: String -> Uses Anno -> String
+synthesisUses tabs (Use _ (str, rename) _ _) = tabs ++ "use " ++ str ++ "\n"
+synthesisUses tabs _ = ""
+
 synthesiseFor :: String -> [String] -> Fortran Anno -> String
 synthesiseFor tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	partialGenerated = tabs ++ "do " ++ (varnameStr varname) ++ "=" ++ outputExprFormatting expr1 
 																								++ ", " ++ outputExprFormatting expr2 ++ (if expr3isOne then "" else outputExprFormatting expr3)
@@ -152,12 +160,24 @@ synthesiseAssg tabs originalLines (Assg anno src expr1 expr2)	|	partialGenerated
 
 synthesiseIf :: String -> [String] -> Fortran Anno -> String
 synthesiseIf tabs originalLines (If anno src expr fortran lst maybeFort) 	|	partialGenerated = tabs ++ "If (" ++ outputExprFormatting expr ++ ") then\n" 
-																	++ (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) fortran)
+																	++ mainFortranStr
+																	++ elseIfFortranStr
+																	++ elseFortranStr
 																	++ tabs ++ "end if\n"
 															|	otherwise = extractOriginalCode tabs originalLines src
 											where 
 												partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
 												codeSeg = If anno src expr fortran lst maybeFort
+												mainFortranStr = (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) fortran)
+												elseIfFortranStr = foldl (synthesisElses tabs originalLines) "" lst
+												elseFortranStr = case maybeFort of
+																	Just a -> (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) a)
+																	Nothing -> ""
+
+synthesisElses :: String -> [String] -> String -> (Expr Anno, Fortran Anno) -> String
+synthesisElses tabs originalLines accum (expr, fortran) = accum ++ tabs ++ "else if(" ++ outputExprFormatting expr ++ ") then\n" 
+																++ (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) fortran)
+																++ "\n"
 
 synthesiseDecl :: String -> Decl Anno -> String
 synthesiseDecl tabs (Decl anno src lst typ) = tabs ++ (synthesiseType typ) ++ " :: " ++ (synthesiseDeclList lst) ++ "\n"
@@ -207,8 +227,8 @@ synthesiseAttr (Intent _ intentAttr) = "Intent(" ++ intentStr ++ ")"
 							In _ -> "In"
 							Out _ -> "Out"
 							_ -> "InOut"
+synthesiseAttr (Parameter _) = "Parameter"
 synthesiseAttr attr = "[Incompatible attribute]"
--- synthesiseAttr (Parameter _) = ""
 -- synthesiseAttr (Allocatable _) = ""
 -- synthesiseAttr (External _) = ""
 -- synthesiseAttr (Intrinsic _) = ""
@@ -231,7 +251,7 @@ synthesiseDeclList :: [(Expr Anno, Expr Anno, Maybe Int)] -> String
 synthesiseDeclList ((expr1, expr2, maybeInt):xs) = outputExprFormatting expr1 ++ 
 												(case expr2 of
 													NullExpr _ _ -> ""
-													_ ->  ", " ++ outputExprFormatting expr2)
+													_ ->  " = " ++ outputExprFormatting expr2)
 												++ maybeIntStr
 												++ followingItems
 						where
@@ -246,7 +266,9 @@ synthesiseOpenCLMap :: String -> [String] -> Program Anno -> Fortran Anno -> Str
 synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap _ src r w l fortran) = -- "\n! " ++ compilerName ++ ": Synthesised kernel\n" 
 																	inTabs ++ "subroutine " ++ kernelName
 																	++"(" 
-																					++ allArgsStr ++ ")\n\n"
+																					++ allArgsStr ++ ")\n"
+																	++ usesString
+																	++ "\n"
 																	++ readDeclStr
 																	++ writtenDeclStr
 																	++ generalDeclStr
@@ -262,6 +284,9 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap _ src r w l fortran) = 
 																	-- ++ "! " ++ compilerName ++ ": End of synthesised kernel\n\n" 
 
 											where
+												extractedUses = everything (++) (mkQ [] getUses) prog
+												usesString = foldl (\accum item -> accum ++ synthesisUses tabs item) "" extractedUses 
+
 												kernelName = generateKernelName "map" src w
 												globalIdVar = generateVar (VarName nullAnno "global_id")
 												tabs = inTabs ++ tabInc
@@ -298,7 +323,9 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																								-- ++ "workGroup_reductionArrays_str"
 																								-- ++ global_reductionArrays_str 
 																								-- ++ chunkSize_str 
-																								++ ")\n\n"
+																								++ ")\n"
+																			++ usesString
+																			++ "\n"
 																			++ readDeclStr
 																			++ writtenDeclStr
 																			++ generalDeclStr
@@ -351,6 +378,9 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 											where
 												kernelName = generateKernelName "reduce" src (map (\(v, e) -> v) rv)
 												tabs = inTabs ++ tabInc
+
+												extractedUses = everything (++) (mkQ [] getUses) prog
+												usesString = foldl (\accum item -> accum ++ synthesisUses tabs item) "" extractedUses 
 
 												reductionVarNames = map (\(varname, expr) -> varname) rv
 												readVarNames = listSubtract (listSubtract r w) reductionVarNames

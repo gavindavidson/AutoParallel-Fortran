@@ -29,18 +29,6 @@ combineAnalysisInfo accum item = (combineMaps accumErrors itemErrors, accumReduc
 									(accumErrors, accumReductionVars, accumReads, accumWrites) = accum
 									(itemErrors, itemReductionVars, itemReads, itemWrites) = item
 
--- 3/
-
--- module_kernels_press_out.f95:16.34:
-
---     real(kind=4), Dimension((-1):(ip + 1)), Intent(In) :: dx1
---                                   1
--- Error: Variable 'ip' cannot appear in the expression at (1)
-
--- ip/jp/kp should be declared statically, currently they are not declared at all
-
--- 4/
-
 -- module_kernels_press_out.f95:26.30:
 
 --     real(kind=4), Dimension(1:num_groups), Intent(Out) :: global_rhsav_array
@@ -71,7 +59,7 @@ main = do
 	putStr "\t- Array/scaler optimisations\n"
 	putStr "<DONE>\t- Make output prettier\n"
 	putStr "\t- Fix generated kernel code (Wim's email)\n"
-	putStr "\t- Fix if block generation to include elses\n"
+	putStr "<DONE>\t- Fix if block generation to include elses\n"
 	putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
 
 	putStr "\n"
@@ -125,12 +113,12 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis ->Fortran Anno -> Fortran Anno
-paralleliseLoop loopVars accessAnalysis loop 	=  appendAnnotation (
+paralleliseLoop loopVars accessAnalysis loop 	=  -- appendAnnotation (
 												case mapAttempt_bool of
 										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
 										False 	-> case reduceAttempt_bool of
 													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
-													False	-> reduceAttempt_ast ) ("localVarRecords " ++  errorLocationFormatting (srcSpan loop) ++ "\n\n") (show localVarRecords)
+													False	-> reduceAttempt_ast -- ) ("localVarRecords " ++  errorLocationFormatting (srcSpan loop) ++ "\n\n") (show localVarRecords)
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
