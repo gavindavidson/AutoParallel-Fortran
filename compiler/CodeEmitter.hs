@@ -128,7 +128,7 @@ produceCode_fortran tabs originalLines codeSeg = case codeSeg of
 									reductionVarNames = map (\(varname, expr) -> varname) rv
 									r_iter = generateReductionIterator reductionVarNames
 									hostReduction = generateFinalHostReduction reductionVarNames r_iter f
-									hostReductionLoop = generateLoop r_iter (generateConstant 1) (generateVar (VarName nullAnno "n")) hostReduction
+									hostReductionLoop = generateLoop r_iter (generateConstant 1) nth_var hostReduction
 									
 						FSeq _ _ fortran1 fortran2 -> (mkQ "" (produceCode_fortran tabs originalLines) fortran1) ++ (mkQ "" (produceCode_fortran tabs originalLines) fortran2)
 						_ -> 	case anyChildGenerated codeSeg || isGenerated codeSeg of
@@ -326,30 +326,30 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																								++ ")\n"
 																			++ usesString
 																			++ "\n"
-																			++ readDeclStr
-																			++ writtenDeclStr
-																			++ generalDeclStr
-																			++ "\n"
-																			++ workGroup_reductionArraysDeclStr
-																			++ global_reductionArraysDeclStr
-																			++ local_reductionVarsDeclatationStr
-																			++ "\n"
 																			++ tabs ++ chunk_sizeDeclaration
 																			++ tabs ++ localSizeDeclaration 
 																			++ tabs ++ localIdDeclaration
 																			++ tabs ++ groupIdDeclaration
-																			++ tabs ++ numGroupsDeclaration
-																			++ tabs ++ groupSizeDeclaration
+																			-- ++ tabs ++ numGroupsDeclaration
+																			++ tabs ++ groupSizeDeclaration ++ " = " ++ outputExprFormatting groupSizeInitialisation_calculation ++ "\n"
 																			++ tabs ++ globalIdDeclaration 
 																			++ tabs ++ reductionIteratorDeclaration
 																			++ tabs ++ localChunkSizeDeclaration
 																			++ tabs ++ startPositionDeclaration
+																			++ workGroup_reductionArraysDeclStr
+																			++ global_reductionArraysDeclStr
+																			++ local_reductionVarsDeclatationStr
+																			++ "\n"
+																			++ readDeclStr
+																			++ writtenDeclStr
+																			++ generalDeclStr
+																			++ "\n"
 
-																			++ tabs ++ localSizeInitialisation
+																			-- ++ tabs ++ localSizeInitialisation
 																			++ tabs ++ localIdInitialisation
 																			++ tabs ++ groupIdInitialisation
-																			++ tabs ++ numGroupsInitialisation
-																			++ tabs ++ groupSizeInitialisation
+																			-- ++ tabs ++ numGroupsInitialisation
+																			-- ++ tabs ++ groupSizeInitialisation
 																			++ tabs ++ globalIdInitialisation
 																			++ "\n"
 																			-- ++ "! " ++ compilerName ++ ": Reduction vars: " ++ global_reductionVars ++ "\n"
@@ -397,20 +397,21 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												localSizeDeclaration = "integer :: " ++ outputExprFormatting localSizeVar ++ "\n"
 												localIdDeclaration = "integer :: " ++ outputExprFormatting localIdVar ++ "\n"
 												groupIdDeclaration = "integer :: " ++ outputExprFormatting groupIdVar ++ "\n"
-												numGroupsDeclaration = "integer :: " ++ outputExprFormatting numGroupsVar ++ "\n"
-												groupSizeDeclaration = "integer :: " ++ outputExprFormatting groupSizeVar ++ "\n"
+												--numGroupsDeclaration = "integer :: " ++ outputExprFormatting numGroupsVar ++ "\n"
+												groupSizeDeclaration = "integer, Parameter :: " ++ outputExprFormatting groupSizeVar
 												globalIdDeclaration = "integer :: " ++ outputExprFormatting globalIdVar ++ "\n"
 												reductionIteratorDeclaration = "integer :: " ++ varnameStr reductionIterator ++ "\n"
 												localChunkSizeDeclaration = "integer :: " ++ outputExprFormatting localChunkSize ++ "\n"
 												startPositionDeclaration = "integer :: " ++ outputExprFormatting startPosition ++ "\n"
 												chunk_sizeDeclaration = "integer :: " ++ outputExprFormatting chunk_size ++ "\n"
 
-												localSizeInitialisation = "call " ++ outputExprFormatting (getLocalSize localSizeVar) ++ "\n"
+												--localSizeInitialisation = "call " ++ outputExprFormatting (getLocalSize localSizeVar) ++ "\n"
 												localIdInitialisation = "call " ++ outputExprFormatting (getLocalId localIdVar) ++ "\n"
 												groupIdInitialisation = "call " ++ outputExprFormatting (getGroupID groupIdVar) ++ "\n"
-												numGroupsInitialisation = "call " ++ outputExprFormatting (getNumberGroups numGroupsVar) ++ "\n"
+												--numGroupsInitialisation = "call " ++ outputExprFormatting (getNumberGroups numGroupsVar) ++ "\n"
 												groupSizeInitialisation = "call " ++ outputExprFormatting (getGroupSize groupSizeVar) ++ "\n"
 												globalIdInitialisation = "call " ++ outputExprFormatting (getGlobalID globalIdVar) ++ "\n"
+												groupSizeInitialisation_calculation = generateGlobalWorkItemsExpr l
 
 												allArgs = readVarNames ++ writtenVarNames ++ generalVarNames ++ workGroup_reductionArrays ++ global_reductionArrays ++ [chunk_size_varname]
 												allArgsStr = case allArgs of
@@ -456,7 +457,7 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												workGroup_loop = generateLoop reductionIterator (generateConstant 1) localSizeVar workGroup_reductionCode
 
 												global_reductionArrays = map (generateGlobalReductionArray) reductionVarNames
-												global_reductionArraysDecl = map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (declareGlobalReductionArray x (numGroupsVar) prog)) reductionVarNames
+												global_reductionArraysDecl = map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (declareGlobalReductionArray x (nth_var) prog)) reductionVarNames
 												global_reductionArraysDeclStr = synthesiseDecls tabs global_reductionArraysDecl
 												-- global_reductionArrays_str = foldl (generateGloablReductionArrayArgStr) "" global_reductionArrays
 												global_reductionArraysAssignmentStr = foldl (generateReductionArrayAssignment tabs groupIdVar) "" (zip global_reductionArrays local_reductionVars)
@@ -466,6 +467,7 @@ startPosition  = generateVar (VarName nullAnno "start_position")
 chunk_size = generateVar chunk_size_varname
 chunk_size_varname = VarName nullAnno "chunk_size"
 localMemBarrier = "call barrier(CLK_LOCAL_MEM_FENCE)\n"
+nth_var = generateVar (VarName nullAnno "NTH")
 
 generateLocalReductionArray (VarName anno str) = VarName anno ("local_" ++ str ++ "_array")
 generateGlobalReductionArray (VarName anno str) = VarName anno ("global_" ++ str ++ "_array")
@@ -492,7 +494,7 @@ generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Workgroup size: " ++ ou
 				allArguments = readArgs ++ writtenArgs ++ generalArgs
 				allArgumentsStr =  (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
 
-				workGroupSizeExpr = generateProductExpr (map (generateLoopIterationsExpr) l)
+				workGroupSizeExpr = generateProductExpr_list (map (generateLoopIterationsExpr) l)
 
 generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"\n! Global work items: " ++ outputExprFormatting workGroupSizeExpr ++ "\n "
 															++"call " ++ (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
@@ -512,15 +514,19 @@ generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"\n! Global work ite
 								++ ["chunk_size"]
 				allArgumentsStr =  (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
 
-				workGroupSizeExpr = generateProductExpr (map (generateLoopIterationsExpr) l)
+				workGroupSizeExpr = generateProductExpr_list (map (generateLoopIterationsExpr) l)
 
 generateLoopIterationsExpr :: (VarName Anno, Expr Anno, Expr Anno, Expr Anno) -> Expr Anno
+generateLoopIterationsExpr (var, (Con _ _ "1"), end, (Con _ _ "1")) = end
 generateLoopIterationsExpr (var, start, end, (Con _ _ "1")) = (Bin nullAnno nullSrcSpan (Plus nullAnno)
-																(generateSubtractionExpr [end, start]) 
+																(generateSubtractionExpr end start) 
 																(generateConstant 1))
+generateLoopIterationsExpr (var, (Con _ _ "1"), end, step) = Bin nullAnno nullSrcSpan (Div nullAnno) 
+																end
+																step
 generateLoopIterationsExpr (var, start, end, step) = Bin nullAnno nullSrcSpan (Div nullAnno) 
 														(Bin nullAnno nullSrcSpan (Plus nullAnno)
-															(generateSubtractionExpr [end, start]) 
+															(generateSubtractionExpr_list [end, start]) 
 															(generateConstant 1))
 														step
 
@@ -696,7 +702,6 @@ generateFinalHostReduction reductionVars redIter codeSeg  = resultantCode
 						--			_ -> foldl1 (\accum item -> appendFortran_recursive item accum) assignments
 						resultantCode = foldl1 (\accum item -> appendFortran_recursive item accum) assignments
 
--- THIS ONE CAUSES THE Transformer: Prelude.foldl1: empty list ISSUE
 generateFinalHostReduction_assgs :: [VarName Anno] -> VarName Anno -> Fortran Anno -> [Fortran Anno]
 generateFinalHostReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	| isReductionExpr = resultantAssg
 																				| otherwise = resultantAssg -- []
@@ -713,6 +718,17 @@ generateFinalHostReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	|
 						finalReductionVar = generateVar (head (extractVarNames expr1))
 generateFinalHostReduction_assgs reductionVars redIter codeSeg = []
 
+generateGlobalWorkItemsExpr :: [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] -> Expr Anno
+generateGlobalWorkItemsExpr loopVars = generateProductExpr_list (map (generateLoopIterationsExpr) loopVars)
+--generateGlobalWorkItemsExpr ((var, start, end, step):[]) = 	generateAdditionExpr 
+--																	(generateSubtractionExpr_list ([end] ++ [start])) 
+--																	(generateConstant 1)
+--generateGlobalWorkItemsExpr ((var, start, end, step):xs) = 	generateProductExpr
+--																(generateAdditionExpr 
+--																	(generateSubtractionExpr_list ([end] ++ [start])) 
+--																	(generateConstant 1))
+--																(generateGlobalWorkItemsExpr xs)
+
 generateLoopInitialisers :: [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] -> Expr Anno -> Maybe(Expr Anno) -> [Fortran Anno]
 generateLoopInitialisers ((var, start, end, step):[]) iterator (Just offset) 
 			= 	[Assg nullAnno nullSrcSpan 
@@ -726,10 +742,10 @@ generateLoopInitialisers ((var, start, end, step):xs) iterator Nothing
 				++
 				generateLoopInitialisers xs iterator (Just nextOffset)
 					where
-						--nextOffset = generateSubtractionExpr ([generateProductExpr ([generateVar var] ++ followingEndExprs)])
-						nextOffset = generateSubtractionExpr ([iterator] ++ [generateProductExpr ([generateVar var] ++ followingEndExprs)])
+						--nextOffset = generateSubtractionExpr_list ([generateProductExpr_list ([generateVar var] ++ followingEndExprs)])
+						nextOffset = generateSubtractionExpr_list ([iterator] ++ [generateProductExpr_list ([generateVar var] ++ followingEndExprs)])
 						followingEndExprs = map (\(_,_,e,_) -> e) xs
-						multipliedExprs = generateProductExpr followingEndExprs 
+						multipliedExprs = generateProductExpr_list followingEndExprs 
 generateLoopInitialisers ((var, start, end, step):xs) iterator (Just offset) 
 			= 	[Assg nullAnno nullSrcSpan (generateVar var)
 					(Bin nullAnno nullSrcSpan (Div nullAnno) 
@@ -738,17 +754,26 @@ generateLoopInitialisers ((var, start, end, step):xs) iterator (Just offset)
 				++
 				generateLoopInitialisers xs iterator (Just nextOffset)
 					where
-						nextOffset = generateSubtractionExpr ([offset] ++ [generateProductExpr ([generateVar var] ++ followingEndExprs)])
+						nextOffset = generateSubtractionExpr_list ([offset] ++ [generateProductExpr_list ([generateVar var] ++ followingEndExprs)])
 						followingEndExprs = map (\(_,_,e,_) -> e) xs
-						multipliedExprs = generateProductExpr followingEndExprs  
+						multipliedExprs = generateProductExpr_list followingEndExprs  
 
-generateProductExpr :: [Expr Anno] -> Expr Anno
-generateProductExpr (x:[]) = x
-generateProductExpr (x:xs) = Bin nullAnno nullSrcSpan (Mul nullAnno) x (generateProductExpr xs)
+generateProductExpr_list :: [Expr Anno] -> Expr Anno
+generateProductExpr_list (x:[]) = x
+generateProductExpr_list (x:xs) = Bin nullAnno nullSrcSpan (Mul nullAnno) x (generateProductExpr_list xs)
 
-generateSubtractionExpr :: [Expr Anno] -> Expr Anno
-generateSubtractionExpr (x:[]) = x
-generateSubtractionExpr (x:xs) = Bin nullAnno nullSrcSpan (Minus nullAnno) x (generateSubtractionExpr xs)
+generateSubtractionExpr_list :: [Expr Anno] -> Expr Anno
+generateSubtractionExpr_list (x:[]) = x
+generateSubtractionExpr_list (x:xs) = Bin nullAnno nullSrcSpan (Minus nullAnno) x (generateSubtractionExpr_list xs)
+
+generateAdditionExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateAdditionExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Plus nullAnno) expr1 expr2
+
+generateProductExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateProductExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Mul nullAnno) expr1 expr2
+
+generateSubtractionExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateSubtractionExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Minus nullAnno) expr1 expr2
 
 getGlobalID :: Expr Anno ->  Expr Anno
 getGlobalID globalIdVar = Var nullAnno nullSrcSpan [(VarName nullAnno "get_global_id", [globalIdVar, Con nullAnno nullSrcSpan "0"])]
