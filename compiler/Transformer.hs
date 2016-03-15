@@ -58,7 +58,7 @@ main = do
 	putStr "<WORKS>\t- Test reduce and map combination\n"
 	putStr "\t- Array/scaler optimisations\n"
 	putStr "<DONE>\t- Make output prettier\n"
-	putStr "\t- Fix generated kernel code (Wim's email)\n"
+	putStr "<TBC>\t- Fix generated kernel code (Wim's email)\n"
 	putStr "<DONE>\t- Fix if block generation to include elses\n"
 	putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
 

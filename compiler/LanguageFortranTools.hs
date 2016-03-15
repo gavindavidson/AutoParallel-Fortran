@@ -103,6 +103,9 @@ nullSrcSpan = (SrcLoc {srcFilename = "generated", srcLine = -1, srcColumn = -1},
 generateSrcSpan :: SrcSpan -> SrcSpan
 generateSrcSpan ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
 
+generateAssgCode :: Expr Anno -> Expr Anno -> Fortran Anno
+generateAssgCode expr1 expr2 = Assg nullAnno nullSrcSpan expr1 expr2 
+
 generateLTExpr :: Expr Anno -> Expr Anno -> Expr Anno
 generateLTExpr expr1 expr2 = Bin nullAnno nullSrcSpan (RelLT nullAnno) expr1 expr2
 
@@ -123,6 +126,18 @@ generateArrayVar varname access = Var nullAnno nullSrcSpan [(varname, [access])]
 
 generateIf :: Expr Anno -> Fortran Anno -> Fortran Anno
 generateIf expr fortran = If nullAnno nullSrcSpan expr fortran [] Nothing
+
+generateAdditionExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateAdditionExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Plus nullAnno) expr1 expr2
+
+generateProductExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateProductExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Mul nullAnno) expr1 expr2
+
+generateSubtractionExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateSubtractionExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Minus nullAnno) expr1 expr2
+
+generateDivisionExpr :: Expr Anno -> Expr Anno -> Expr Anno
+generateDivisionExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Div nullAnno) expr1 expr2
 
 --	Used to standardise SrcSpans so that nodes of an AST may be matched up even if they appear in completely different
 --	parts of a program. Also used to signify that a node has been changed and cannot be copied from the orignal source during code
