@@ -1,6 +1,8 @@
 folder="../testFiles"
-filename="press.f95"
-outfilename="press_out.f95"
+filename="arrayLoop.f95"
+outfilename="arrayLoop_out.f95"
+# filename="press.f95"
+# outfilename="press_out.f95"
 
 originalfile=$folder"/"$filename
 outfile=$folder"/"$outfilename
@@ -9,7 +11,7 @@ outfile=$folder"/"$outfilename
 echo ""
 echo "Running on "$originalfile
 echo ""
-# ./Transformer $originalfile $outfile
+./Transformer $originalfile $outfile
 ./Transformer $originalfile $outfile > treeWalker.out
 # ./Transformer +RTS -h -RTS $originalfile $outfile > treeWalker.out
 # hp2ps -c Transformer.hp

@@ -12,14 +12,17 @@ program arrayLoop
 !     a(loop1,loop2) = 12+45
 !   end do
 ! end do
-
-do i=0, i_r
-  do j=0, j_r
-    do k=0, k_r
-      do l=0, l_r
-        sum = sum + sum + a(i,j,k,l)
-        sum1 = sum1 + sum1 + a(i,j,k,l)
-        sum2 = sum2 + sum2 + a(i,j,k,l)
+sum = 0
+sum1 = 0
+sum2 = 0
+do i=i_s, i_e
+  do j=j_s, j_e
+    do k=k_s, k_e
+      do l=l_s, l_e
+        a(i,j,k,l) = 1 + 2
+        ! sum  = sum  + a(i,j,k,l)
+        ! sum1 = sum1 + a(i,j,k,l)
+        ! sum2 = sum2 + a(i,j,k,l)
       end do
     end do
   end do
@@ -30,11 +33,14 @@ a = sum2
 
 do loop1=0, d
   do loop2=0, c
-    b(loop1,loop2) = 12+45
+    b(loop1,loop3) = 12+45
     b(loop1,loop2) = 12+45
     b(loop1,loop2) = 12+45
   end do
 end do
+
+a = b(loop1, loop2)
+
 do loop1=0, d
   do loop2=0, c
     b(loop1,loop2) = 12+45

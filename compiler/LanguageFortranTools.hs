@@ -194,9 +194,17 @@ combineAnnotations :: Anno -> Anno -> Anno
 combineAnnotations a b = combineMaps a b
 
 
-hasVarName :: [VarName Anno] -> Expr Anno -> Bool
-hasVarName loopWrites (Var _ _ list) = foldl (\accum item -> if item then item else accum) False $ map (\(varname, exprs) -> elem varname loopWrites) list
-hasVarName loopWrites _ = False
+usesVarName_list :: [VarName Anno] -> Expr Anno -> Bool
+usesVarName_list loopWrites (Var _ _ list) = foldl (||) False $ map (\(varname, exprs) -> elem varname loopWrites) list
+usesVarName_list loopWrites _ = False
+
+usesVarName :: VarName Anno -> Expr Anno -> Bool
+usesVarName varnameInp (Var _ _ list) = foldl (||) False $ map (\(varname, exprs) -> varname == varnameInp) list
+--usesVarName varnameInp _ = False
+
+extractUsedVarName :: Expr Anno -> [VarName Anno]
+extractUsedVarName (Var _ _ list) = map (\(varname, exprs) -> varname) list
+extractUsedVarName _ = []
 
 replaceAllOccurences_varnamePairs :: Fortran Anno -> [VarName Anno] -> [VarName Anno] -> Fortran Anno
 replaceAllOccurences_varnamePairs codeSeg originals replacements = foldl (\accum (v1, v2) -> replaceAllOccurences_varname accum v1 v2) codeSeg pairs
