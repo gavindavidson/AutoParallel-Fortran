@@ -18,6 +18,9 @@ import LanguageFortranTools
 --	code segments. Things get more complex when generating reduction kernels as a number of changes to the original source are needed to take full advantage
 --	of parallel hardware.
 
+--	The strategy taken is one of traversing the AST and emitting any unchanged host code. Where kernels are encountered,
+--	calls to the new kernel are emittied. The AST is then traversed again to extract all kernels and then the kernels are
+--	emitted.
 emit :: String -> String -> Program Anno -> IO ()
 emit filename specified ast = do
 				let newFilename = case specified of
@@ -41,6 +44,7 @@ emit filename specified ast = do
 				writeFile newFilename code
 				writeFile kernelModuleNamePath (kernelModuleHeader ++ kernels ++ kernelModuleFooter)
 
+--	The following functions are used to define names for output files from the input files' names.
 getModuleName :: String -> String
 getModuleName filename = head (splitOn "." (last (splitOn "/" filename)))
 
@@ -56,9 +60,10 @@ generateOriginalFileName :: [String] -> String
 generateOriginalFileName (x:[]) = "original_" ++ x
 generateOriginalFileName (x:xs) = x ++ "/" ++ generateOriginalFileName xs
 
+--	This function produces a list of strings where each element is a line of the original source. This
+--	list is used heavily in this module.
 readOriginalFileLines :: String -> IO ([String])
 readOriginalFileLines filename = do
-				--content <- readFile filename
 				content <- cpp filename
 				let contentLines = lines content
 				return contentLines
@@ -75,15 +80,15 @@ synthesiseKernels originalLines prog codeSeg = case codeSeg of
 produceCodeProg :: String -> [String] -> Program Anno -> String
 produceCodeProg kernelModuleName originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit kernelModuleName originalLines item) "" prog
 
+--	This function handles producing the code that is not changed from the original source. It also inserts a "use .."
+--	line for the file containing the new kernels and makes a call to the function that produces the body of the new
+--	host code. 
 produceCodeProgUnit :: String -> [String] -> ProgUnit Anno -> String
 produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeaderCode 
 												 ++ tabInc ++ "use " ++ kernelModuleName ++ "\n" 
 												 ++ nonGeneratedBlockCode 
 												 ++ everything (++) (mkQ "" (produceCodeBlock originalLines)) progUnit
 												 ++ nonGeneratedFooterCode
-												-- ++ "\nnonGeneratedHeaderSrc: " ++ show nonGeneratedHeaderSrc
-												-- ++ "\nnonGeneratedFooterSrc: " ++ show nonGeneratedFooterSrc
-												-- ++ show firstFortranSrc
 												
 							where
 
@@ -106,6 +111,9 @@ produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeader
 getUses :: Uses Anno -> [Uses Anno]
 getUses uses = [uses]
 
+--	Function is used (along with "getFirstBlockSrc") by "produceCodeProgUnit" to determine which lines of the original
+--	source can be taken as is. It is used to determine where the first Fortran nodes of the AST appear in the source
+--	because the Fortran nodes are the ones that have been transformed.
 getFirstFortranSrc :: Block Anno -> [SrcSpan]
 getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
 
@@ -522,18 +530,12 @@ generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"\n! Global work ite
 				writtenArgs = listSubtract w r
 				generalArgs = listIntersection w r
 
-				--allArguments = 	(map (varnameStr) 
-				--					(listSubtract 
-				--						(readArgs ++ writtenArgs ++ generalArgs ++ workGroup_reductionArrays ++ global_reductionArrays) 
-				--						reductionVarNames)) 
-				--				++ ["chunk_size"]
 				allArguments = 	(map (varnameStr) 
 									(listSubtract 
 										(readArgs ++ writtenArgs ++ generalArgs ++ global_reductionArrays) 
 										reductionVarNames)) 
 				allArgumentsStr =  (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
 
-				--workGroupSizeExpr = generateProductExpr_list (map (generateLoopIterationsExpr) l)
 				reductionWorkItemsExpr = generateProductExpr nthVar nunitsVar
 
 generateLoopIterationsExpr :: (VarName Anno, Expr Anno, Expr Anno, Expr Anno) -> Expr Anno
@@ -568,8 +570,6 @@ declareLocalReductionArray varname arraySize program = case decl_list of
 				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
 				one = generateConstant 1
 				newVarName = generateLocalReductionArray varname
-				-- decl = applyIntent (InOut []) (replaceAllOccurences_varname (addDimension (head decl_list) one arraySize) varname newVarName)
-				-- decl = addDimension (applyIntent (InOut nullAnno) (replaceAllOccurences_varname (head decl_list) varname newVarName)) one arraySize
 				decl = addDimension (replaceAllOccurences_varname (head decl_list) varname newVarName) one arraySize
 
 
@@ -582,7 +582,6 @@ addDimension decl start end = newDecl
 							_ -> everywhere (mkT (appendDimension start end)) decl
 
 addNewDimensionClaus :: Expr Anno -> Expr Anno -> [Attr Anno] -> [Attr Anno]
--- addNewDimensionClaus start end attrList = attrList ++ [(Dimension nullAnno [(start, end)])]
 addNewDimensionClaus start end [] = [(Dimension nullAnno [(start, end)])]
 addNewDimensionClaus start end (attr:attrList) = case attr of
 										Intent _ _ -> [attr] ++ attrList
@@ -742,14 +741,6 @@ generateFinalHostReduction_assgs reductionVars redIter codeSeg = []
 
 generateGlobalWorkItemsExpr :: [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] -> Expr Anno
 generateGlobalWorkItemsExpr loopVars = generateProductExpr_list (map (generateLoopIterationsExpr) loopVars)
---generateGlobalWorkItemsExpr ((var, start, end, step):[]) = 	generateAdditionExpr 
---																	(generateSubtractionExpr_list ([end] ++ [start])) 
---																	(generateConstant 1)
---generateGlobalWorkItemsExpr ((var, start, end, step):xs) = 	generateProductExpr
---																(generateAdditionExpr 
---																	(generateSubtractionExpr_list ([end] ++ [start])) 
---																	(generateConstant 1))
---																(generateGlobalWorkItemsExpr xs)
 
 generateRelVar :: VarName Anno -> Expr Anno
 generateRelVar (VarName anno str) = generateVar (VarName anno (str ++ "_rel"))

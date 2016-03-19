@@ -12,24 +12,24 @@ program arrayLoop
 !     a(loop1,loop2) = 12+45
 !   end do
 ! end do
-sum = 0
-sum1 = 0
-sum2 = 0
-do i=i_s, i_e
-  do j=j_s, j_e
-    do k=k_s, k_e
-      do l=l_s, l_e
-        a(i,j,k,l) = 1 + 2
-        ! sum  = sum  + a(i,j,k,l)
-        ! sum1 = sum1 + a(i,j,k,l)
-        ! sum2 = sum2 + a(i,j,k,l)
-      end do
-    end do
-  end do
-end do
-a = sum
-! a = sum1
-a = sum2
+! sum = 0
+! sum1 = 0
+! sum2 = 0
+! do i=i_s, i_e
+!   do j=j_s, j_e
+!     do k=k_s, k_e
+!       do l=l_s, l_e
+!         a(i,j,k,l) = 1 + 2
+!         ! sum  = sum  + a(i,j,k,l)
+!         ! sum1 = sum1 + a(i,j,k,l)
+!         ! sum2 = sum2 + a(i,j,k,l)
+!       end do
+!     end do
+!   end do
+! end do
+! a = sum
+! ! a = sum1
+! a = sum2
 
 do loop1=0, d
   do loop2=0, c
@@ -41,23 +41,23 @@ end do
 
 a = b(loop1, loop2)
 
-do loop1=0, d
-  do loop2=0, c
-    b(loop1,loop2) = 12+45
-    b(loop1,loop2) = 12+45
-    b(loop1,loop2) = 12+45
-  end do
-end do
-sum = 0
-
-if (sor < pjuge) goto 510      
 ! do loop1=0, d
-!   do loop2=0, c+1
-!     b(d,c) = 12
-!     sum = sum * (a(loop1, loop2) + 100*2)
+!   do loop2=0, c
+!     b(loop1,loop2) = 12+45
+!     b(loop1,loop2) = 12+45
+!     b(loop1,loop2) = 12+45
 !   end do
 ! end do
-dave = sum
+! sum = 0
+
+! if (sor < pjuge) goto 510      
+! ! do loop1=0, d
+! !   do loop2=0, c+1
+! !     b(d,c) = 12
+! !     sum = sum * (a(loop1, loop2) + 100*2)
+! !   end do
+! ! end do
+! dave = sum
 
 end program arrayLoop
 

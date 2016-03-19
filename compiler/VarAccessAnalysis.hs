@@ -82,7 +82,7 @@ isNullExpr _ = False
 getArguments :: Program Anno -> [VarName Anno]
 getArguments prog = argNames
 		where
-			argNames = everything (++) (mkQ [] getArgNamesAsVarNames) prog -- foldl (++) [] (foldl (++) [] (map (gmapQ (mkQ [] getArguments_list)) prog))
+			argNames = everything (++) (mkQ [] getArgNamesAsVarNames) prog 
 
 getArguments_list :: Arg Anno -> [VarName Anno]
 getArguments_list arg = everything (++) (mkQ [] getArgNamesAsVarNames) arg
@@ -109,7 +109,6 @@ analyseAllVarAccess_block declarations (Block _ _ _ _ _ fort) = everything (comb
 --	There are two cases, either the current piece of code is an assignment to a variable or it is not. If the code is an assignment
 --	then there must be additions made to the set of writes for a variable, as well as the set(s) of reads for some variable(s). In
 --	the other case, only reads must be added.
---analyseAllVarAccess_fortran :: LocalVarAccessAnalysis -> Fortran Anno -> LocalVarAccessAnalysis
 analyseAllVarAccess_fortran :: [VarName Anno] -> Fortran Anno -> LocalVarAccessAnalysis
 analyseAllVarAccess_fortran declarations (Assg _ _ writeExpr readExpr) = analysis'
 												where
@@ -199,9 +198,6 @@ getAccessedExprs declarations accum item = case fnCall of
 
 -- 	Recursive function to add a record of a read for a certain VarName
 addVarReadAccess :: SrcSpan -> LocalVarAccessAnalysis -> VarName Anno -> LocalVarAccessAnalysis
---addVarReadAccess srcspan ((varnameAnalysis, src_reads, src_writes):xs) varname  | varnameAnalysis == varname = [(varname, src_reads ++ [srcspan], src_writes)] ++ xs
---																				| otherwise = [(varnameAnalysis, src_reads, src_writes)] ++ (addVarReadAccess srcspan xs varname)
---addVarReadAccess srcspan [] varname	= [(varname, [srcspan], [])]
 addVarReadAccess srcspan analysis varname = DMap.insert varname (newAccessRecord) analysis
 										where
 											(oldReads, oldWrites) = (DMap.findWithDefault ([],[]) varname analysis)
@@ -209,9 +205,6 @@ addVarReadAccess srcspan analysis varname = DMap.insert varname (newAccessRecord
 
 -- 	Recursive function to add a record of a write for a certain VarName
 addVarWriteAccess :: SrcSpan -> LocalVarAccessAnalysis -> VarName Anno -> LocalVarAccessAnalysis
---addVarWriteAccess srcspan ((varnameAnalysis, src_reads, src_writes):xs) varname  | varnameAnalysis == varname = [(varname, src_reads, src_writes ++ [srcspan])] ++ xs
---																				| otherwise = [(varnameAnalysis, src_reads, src_writes)] ++ (addVarWriteAccess srcspan xs varname)
---addVarWriteAccess srcspan [] varname	= [(varname, [], [srcspan])]	
 addVarWriteAccess srcspan analysis varname = DMap.insert varname (newAccessRecord) analysis
 										where
 											(oldReads, oldWrites) = (DMap.findWithDefault ([],[]) varname analysis)
@@ -252,7 +245,6 @@ getNonTempVars codeBlockSpan accessAnalysis = hangingReads ++ subroutineArgument
 							subroutineArguments = (\(_,_, x, _) -> x) accessAnalysis
 							readsAfterBlock = varAccessAnalysis_readsAfter codeBlockSpan localVarAccesses
 							writesReadsAfterBlock = varAccessAnalysis_writesAfter codeBlockSpan readsAfterBlock
-							--hangingReads = filter (checkHangingReads) writesReadsAfterBlock
 							hangingReads = filter (checkHangingReads writesReadsAfterBlock) (DMap.keys writesReadsAfterBlock)							
 
 varAccessAnalysis_writesAfter :: SrcSpan -> LocalVarAccessAnalysis -> LocalVarAccessAnalysis

@@ -32,8 +32,6 @@ combineAnalysisInfo accum item = (combineMaps accumErrors itemErrors, accumReduc
 
 main :: IO ()
 main = do
-	--a <- parseFile "../testFiles/arrayLoop.f95"
-	
 	putStr "STUFF TO DO:\n"
 	putStr "\t- Check for identity value (reduction)\n"
 	putStr "<DONE>\t- Finish kernel emission\n"
@@ -207,7 +205,7 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
-											errorMap3
+											errorMap4
 											,
 											if potentialReductionVar then [expr1] else [],
 											extractOperands expr2,
@@ -224,22 +222,24 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] readExprs
 
 				isNonTempAssignment = usesVarName_list nonTempVars expr1
+				
 				referencedCondition = (foldl (||) False $ map (\x -> hasOperand x expr1) condExprs)
 				referencedSelf = (hasOperand expr2 expr1)
 				associative = isAssociativeExpr expr1 expr2
-				dependsOnSelf = dependsOnSelfOnce || (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames)
+				dependsOnSelf = referencedSelf || referencedCondition || dependsOnSelfOnce 
+									|| (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames)
 				--usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
+				
 				usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
 				usesFullLoopVarBool = (\(errorMap, _, _, _) -> errorMap == nullAnno) usesFullLoopVarError
 
 
-				potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition || dependsOnSelf) && usesFullLoopVarBool
+				potentialReductionVar = isNonTempAssignment && (dependsOnSelf) && usesFullLoopVarBool
 				--potentialReductionVar = isNonTempAssignment && (referencedSelf || referencedCondition) && ((\(str, _, _, _) -> str == "") usesFullLoopVarError)
 
 				--errorMap1 = if (not potentialReductionVar) && isNonTempAssignment then 
-				errorMap1 = if (not usesFullLoopVarBool) && isNonTempAssignment && (not potentialReductionVar) then 
-											DMap.insert (outputTab ++ "Cannot reduce: The following variables do not use all loop iterators and are " ++
-													"not assigned values related to themselves:\n" )
+				errorMap1 = if (not usesFullLoopVarBool) && isNonTempAssignment then 
+											DMap.insert (outputTab ++ "Cannot reduce: The following variables do not use all loop iterators:\n" )
 												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
 												DMap.empty
 											else DMap.empty
@@ -251,6 +251,11 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				errorMap3 = if potentialReductionVar && (not associative) && dependsOnSelfOnce then
 											DMap.insert (outputTab ++ "Cannot reduce: Not associative function:\n")
 												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr2]
+												errorMap2
+											else errorMap2
+				errorMap4 = if not dependsOnSelf then
+											DMap.insert (outputTab ++ "Cannot reduce: The following variables are not assigned values dependent on themselves:\n")
+												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
 												errorMap2
 											else errorMap2
 				--errorMap_debug = if referencedSelf then
