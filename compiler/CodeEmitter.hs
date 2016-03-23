@@ -221,10 +221,10 @@ synthesiseBaseType typ = "[Incompatible type]"
 
 synthesiseAttrList :: [Attr Anno] -> String
 synthesiseAttrList [] = ""
-synthesiseAttrList (attr:[]) = synthesiseAttr attr
+synthesiseAttrList (attr:[]) = if paramCheck_attr attr then "" else synthesiseAttr attr
 synthesiseAttrList attrList = attrStrs
 				where 
-					attrStrList = map (synthesiseAttr) attrList
+					attrStrList = map (synthesiseAttr) (filter (\x -> not (paramCheck_attr x)) attrList)
 					attrStrs = foldl (\accum item -> accum ++ ", " ++ item) (head attrStrList) (tail attrStrList)
 
 synthesiseAttr :: Attr Anno -> String
@@ -252,6 +252,8 @@ synthesiseAttr attr = "[Incompatible attribute]"
 
 synthesiseRangeExpr :: [(Expr Anno, Expr Anno)] -> String
 synthesiseRangeExpr [] = ""
+synthesiseRangeExpr ((NullExpr _ _, expr2):[]) = outputExprFormatting expr2
+synthesiseRangeExpr ((NullExpr _ _, expr2):xs) = outputExprFormatting expr2 ++ "," ++ synthesiseRangeExpr xs
 synthesiseRangeExpr ((expr1, expr2):[]) = outputExprFormatting expr1 ++ ":" ++ outputExprFormatting expr2
 synthesiseRangeExpr ((expr1, expr2):xs) = outputExprFormatting expr1 ++ ":" ++ outputExprFormatting expr2 ++ "," ++ synthesiseRangeExpr xs
 
@@ -427,9 +429,9 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 															args -> foldl (\accum item -> accum ++ "," ++ varnameStr item) (varnameStr (head args)) (tail args)
 												
 												
-												readDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readVarNames
-												writtenDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenVarNames
-												generalDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalVarNames
+												readDecls = removeDeclAssignments $ map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readVarNames
+												writtenDecls = removeDeclAssignments $ map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenVarNames
+												generalDecls = removeDeclAssignments $ map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalVarNames
 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (writtenDecls)
@@ -595,13 +597,26 @@ extractDimensionAttr attr = case attr of
 								Dimension _ _ -> [attr]
 								_ -> [] 
 
+containsParameterAttr :: Decl Anno -> Bool
+containsParameterAttr decl = foldl (||) False (gmapQ (mkQ False paramCheck_type) decl)
+
+paramCheck_type :: Type Anno -> Bool
+paramCheck_type (BaseType _ baseT attrList _ _) = foldl (\accum item -> accum || paramCheck_attr item) False attrList
+paramCheck_type (ArrayT _ _ baseT attrList _ _) = foldl (\accum item -> accum || paramCheck_attr item) False attrList
+
+paramCheck_attr :: Attr Anno -> Bool
+paramCheck_attr (Parameter _) = True 
+paramCheck_attr _ = False
+
 adaptOriginalDeclaration_intent :: VarName Anno -> IntentAttr Anno -> Program Anno -> Maybe(Decl Anno)
 adaptOriginalDeclaration_intent varname intent program = case decl_list of
 														[] -> Nothing
 														_ -> Just (decl)
 			where 
 				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
-				decl = applyGeneratedSrcSpans (applyIntent (intent) (head decl_list))
+				decl = case containsParameterAttr (head decl_list) of
+							True -> applyGeneratedSrcSpans (head decl_list)
+							False -> applyGeneratedSrcSpans (applyIntent (intent) (head decl_list))
 
 adaptOriginalDeclaration_varname :: VarName Anno -> VarName Anno -> Program Anno -> Maybe(Decl Anno)
 adaptOriginalDeclaration_varname varname newVarname program = case decl_list of
@@ -637,6 +652,15 @@ addIntent intent [] = [Intent nullAnno intent]
 addIntent intent (attr:attrList) = case attr of
 										Intent _ _ -> [attr] ++ attrList
 										_ -> [attr] ++ addIntent intent attrList
+
+removeDeclAssignments :: [Decl Anno] -> [Decl Anno]
+removeDeclAssignments decls = map (removeDeclAssignment) decls
+
+removeDeclAssignment :: Decl Anno -> Decl Anno
+removeDeclAssignment (Decl anno src assgList typ) = Decl anno src newAssgList typ
+				where
+					newAssgList = map (\(expr1, _, _) -> (expr1, (NullExpr nullAnno nullSrcSpan), Nothing)) assgList
+removeDeclAssignment decl = decl
 
 extractDeclaration :: VarName Anno -> Decl Anno -> [Decl Anno]
 extractDeclaration varname  (Decl anno src lst typ)  	| firstHasVar || secondHasVar = [Decl anno src lst typ]

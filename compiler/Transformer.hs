@@ -74,7 +74,7 @@ main = do
 	
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
-	--putStr $ show $ combinewdProg
+	putStr $ show $ combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	emit filename newFilename combinedProg
@@ -185,6 +185,14 @@ paralleliseLoop_reduce loop loopVarNames loopWrites nonTempVars dependencies acc
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
 analyseLoop_map :: [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> AnalysisInfo
 analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case codeSeg of
+		If _ _ expr _ elifList maybeElse -> foldl combineAnalysisInfo analysisInfoBaseCase (generalAnalysis ++ elifAnalysis_fortran ++ elifAnalysis_readExprs ++ [elseAnalysis])
+						where
+							generalAnalysis = gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis)) codeSeg
+							elifAnalysis_fortran = map (\(_, elif_fortran) -> analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis elif_fortran) elifList
+							elifAnalysis_readExprs = map (\(elif_expr, _) -> (nullAnno,[],extractOperands elif_expr,[])) elifList
+							elseAnalysis = case maybeElse of
+												Just else_fortran ->  analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis else_fortran
+												Nothing -> analysisInfoBaseCase
 		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) (nullAnno,[],expr2Operands,[expr1])
 						where
 							expr1Analysis = (analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis expr1)
@@ -193,6 +201,12 @@ analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case co
 		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
 						where
 							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites nonTempVars accessAnalysis)) codeSeg)
+		Call _ srcspan expr arglist -> (errorMap_call, [], [], argExprs)
+						where
+							errorMap_call = DMap.insert (outputTab ++ "Cannot reduce: Call to external function:\n")
+															[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr]
+															DMap.empty
+							argExprs = everything (++) (mkQ [] extractExpr_list) arglist
 		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (childrenAnalysis ++ nodeAccessAnalysis)
 						where
 							nodeAccessAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseAccess_map loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
@@ -202,10 +216,19 @@ analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case co
 --	doesn't represent a reduction. If the returned string is empty, the loop represents a possible parallel reduction
 analyseLoop_reduce :: [Expr Anno] -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran Anno -> AnalysisInfo
 analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
-		If _ _ expr _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
+		If _ _ expr _ elifList maybeElse -> foldl combineAnalysisInfo analysisInfoBaseCase (generalAnalysis ++ elifAnalysis_fortran ++ elifAnalysis_readExprs ++ [elseAnalysis])
+							where
+								generalAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
+								elifAnalysis_fortran = map (\(elif_expr, elif_fortran) -> analyseLoop_reduce (condExprs ++ [elif_expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis elif_fortran) elifList
+								elifAnalysis_readExprs = map (\(elif_expr, _) -> (nullAnno,[],extractOperands elif_expr,[])) elifList
+								elseAnalysis = case maybeElse of
+												Just else_fortran -> analyseLoop_reduce (condExprs) loopVars loopWrites nonTempVars dependencies accessAnalysis else_fortran
+												Nothing -> analysisInfoBaseCase
+		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
+							where
+								childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo (
-											errorMap4
+											errorMap3
 											,
 											if potentialReductionVar then [expr1] else [],
 											extractOperands expr2,
