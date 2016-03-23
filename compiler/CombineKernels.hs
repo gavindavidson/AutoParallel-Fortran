@@ -146,6 +146,7 @@ loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs)
 												Nothing -> []
 
 loopVariableCombinationConditions [] [] = Just([],[],[])
+loopVariableCombinationConditions _ _ = Nothing
 
 --	The following functions are used to determine whether slightly differing loop conditions are compatible. If the end point of one is a constant
 --	addition or subtraction of the other then the loops can be fused.

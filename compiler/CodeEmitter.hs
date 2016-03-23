@@ -779,6 +779,12 @@ generateRangeExpr :: VarName Anno -> Expr Anno -> Expr Anno -> Fortran Anno
 generateRangeExpr varname start end = generateAssgCode (generateRangeVar varname) (generateSubtractionExpr end start)
 
 generateLoopInitialisers :: [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] -> Expr Anno -> Maybe(Expr Anno) -> [Fortran Anno]
+generateLoopInitialisers ((var, start, end, step):[]) iterator Nothing 
+			= 	[Assg nullAnno nullSrcSpan 
+				(generateRelVar var)
+				--(generateVar var)
+				iterator,
+				generateLoopStartAddition var start] 
 generateLoopInitialisers ((var, start, end, step):[]) iterator (Just offset) 
 			= 	[generateRangeExpr var start end,
 				Assg nullAnno nullSrcSpan 

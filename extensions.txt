@@ -20,6 +20,6 @@ Language-Fortran problems to solve:
 
 Language-Fortran changes made:
 
--	Annotations are now string lists rather than empty tuples
+-	Annotations are now, string to string list, maps rather than empty tuples
 
 -	Added OpenCLMap node that represents a loop that has been shown to be a candidate for applying a map pattern.

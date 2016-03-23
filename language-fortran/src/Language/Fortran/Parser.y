@@ -1877,7 +1877,7 @@ frh4 (a,b,c,d) = d
 
 cmpNames :: SubName A0 -> String -> String -> P (SubName A0)
 cmpNames x "" z                        = return x
-cmpNames (SubName a x) y z | x==y      = return (SubName a x)
+cmpNames (SubName a x) y z | x==y = return (SubName a x)
                            | otherwise = parseError (z ++ " name \""++x++"\" does not match \""++y++"\" in end " ++ z ++ " statement\n")
 cmpNames s y z                       = parseError (z ++" names do not match\n")
 

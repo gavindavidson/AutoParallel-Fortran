@@ -1,8 +1,13 @@
-folder="../testFiles"
-filename="press.f95"
-outfilename="press_par.f95"
+folder="../codeBase_tests"
+filename="velnw.f95"
 # filename="press.f95"
-# outfilename="press_out.f95"
+# ../codeBase_tests/adam.f95  
+#../codeBase_tests/bondv1.f95  
+#../codeBase_tests/feedbf.f95	
+#../codeBase_tests/les.f95  
+#../codeBase_tests/press.f95	
+#../codeBase_tests/velFG.f95  
+#../codeBase_tests/velnw.f95
 
 originalfile=$folder"/"$filename
 outfile=$folder"/"$outfilename
@@ -11,9 +16,10 @@ outfile=$folder"/"$outfilename
 echo ""
 echo "Running on "$originalfile
 echo ""
-# ./Transformer $originalfile $outfile
-./Transformer $originalfile $outfile > treeWalker.out
+# ./Transformer $originalfile
+./Transformer $originalfile
 # ./Transformer +RTS -h -RTS $originalfile $outfile > treeWalker.out
 # hp2ps -c Transformer.hp
-python ../utils/astFormatter.py treeWalker.out > treeWalker.ast
+# python changes.py $originalfile $outfile
+# python ../utils/astFormatter.py treeWalker.out > treeWalker.ast
 # python ../utils/astFormatter.py $parfile > treeWalker.ast

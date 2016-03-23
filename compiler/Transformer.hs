@@ -53,6 +53,8 @@ main = do
 	putStr "<TBC>\t- Fix generated kernel code (Wim's email)\n"
 	putStr "<DONE>\t- Fix if block generation to include elses\n"
 	putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
+	putStr "\t- Subroutine name case issue (velfg.f95)\n"
+	putStr "\t- Missing \"end subroutine blah\"s\n"
 
 	putStr "\n"
 
@@ -74,7 +76,7 @@ main = do
 	
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
-	putStr $ show $ combinedProg
+	-- putStr $ show $ combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	emit filename newFilename combinedProg
