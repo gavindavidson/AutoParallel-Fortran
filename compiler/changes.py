@@ -19,7 +19,7 @@ def percentageChange():
 	original = getOriginalLines()
 	matching = getSameLines()
 	percentageChange = ((original - matching) / original)*100
-	return percentageChange
+	return round(percentageChange,2)
 
 def absoluteChange():
 	original = getOriginalLines()
@@ -31,7 +31,7 @@ def loopChange():
 	original = countDos(sys.argv[1])
 	new = countDos(sys.argv[2])
 	percentageChange = ((original - new) / float(original))*100
-	return percentageChange
+	return round(percentageChange,2)
 
 def countDos(filename):
 	f = open(filename, 'r')
@@ -43,6 +43,8 @@ def countDos(filename):
 		line = f.readline()
 	return doCount
 
+print "FILE 1: " + sys.argv[1]
+print "FILE 2: " + sys.argv[2]
 print "LINES"
 print "\tAbsolute Change:\t" + str(absoluteChange()) + " lines"
 print "\tPercentage Change:\t" + str(percentageChange()) + "%"

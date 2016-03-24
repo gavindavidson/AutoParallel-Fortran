@@ -102,7 +102,7 @@ produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeader
 								nonGeneratedHeaderCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedHeader_ls..nonGeneratedHeader_le-1]
 
 								((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
-								nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls+1..nonGeneratedFooter_le-1]
+								nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls-1..nonGeneratedFooter_le-1]
 
 								((SrcLoc _ block_ls _), (SrcLoc _ _ _)) = firstBlockSrc
 								((SrcLoc _ fortran_ls _), (SrcLoc _ _ _)) = firstFortranSrc

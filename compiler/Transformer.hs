@@ -54,7 +54,7 @@ main = do
 	putStr "<DONE>\t- Fix if block generation to include elses\n"
 	putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
 	putStr "<DONE>\t- Subroutine name case issue (velfg.f95)\n"
-	putStr "\t- Missing \"end subroutine blah\"s\n"
+	putStr "<DONE>\t- Missing \"end subroutine blah\"s\n"
 
 	putStr "\n"
 
