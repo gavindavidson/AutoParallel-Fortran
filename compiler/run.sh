@@ -1,5 +1,5 @@
 folder="../codeBase_tests"
-filename="velnw.f95"
+filename="velFG.f95"
 # filename="press.f95"
 # ../codeBase_tests/adam.f95  
 #../codeBase_tests/bondv1.f95  

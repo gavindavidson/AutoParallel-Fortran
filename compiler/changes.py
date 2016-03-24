@@ -18,8 +18,8 @@ def getSameLines():
 def percentageChange():
 	original = getOriginalLines()
 	matching = getSameLines()
-	percentageChange = (original - matching) / original
-	return percentageChange*100
+	percentageChange = ((original - matching) / original)*100
+	return percentageChange
 
 def absoluteChange():
 	original = getOriginalLines()
@@ -27,4 +27,26 @@ def absoluteChange():
 	absoluteChange = original - matching
 	return int(absoluteChange)
 
-print "Absolute Change: " + str(absoluteChange()) + " lines\tPercentage Change: " + str(percentageChange())
+def loopChange():
+	original = countDos(sys.argv[1])
+	new = countDos(sys.argv[2])
+	percentageChange = ((original - new) / float(original))*100
+	return percentageChange
+
+def countDos(filename):
+	f = open(filename, 'r')
+	line = f.readline()
+	doCount = 0
+	while (line != ""):
+		if (line.strip()[:2]=="do"):
+			doCount += 1
+		line = f.readline()
+	return doCount
+
+print "LINES"
+print "\tAbsolute Change:\t" + str(absoluteChange()) + " lines"
+print "\tPercentage Change:\t" + str(percentageChange()) + "%"
+print "LOOPS"
+print "\tLoop count in " + sys.argv[1] + ":\t" + str(countDos(sys.argv[1]))
+print "\tLoop count in " + sys.argv[2] + ":\t" + str(countDos(sys.argv[2]))
+print "\tPercentage of loops changed:\t" + str(loopChange()) + "%"

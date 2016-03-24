@@ -1877,9 +1877,12 @@ frh4 (a,b,c,d) = d
 
 cmpNames :: SubName A0 -> String -> String -> P (SubName A0)
 cmpNames x "" z                        = return x
-cmpNames (SubName a x) y z | x==y = return (SubName a x)
+cmpNames (SubName a x) y z | (toLower_str x)==(toLower_str y) = return (SubName a x)
                            | otherwise = parseError (z ++ " name \""++x++"\" does not match \""++y++"\" in end " ++ z ++ " statement\n")
 cmpNames s y z                       = parseError (z ++" names do not match\n")
+
+toLower_str :: String -> String
+toLower_str x = map (toLower) x
 
 expr2array_spec (Bound _ _ e e') = (e, e') -- possibly a bit dodgy- uses undefined
 expr2array_spec e = (NullExpr DMap.empty (srcSpan e) , e)
