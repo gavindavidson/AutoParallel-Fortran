@@ -202,6 +202,10 @@ usesVarName :: VarName Anno -> Expr Anno -> Bool
 usesVarName varnameInp (Var _ _ list) = foldl (||) False $ map (\(varname, exprs) -> varname == varnameInp) list
 --usesVarName varnameInp _ = False
 
+isVar :: Expr Anno -> Bool
+isVar (Var _ _ _) = True
+isVar _ = False
+
 extractUsedVarName :: Expr Anno -> [VarName Anno]
 extractUsedVarName (Var _ _ list) = map (\(varname, exprs) -> varname) list
 extractUsedVarName _ = []

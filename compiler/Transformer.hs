@@ -55,7 +55,6 @@ main = do
 	putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
 	putStr "<DONE>\t- Subroutine name case issue (velfg.f95)\n"
 	putStr "<DONE>\t- Missing \"end subroutine blah\"s\n"
-
 	putStr "\n"
 
 	args <- getArgs
@@ -76,7 +75,7 @@ main = do
 	
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
-	putStr $ show $ combinedProg
+	-- putStr $ show $ combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	
@@ -126,7 +125,7 @@ paralleliseLoop loopVars accessAnalysis loop 	=  -- appendAnnotation (
 									dependencies = analyseDependencies accessAnalysis loop
 									loopWrites = extractWrites_query loop
 
-									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars accessAnalysis
+									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
@@ -144,8 +143,8 @@ extractWrites _ = []
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
-paralleliseLoop_map :: Fortran Anno -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_map loop loopVarNames loopWrites nonTempVars accessAnalysis	|	errors_map == nullAnno 	=	(True,
+paralleliseLoop_map :: Fortran Anno -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_map loop loopVarNames loopWrites nonTempVars dependencies accessAnalysis	|	errors_map == nullAnno 	=	(True,
 											OpenCLMap nullAnno (generateSrcSpan (srcSpan loop)) 	-- Node to represent the data needed for an OpenCL map kernel
 											(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)) ++ varNames_loopVariables)	-- List of arguments to kernel that are READ
 							 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop))) 	-- List of arguments to kernel that are WRITTEN
@@ -154,7 +153,7 @@ paralleliseLoop_map loop loopVarNames loopWrites nonTempVars accessAnalysis	|	er
 
 									|	otherwise	=			(False, appendAnnotationMap loop errors_map)
 									where
-										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVarNames loopWrites nonTempVars accessAnalysis loop
+										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVarNames loopWrites nonTempVars accessAnalysis dependencies loop
 										loopVariables = loopCondtions_query loop
 
 										startVarNames = foldl (\accum (_,x,_,_) -> accum ++ extractVarNames x) [] loopVariables
@@ -187,24 +186,33 @@ paralleliseLoop_reduce loop loopVarNames loopWrites nonTempVars dependencies acc
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
-analyseLoop_map :: [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> AnalysisInfo
-analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case codeSeg of
+analyseLoop_map :: [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> AnalysisInfo
+analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis dependencies codeSeg = case codeSeg of
 		If _ _ expr _ elifList maybeElse -> foldl combineAnalysisInfo analysisInfoBaseCase (generalAnalysis ++ elifAnalysis_fortran ++ elifAnalysis_readExprs ++ [elseAnalysis])
 						where
-							generalAnalysis = gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis)) codeSeg
-							elifAnalysis_fortran = map (\(_, elif_fortran) -> analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis elif_fortran) elifList
+							generalAnalysis = gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis dependencies)) codeSeg
+							elifAnalysis_fortran = map (\(_, elif_fortran) -> analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis dependencies elif_fortran) elifList
 							elifAnalysis_readExprs = map (\(elif_expr, _) -> (nullAnno,[],extractOperands elif_expr,[])) elifList
 							elseAnalysis = case maybeElse of
-												Just else_fortran ->  analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis else_fortran
+												Just else_fortran ->  analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis dependencies else_fortran
 												Nothing -> analysisInfoBaseCase
-		Assg _ srcspan expr1 expr2 -> combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) (nullAnno,[],expr2Operands,[expr1])
+		Assg _ srcspan expr1 expr2 -> foldl (combineAnalysisInfo) analysisInfoBaseCase [expr1Analysis, expr2Analysis, (loopCarriedDependencyErrorMap,[],expr2Operands,[expr1])] -- combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) (nullAnno,[],expr2Operands,[expr1])
 						where
 							expr1Analysis = (analyseAccess "Cannot map: " loopVars loopWrites nonTempVars accessAnalysis expr1)
 							expr2Analysis = (analyseAccess "Cannot map: " loopVars loopWrites nonTempVars accessAnalysis expr2)
 							expr2Operands = extractOperands expr2
+
+							loopCarriedDependencyList = loopCarriedDependencyCheck loopVars dependencies expr1
+							loopCarriedDependencyBool = loopCarriedDependencyList /= []
+							loopCarriedDependencyErrorMap = if loopCarriedDependencyBool then
+											DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency on " ++ outputExprFormatting expr1 ++ ":\n")
+												(map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) loopCarriedDependencyList)
+												DMap.empty
+											else DMap.empty
+
 		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
 						where
-							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites nonTempVars accessAnalysis)) codeSeg)
+							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites nonTempVars accessAnalysis dependencies)) codeSeg)
 		Call _ srcspan expr arglist -> (errorMap_call, [], [], argExprs)
 						where
 							errorMap_call = DMap.insert (outputTab ++ "Cannot reduce: Call to external function:\n")
@@ -214,7 +222,7 @@ analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis codeSeg = case co
 		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (childrenAnalysis ++ nodeAccessAnalysis)
 						where
 							nodeAccessAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseAccess "Cannot map: " loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
-							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
+							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis dependencies)) codeSeg)
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	doesn't represent a reduction. If the returned string is empty, the loop represents a possible parallel reduction
@@ -232,7 +240,7 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 							where
 								childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo
-											(errorMap3
+											(errorMap4
 											,
 											if potentialReductionVar then [expr1] else [],
 											extractOperands expr2,
@@ -245,11 +253,9 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				readOperands = extractOperands expr2
 				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 
-				--dependsOnSelfOnce = foldl (/=) False (map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenVarnames)) readVarnames)
-				dependsOnSelfOnce = foldl (/=) False (map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenExprs)) readVarnames)
-				--dependsOnSelfOnce = True
+				dependsOnSelfOnce = (length (filter (\item -> item == writtenVarname) readVarnames)) == 1
 
-				writtenVarnames = foldl (\accum item -> accum ++ extractVarNames item) [] writtenExprs
+				writtenVarname = head $ foldl (\accum item -> accum ++ extractVarNames item) [] writtenExprs
 				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] readExprs
 
 				isNonTempAssignment = usesVarName_list nonTempVars expr1
@@ -257,7 +263,7 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				referencedCondition = (foldl (||) False $ map (\x -> hasOperand x expr1) condExprs)
 				referencedSelf = (hasOperand expr2 expr1)
 				associative = isAssociativeExpr expr1 expr2
-				--dependsOnSelf = True
+
 				dependsOnSelf = referencedSelf || referencedCondition || dependsOnSelfOnce 
 									-- || (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames)
 									|| (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies (head $ extractVarNames x) x) writtenExprs)
@@ -277,6 +283,10 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				--								[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
 				--								DMap.empty
 				--							else DMap.empty
+
+				loopCarriedDependencyList = loopCarriedDependencyCheck loopVars dependencies expr1
+				loopCarriedDependencyBool = loopCarriedDependencyList /= []
+
 				errorMap1 = DMap.empty
 				errorMap2 = if potentialReductionVar && (not dependsOnSelfOnce) then
 											DMap.insert (outputTab ++ "Cannot reduce: Possible reduction variables must only appear once on the right hand side of an assignment:\n")
@@ -288,6 +298,12 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr2]
 												errorMap2
 											else errorMap2
+				errorMap4 = if loopCarriedDependencyBool then
+											DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency on " ++ outputExprFormatting expr1 ++ ":\n")
+												(map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) loopCarriedDependencyList)
+												-- [errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr2]
+												errorMap3
+											else errorMap3
 				--errorMap4 = if not dependsOnSelf then
 				--							DMap.insert (outputTab ++ "Cannot reduce: The following variables are not assigned values dependent on themselves:\n")
 				--								[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
@@ -312,7 +328,6 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 
 		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)	
 
---	Determines whether or not an expression contains a non temporary variable and whether it is access correctly for a map. Produces and appropriate string error
 analyseAccess :: String -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> Expr Anno -> AnalysisInfo
 analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis expr = (unusedIterMap, [],[],[]) --(errors, [],[],[])
 								where
@@ -332,30 +347,6 @@ analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis expr = (unu
 									--			then nullAnno
 									--			else 
 									--				DMap.insert (outputTab ++ "Cannot map: Non temporary, write variables accessed without full use of loop iterator:\n") badExprStrs nullAnno
-
-
---	Determines whether or not an expression contains a non temporary variable and whether it is access correctly for a reduction. Produces and appropriate string error
---analyseAccess_reduce :: [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> Expr Anno -> AnalysisInfo
---analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr = (errorMap, [],[],[]) --(errors, [],[],[])
---								where
---									fnCall = isFunctionCall accessAnalysis expr
---									operands = case fnCall of
---											True ->	extractContainedVars expr
---											False -> extractOperands expr
---									writtenOperands = filter (usesVarName_list loopWrites) operands
---									nonTempWrittenOperands = filter(usesVarName_list nonTempVars) writtenOperands
-									
---									badExprs =  filter (\item -> listSubtract loopVars (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)) == []) nonTempWrittenOperands
---									badExprStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) badExprs
-
---									--unusedIterMap = analyseIteratorUseReduce_list nonTempWrittenOperands loopVars
-
---									errorMap = if (badExprStrs == []) 
---												then nullAnno
---												else 
---													DMap.insert (outputTab ++ "Cannot reduce: Non temporary, write variables written to with full use of loop iterator:\n") badExprStrs nullAnno
-
---type IteratorUseMap = (DMap (VarName Anno) (Expr Anno))
 
 analyseIteratorUse_list :: [Expr Anno] -> [VarName Anno] -> String  -> Anno -- IteratorUseMap
 analyseIteratorUse_list nonTempWrittenOperands loopVars comment = foldl (analyseIteratorUse_single nonTempWrittenOperands comment) DMap.empty loopVars
