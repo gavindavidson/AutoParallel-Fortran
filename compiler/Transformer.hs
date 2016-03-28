@@ -76,10 +76,12 @@ main = do
 	
 	putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
-	-- putStr $ show $ combinedProg
+	putStr $ show $ combinedProg
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
+	
 	emit filename newFilename combinedProg
+
 	--emit (filename) "" parallelisedProg
 	-- putStr $ show $ parsedProgram
 	--putStr "\n\n\n"	
@@ -243,7 +245,9 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				readOperands = extractOperands expr2
 				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 
-				dependsOnSelfOnce = foldl (/=) False (map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenVarnames)) readVarnames)
+				--dependsOnSelfOnce = foldl (/=) False (map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenVarnames)) readVarnames)
+				dependsOnSelfOnce = foldl (/=) False (map (\y -> foldl (||) False $ (map (\x -> isIndirectlyDependentOn dependencies y x) writtenExprs)) readVarnames)
+				--dependsOnSelfOnce = True
 
 				writtenVarnames = foldl (\accum item -> accum ++ extractVarNames item) [] writtenExprs
 				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] readExprs
@@ -253,8 +257,10 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 				referencedCondition = (foldl (||) False $ map (\x -> hasOperand x expr1) condExprs)
 				referencedSelf = (hasOperand expr2 expr1)
 				associative = isAssociativeExpr expr1 expr2
+				--dependsOnSelf = True
 				dependsOnSelf = referencedSelf || referencedCondition || dependsOnSelfOnce 
-									|| (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames)
+									-- || (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies x x) writtenVarnames)
+									|| (foldl (||) False $ map (\x -> isIndirectlyDependentOn dependencies (head $ extractVarNames x) x) writtenExprs)
 				--usesFullLoopVarError = analyseAccess_reduce loopVars loopWrites nonTempVars accessAnalysis expr1
 				
 				expr1Analysis = (analyseAccess "Cannot reduce: " loopVars loopWrites nonTempVars accessAnalysis expr1)

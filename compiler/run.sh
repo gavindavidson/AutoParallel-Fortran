@@ -16,7 +16,8 @@ outfile=$folder"/"$outfilename
 echo ""
 echo "Running on "$originalfile
 echo ""
-./Transformer $originalfile
+./Transformer $originalfile +RTS -h -RTS
+# ./Transformer $originalfile
 # ./Transformer $originalfile > treeWalker.out
 # ./Transformer +RTS -h -RTS $originalfile $outfile > treeWalker.out
 # hp2ps -c Transformer.hp
