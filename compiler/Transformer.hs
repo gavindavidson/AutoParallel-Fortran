@@ -58,18 +58,18 @@ main = do
 	putStr "\n"
 
 	args <- getArgs
-	let filename = args!!0
-	let newFilename = case (length args > 1) of
-						True -> args!!1
-						False -> ""
+	let argMap = processArgs args
+
+	let filename = DMap.findWithDefault (usageError) filenameFlag argMap
+	let newFilename = DMap.lookup outFileFlag argMap
+	let loopFusionBound = case DMap.lookup loopFusionBoundFlag argMap of
+							Just bound -> Just (read bound :: Float)
+							Nothing -> Nothing
 
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile filename
 	let parallelisedProg = paralleliseProgram (parsedProgram)
-	let combinedProg = combineKernels (removeAllAnnotations parallelisedProg)
-
-	-- cppd <- cpp filename
-	--putStr (cppd)
+	let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
 
 	putStr $ compileAnnotationListing parallelisedProg
 	
@@ -88,6 +88,22 @@ main = do
 	-- putStr "\n"
 
 	--putStr "\n"
+
+filenameFlag = "filename"
+outFileFlag = "-out"
+loopFusionBoundFlag = "-lfb"
+
+processArgs :: [String] -> DMap.Map String String
+processArgs argList 	| 	even (length argList) = usageError
+						| 	(length argList) == 0 = usageError
+						|	otherwise = foldl (\accum (flagIndex, valueIndex) -> DMap.insert (argList!!flagIndex) (argList!!valueIndex) accum) mapWithInpFile pairArgs
+		where
+			mapWithInpFile = DMap.insert filenameFlag (head argList) DMap.empty
+			oddArgs = [1,3.. (length argList)-1]
+			evenArgs = [2,4.. (length argList)-1]
+			pairArgs = zip oddArgs evenArgs
+
+usageError = error "USAGE: <filename> [<flag> <value>]"
 
 --	The top level function that is called against the original parsed AST
 paralleliseProgram :: Program Anno -> Program Anno 

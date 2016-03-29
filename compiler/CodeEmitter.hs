@@ -21,11 +21,13 @@ import LanguageFortranTools
 --	The strategy taken is one of traversing the AST and emitting any unchanged host code. Where kernels are encountered,
 --	calls to the new kernel are emittied. The AST is then traversed again to extract all kernels and then the kernels are
 --	emitted.
-emit :: String -> String -> Program Anno -> IO ()
+emit :: String -> Maybe(String) -> Program Anno -> IO ()
 emit filename specified ast = do
 				let newFilename = case specified of
-							"" -> defaultFilename (splitOn "/" filename)
-							_ -> specified
+							Nothing -> defaultFilename (splitOn "/" filename)
+							Just spec -> spec
+							-- "" -> defaultFilename (splitOn "/" filename)
+							-- _ -> specified
 				let kernelModuleNamePath = generateKernelModuleName (splitOn "/" newFilename)
 				let kernelModuleName = getModuleName kernelModuleNamePath
 				

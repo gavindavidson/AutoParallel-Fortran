@@ -1,5 +1,5 @@
 folder="../testFiles"
-filename="press.f95"
+filename="bondv1.f95"
 # # filename="press.f95"
 # # ../codeBase_tests/adam.f95  
 # #../codeBase_tests/bondv1.f95  

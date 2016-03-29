@@ -8,14 +8,14 @@ import LanguageFortranTools
 --	This file contains code that handles combining adjacent and nested kernels. The intention is that the top level 'combineKernels' function will be called
 --	against an AST that has already been transformed with parallel kernels applied.
 
-combineKernels :: Program Anno -> Program Anno
-combineKernels codeSeg = map (everywhere (mkT (combineKernelsBlock))) codeSeg
+combineKernels :: Maybe(Float) -> Program Anno -> Program Anno
+combineKernels bound codeSeg = map (everywhere (mkT (combineKernelsBlock bound))) codeSeg
 
-combineKernelsBlock :: Block Anno -> Block Anno
-combineKernelsBlock block = combinedAdjacentNested
+combineKernelsBlock :: Maybe(Float) -> Block Anno -> Block Anno
+combineKernelsBlock bound block = combinedAdjacentNested
 				where
 					combinedNested = everywhere (mkT (combineNestedKernels)) block
-					combinedAdjacentNested = everywhere (mkT (combineAdjacentKernels)) combinedNested
+					combinedAdjacentNested = everywhere (mkT (combineAdjacentKernels bound)) combinedNested
 
 --	In the case where a kernel only contains another kernel of the same type, the two can be combined into one larger kernel.
 --	The nested kernel is definitely compatible with the outer kernel as this check has been performed by Transformer.hs. This function
@@ -51,11 +51,11 @@ combineNestedKernels codeSeg = case codeSeg of
 					otherwise -> codeSeg
 
 --	In the case that two maps are adjacent to one and other and their iterator conditions are compatible, the kernels can be combined.
-combineAdjacentKernels :: Fortran Anno -> Fortran Anno
-combineAdjacentKernels codeSeg = case codeSeg of
+combineAdjacentKernels :: Maybe(Float) -> Fortran Anno -> Fortran Anno
+combineAdjacentKernels bound codeSeg = case codeSeg of
 					(FSeq anno1 src1 fortran1 (FSeq anno2 _ fortran2 fortran3)) -> case fortran1 of
 							OpenCLMap _ src2 _ _ _ _ -> case fortran2 of
-									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
+									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps bound fortran1 fortran2 of
 																Just oclmap -> appendAnnotation (FSeq (combinedAnnotations) src1 oclmap fortran3) newAnnotation "" 
 
 																	where
@@ -66,7 +66,7 @@ combineAdjacentKernels codeSeg = case codeSeg of
 							otherwise	-> codeSeg
 					(FSeq anno1 src1 fortran1 fortran2) -> case fortran1 of
 							OpenCLMap _ src2 _ _ _ _ -> case fortran2 of
-									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps fortran1 fortran2 of
+									OpenCLMap _ src3 _ _ _ _ -> case attemptCombineAdjacentMaps bound fortran1 fortran2 of
 																Just oclmap -> appendAnnotation (appendAnnotationMap oclmap anno1) newAnnotation "" -- FSeq (anno1 ++ anno2 ++ [newAnnotation]) src1 oclmap fortran3  
 																	where
 																		newAnnotation = compilerName ++ ": Adjacent maps at " ++ errorLocationFormatting src2 ++ " and " ++ errorLocationFormatting src3 ++ " fused"
@@ -77,8 +77,9 @@ combineAdjacentKernels codeSeg = case codeSeg of
 
 --	This function constructs the combined adjacent maps. In the case that the iterator conditions differ slightly, it adds conditional constructs around appropriate
 --	parts of the body of the kernels.
-attemptCombineAdjacentMaps :: Fortran Anno -> Fortran Anno -> Maybe(Fortran Anno)
-attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
+attemptCombineAdjacentMaps :: Maybe(Float) -> Fortran Anno -> Fortran Anno -> Maybe(Fortran Anno)
+attemptCombineAdjacentMaps 	bound
+							(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
 							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] = Nothing
 																					| otherwise = Just(resultantMap)
 									where
@@ -90,7 +91,7 @@ attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran
 										fortran = appendFortran_recursive 	(if yPredicateList /= [] then (generateIf yAndPredicate fortran2) else fortran2) 
 																			(if xPredicateList /= [] then (generateIf xAndPredicate fortran1) else fortran1) 
 
-										combinedConditions = loopVariableCombinationConditions loopVs1 loopVs2
+										combinedConditions = loopVariableCombinationConditions bound loopVs1 loopVs2
 										(xPredicateList, yPredicateList, resultLoopVars) = case combinedConditions of
 											Just conditions -> conditions
 											Nothing -> ([],[],[])
@@ -104,10 +105,12 @@ attemptCombineAdjacentMaps 	(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran
 --	iterator defined because they can represent nested loops. The function checks that the iterator conditions in each object match, IN ORDER. For example,
 --	for i:10, j:20, k:30 would match to for i:10, j:20, k:30 but not to for j:20,i:10,k:30
 --	Handles loops with slightly different end points but not loop iterators having different names.
-loopVariableCombinationConditions :: [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] 
+loopVariableCombinationConditions :: Maybe(Float) 
+									-> [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] 
 									-> [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)] 
 									-> Maybe([Expr Anno], [Expr Anno], [(VarName Anno, Expr Anno, Expr Anno, Expr Anno)])
-loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs) 
+loopVariableCombinationConditions 	bound
+									((xVarName, xStart, xEnd, xStep):xs) 
 									((yVarName, yStart, yEnd, yStep):ys) 	|	sameVarNames && sameStart && sameStep && sameEnd && nextCombines = Just(xNext,yNext, [loopVars] ++ loopVarsNext)
 																			|	sameVarNames && sameStart && sameStep && endLinearFunction && nextCombines = Just(predicatListX ++ xNext, predicatListY ++ yNext, [loopVars] ++ loopVarsNext)
 																			|	otherwise = Nothing
@@ -117,10 +120,10 @@ loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs)
 											sameStep = (everywhere (mkT standardiseSrcSpan) xStep) == (everywhere (mkT standardiseSrcSpan) yStep)
 											sameEnd = (everywhere (mkT standardiseSrcSpan) xEnd) == (everywhere (mkT standardiseSrcSpan) yEnd)
 
-											xAddsToY = isConstantAdditionOf xEnd yEnd
-											yAddsToX = isConstantAdditionOf yEnd xEnd
-											xTakesFromY = isConstantSubtractionOf xEnd yEnd
-											yTakesFromX = isConstantSubtractionOf yEnd xEnd
+											xAddsToY = isConstantAdditionOf bound xEnd yEnd
+											yAddsToX = isConstantAdditionOf bound yEnd xEnd
+											xTakesFromY = isConstantSubtractionOf bound xEnd yEnd
+											yTakesFromX = isConstantSubtractionOf bound yEnd xEnd
 											endLinearFunction = xAddsToY || yAddsToX || xTakesFromY || yTakesFromX
 
 											predicatListX = (if yAddsToX || xTakesFromY then [generateLTExpr (generateVar xVarName) xEnd]
@@ -134,7 +137,7 @@ loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs)
 													Just a -> True
 													Nothing -> False
 
-											next = loopVariableCombinationConditions xs ys
+											next = loopVariableCombinationConditions bound xs ys
 											xNext = case next of
 												Just a -> (\(x, _, _) -> x) a
 												Nothing -> []
@@ -145,35 +148,44 @@ loopVariableCombinationConditions 	((xVarName, xStart, xEnd, xStep):xs)
 												Just a -> (\(_, _, z) -> z) a
 												Nothing -> []
 
-loopVariableCombinationConditions [] [] = Just([],[],[])
-loopVariableCombinationConditions _ _ = Nothing
+loopVariableCombinationConditions _ [] [] = Just([],[],[])
+loopVariableCombinationConditions _ _ _ = Nothing
 
 --	The following functions are used to determine whether slightly differing loop conditions are compatible. If the end point of one is a constant
 --	addition or subtraction of the other then the loops can be fused.
-isConstantAdditionOf :: Expr Anno -> Expr Anno -> Bool
-isConstantAdditionOf (Bin anno2 src2 op expr1 expr2) var 	|	exprContainsVar && expr2Cons = case op of
+isConstantAdditionOf :: Maybe(Float) -> Expr Anno -> Expr Anno -> Bool
+isConstantAdditionOf bound (Bin anno2 src2 op expr1 expr2) var 	|	exprContainsVar && expr2Check = case op of
 																								Plus _ -> True
 																								otherwise -> False
-															|	otherwise = False
-																where 
-																	standardVar = (everywhere (mkT standardiseSrcSpan) var)
-																	standardExpr1 = (everywhere (mkT standardiseSrcSpan) expr1)
-																	exprContainsVar = standardVar == standardExpr1
-																	expr2Cons = case expr2 of
-																			Con _ _ str -> True
-																			_	-> False
-isConstantAdditionOf _ _ = False
+																|	otherwise = False
+																	where 
+																		standardVar = (everywhere (mkT standardiseSrcSpan) var)
+																		standardExpr1 = (everywhere (mkT standardiseSrcSpan) expr1)
+																		exprContainsVar = standardVar == standardExpr1
+																		expr2Check = checkConstantLessThan expr2 bound
+isConstantAdditionOf _ _ _ = False
 
-isConstantSubtractionOf :: Expr Anno -> Expr Anno -> Bool
-isConstantSubtractionOf (Bin anno2 src2 op expr1 expr2) var |	exprContainsVar && expr2Cons = case op of
+isConstantSubtractionOf :: Maybe(Float) -> Expr Anno -> Expr Anno -> Bool
+isConstantSubtractionOf bound (Bin anno2 src2 op expr1 expr2) var 	|	exprContainsVar && expr2Check = case op of
 																								Minus _ -> True
 																								otherwise -> False
-															|	otherwise = False
-																where 
-																	standardVar = (everywhere (mkT standardiseSrcSpan) var)
-																	standardExpr1 = (everywhere (mkT standardiseSrcSpan) expr1)
-																	exprContainsVar = standardVar == standardExpr1
-																	expr2Cons = case expr2 of
-																			Con _ _ str -> True
-																			_	-> False
-isConstantSubtractionOf _ _ = False
+																	|	otherwise = False
+																		where 
+																			standardVar = (everywhere (mkT standardiseSrcSpan) var)
+																			standardExpr1 = (everywhere (mkT standardiseSrcSpan) expr1)
+																			exprContainsVar = standardVar == standardExpr1
+																			expr2Check = checkConstantLessThan expr2 bound
+isConstantSubtractionOf _ _ _ = False
+
+checkConstantLessThan :: Expr Anno -> Maybe(Float) -> Bool
+checkConstantLessThan expr (Just bound) = exprCheck
+			where
+				exprCons = case expr of
+						Con _ _ str -> Just (read str :: Float)
+						_	-> Nothing
+				exprCheck = case exprCons of
+						Just number -> number <= bound
+						Nothing -> False
+checkConstantLessThan expr Nothing = case expr of
+						Con _ _ str -> True
+						_	-> False
