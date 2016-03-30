@@ -4,6 +4,7 @@ import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everyw
 import Language.Fortran
 
 import LanguageFortranTools
+import VarDependencyAnalysis
 
 --	This file contains code that handles combining adjacent and nested kernels. The intention is that the top level 'combineKernels' function will be called
 --	against an AST that has already been transformed with parallel kernels applied.
@@ -25,7 +26,7 @@ combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
 								(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
 										--OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran
-										newCodeSeg
+										if loopDependencyErrors == [] then newCodeSeg else codeSeg
 											where 
 												newCodeSeg = appendAnnotation (OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran) newAnnotation ""
 												reads = listRemoveDuplications $ outerReads ++ innerReads
@@ -33,11 +34,14 @@ combineNestedKernels codeSeg = case codeSeg of
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
 												newAnnotation = compilerName ++ ": Nested map at " ++ errorLocationFormatting src2 ++ " fused into surrounding map"
 												combinedAnnotations = combineAnnotations anno1 anno2
+
+												loopDependencyErrors = loopCarriedDependencyCheck_query (extractVarNames_loopVars loopVs) newCodeSeg
+
 								otherwise -> codeSeg
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
 								(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
-										newCodeSeg
+										if loopDependencyErrors == [] then newCodeSeg else codeSeg
 										--OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
 												newCodeSeg = appendAnnotation (OpenCLReduce (combinedAnnotations) src1 reads writes loopVs redVs innerFortran) newAnnotation ""
@@ -47,6 +51,9 @@ combineNestedKernels codeSeg = case codeSeg of
 												redVs = listRemoveDuplications $ outerRedVs ++ innerRedVs
 												newAnnotation = compilerName ++ ": Nested reduction at " ++ errorLocationFormatting src2 ++ " fused into surrounding reduction"
 												combinedAnnotations = combineAnnotations anno1 anno2
+
+												loopDependencyErrors = loopCarriedDependencyCheck_query (extractVarNames_loopVars loopVs) newCodeSeg
+
 								otherwise -> codeSeg
 					otherwise -> codeSeg
 
@@ -80,7 +87,7 @@ combineAdjacentKernels bound codeSeg = case codeSeg of
 attemptCombineAdjacentMaps :: Maybe(Float) -> Fortran Anno -> Fortran Anno -> Maybe(Fortran Anno)
 attemptCombineAdjacentMaps 	bound
 							(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
-							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] = Nothing
+							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] || loopDependencyErrors /= []  = Nothing
 																					| otherwise = Just(resultantMap)
 									where
 										newSrc = generateSrcSpanMerge src1 src2
@@ -98,6 +105,9 @@ attemptCombineAdjacentMaps 	bound
 
 										xAndPredicate = generateAndExprFromList xPredicateList
 										yAndPredicate = generateAndExprFromList yPredicateList
+
+										loopVs = listRemoveDuplications $ loopVs1 ++ loopVs2
+										loopDependencyErrors = loopCarriedDependencyCheck_query (extractVarNames_loopVars loopVs) resultantMap
 
 										resultantMap = OpenCLMap anno newSrc combinedReads writes resultLoopVars fortran
 

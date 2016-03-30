@@ -110,7 +110,7 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
-paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis ->Fortran Anno -> Fortran Anno
+paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
 paralleliseLoop loopVars accessAnalysis loop 	=  -- appendAnnotation (
 												case mapAttempt_bool of
 										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
@@ -125,7 +125,7 @@ paralleliseLoop loopVars accessAnalysis loop 	=  -- appendAnnotation (
 									-- varValueRecords = (\(_,x,_,_) -> x) accessAnalysis
 									localVarRecords = (\(x,_,_,_) -> x) accessAnalysis
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
-									dependencies = analyseDependencies accessAnalysis loop
+									dependencies = analyseDependencies loop
 									loopWrites = extractWrites_query loop
 
 									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
@@ -156,7 +156,11 @@ paralleliseLoop_map loop loopVarNames loopWrites nonTempVars dependencies access
 
 									|	otherwise	=			(False, appendAnnotationMap loop errors_map)
 									where
-										(errors_map, _, reads_map, writes_map) = analyseLoop_map loopVarNames loopWrites nonTempVars accessAnalysis dependencies loop
+										loopAnalysis = analyseLoop_map loopVarNames loopWrites nonTempVars accessAnalysis dependencies loop
+										errors_map = getErrorAnnotations loopAnalysis
+										reads_map = getReads loopAnalysis
+										writes_map = getWrites loopAnalysis
+
 										loopVariables = loopCondtions_query loop
 
 										startVarNames = foldl (\accum (_,x,_,_) -> accum ++ extractVarNames x) [] loopVariables
@@ -178,7 +182,12 @@ paralleliseLoop_reduce loop loopVarNames loopWrites nonTempVars dependencies acc
 
 									|	otherwise				=	(False, appendAnnotationMap loop errors_reduce)
 									where
-										(errors_reduce, reductionVariables, reads_reduce, writes_reduce) = analyseLoop_reduce [] loopVarNames loopWrites nonTempVars dependencies accessAnalysis loop 
+										loopAnalysis = analyseLoop_reduce [] loopVarNames loopWrites nonTempVars dependencies accessAnalysis loop 
+										errors_reduce = getErrorAnnotations loopAnalysis
+										reductionVariables = getReductionVars loopAnalysis
+										reads_reduce = getReads loopAnalysis
+										writes_reduce = getWrites loopAnalysis
+
 										loopVariables = loopCondtions_query loop
 
 										startVarNames = foldl (\accum (_,x,_,_) -> accum ++ extractVarNames x) [] loopVariables

@@ -12,7 +12,7 @@ import LanguageFortranTools
 
 --	Type used to standardise loop analysis functions
 --						errors 		reduction variables read variables		written variables		
-type AnalysisInfo = 	(Anno, 	[Expr Anno], 		[Expr Anno], 		[Expr Anno])
+type AnalysisInfo = 	(Anno, 		[Expr Anno], 		[Expr Anno], 		[Expr Anno])
 
 analysisInfoBaseCase :: AnalysisInfo
 analysisInfoBaseCase = (nullAnno,[],[],[])
@@ -22,6 +22,18 @@ combineAnalysisInfo accum item = (combineMaps accumErrors itemErrors, accumReduc
 								where
 									(accumErrors, accumReductionVars, accumReads, accumWrites) = accum
 									(itemErrors, itemReductionVars, itemReads, itemWrites) = item
+									
+getErrorAnnotations :: AnalysisInfo -> Anno
+getErrorAnnotations (errors, _, _, _) = errors
+
+getReductionVars :: AnalysisInfo -> [Expr Anno]
+getReductionVars (_, reductionVars, _, _) = reductionVars
+
+getReads :: AnalysisInfo -> [Expr Anno]
+getReads (_, _, reads, _) = reads
+
+getWrites :: AnalysisInfo -> [Expr Anno]
+getWrites (_, _, _, writes) = writes
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map

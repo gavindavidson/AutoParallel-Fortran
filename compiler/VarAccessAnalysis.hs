@@ -30,7 +30,6 @@ analyseAllVarAccess prog = (localVarAccesses, localVarValues, arguments, declara
 							--	the program being analysed. It is a list of triplets where each triplet contains a 
 							--	VarName, a list of read locations of that VarName and a list of write locations of that
 							--	VarName
-							--localVarAccesses = everything (combineLocalVarAccessAnalysis) (mkQ DMap.empty (analyseAllVarAccess_fortran declarations)) prog
 							localVarAccesses = analyseLocalVarAccess declarations prog
 							--	Arguments to this program block are treated as de facto non temporary variables,
 							--	due to the fact that arguments are passed by reference by default in fortran.

@@ -23,10 +23,9 @@ import VarAccessAnalysis
 --type VarDependencyAnalysis = DMap.Map (VarName Anno) [VarName Anno]
 type VarDependencyAnalysis = DMap.Map (VarName Anno) [Expr Anno]
 
-analyseDependencies :: VarAccessAnalysis -> Fortran Anno -> VarDependencyAnalysis
-analyseDependencies accessAnalysis codeSeg = foldl (\accum item -> constructDependencies accessAnalysis accum item) DMap.empty assignments
+analyseDependencies :: Fortran Anno -> VarDependencyAnalysis
+analyseDependencies codeSeg = foldl (\accum item -> constructDependencies accum item) DMap.empty assignments
 						where
-							-- assignments = extractAssigments codeSeg
 							assignments = everything (++) (mkQ [] extractAssigments) codeSeg
 
 extractAssigments :: Fortran Anno -> [Fortran Anno]
@@ -39,20 +38,17 @@ extractAssigments codeSeg = case codeSeg of
 -- 								Assg _ _ _ _ -> [codeSeg]
 -- 								_	-> foldl (++) [] (gmapQ (mkQ [] extractAssigments) codeSeg)
 
-constructDependencies :: VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> VarDependencyAnalysis
-constructDependencies accessAnalysis prevAnalysis (Assg _ _ expr1 expr2) = foldl (\accum item -> addDependencies accum item readOperands) prevAnalysis writtenVarNames
+constructDependencies :: VarDependencyAnalysis -> Fortran Anno -> VarDependencyAnalysis
+constructDependencies prevAnalysis (Assg _ _ expr1 expr2) = foldl (\accum item -> addDependencies accum item readOperands) prevAnalysis writtenVarNames
 							where
 								--	As part of Language-Fortran's assignment type, the first expression represents the 
 								--	variable being assigned to and the second expression is the thing being assigned
 								writtenOperands = filter (isVar) (extractOperands expr1)
 								readOperands = filter (isVar) (extractOperands expr2)
-								--readDependencies = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
-								-- readDependencies = foldl (\accum item -> accum ++ (extractContainedVars item) ++ [item]) [] readOperands
 
 								writtenVarNames = foldl (\accum item -> accum ++ extractVarNames item) [] writtenOperands
-								--readVars = foldl (\accum item -> accum ++ item) [] readDependencies
 
-constructDependencies accessAnalysis prevAnalysis _ = prevAnalysis
+constructDependencies prevAnalysis _ = prevAnalysis
 
 --addDependencies :: VarDependencyAnalysis -> VarName Anno -> [VarName Anno] -> VarDependencyAnalysis
 --	A dependent depends on a dependee. For example
@@ -96,6 +92,14 @@ isIndirectlyDependentOn analysis potDependent potDependee	|	isDirectlyDependentO
 																	where 
 																		dependencies = getDirectDependencies analysis potDependent 
 
+loopCarriedDependencyCheck_query :: [VarName Anno] -> Fortran Anno -> [Expr Anno]
+loopCarriedDependencyCheck_query loopIterators codeSeg = everything (++) (mkQ [] (loopCarriedDependencyCheck_query' loopIterators dependencyAnalysis)) codeSeg
+					where
+						dependencyAnalysis = analyseDependencies codeSeg
+
+loopCarriedDependencyCheck_query' :: [VarName Anno] -> VarDependencyAnalysis -> Fortran Anno -> [Expr Anno]
+loopCarriedDependencyCheck_query' loopIterators dependencyAnalysis (Assg _ _ expr _) = loopCarriedDependencyCheck loopIterators dependencyAnalysis expr 
+loopCarriedDependencyCheck_query' _ _ _ = []
 
 loopCarriedDependencyCheck :: [VarName Anno] -> VarDependencyAnalysis -> Expr Anno -> [Expr Anno]
 loopCarriedDependencyCheck loopIterators dependencyAnalysis expr = loopCarriedDependencyProof -- foldl (++) [] exprLoopIteratorUsage
