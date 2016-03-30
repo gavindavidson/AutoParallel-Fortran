@@ -313,5 +313,9 @@ extractPrimaryReductionFunction assignee expr = "" -- error ("Error: extractPrim
 trimFront :: String -> String
 trimFront inp = filter (\x -> x /= ' ' && x /= '\t') inp
 
+--	Value used as a global spacing measure. Used for output formatting.
+outputTab :: String
+outputTab = "  "
+
 compilerName :: String
 compilerName = "ParallelFortran"
