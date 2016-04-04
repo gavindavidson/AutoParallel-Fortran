@@ -16,6 +16,7 @@ import VarDependencyAnalysis
 import LanguageFortranTools
 import CodeEmitter
 import LoopAnalysis
+import ConstantFolding
 
 main :: IO ()
 main = do
