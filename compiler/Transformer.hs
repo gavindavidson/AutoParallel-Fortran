@@ -57,6 +57,7 @@ main = do
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile filename
 	putStr $ show $ parsedProgram
+	--constantFoldedProg <- foldConstants parsedProgram
 	constantFoldedProg <- foldConstants parsedProgram
 	let parallelisedProg = paralleliseProgram constantFoldedProg
 	let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)

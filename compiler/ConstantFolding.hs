@@ -4,40 +4,66 @@ import Data.Generics (mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 import Data.Char
 import Data.List
+import Control.Monad
 import qualified Data.Map as DMap 
 import System.Directory
 
 import LanguageFortranTools
 
 type Constants = DMap.Map (VarName Anno) (Expr Anno)
-type FilenameMapping = DMap.Map String (ProgUnit Anno)
+type FilenameMap = DMap.Map String (ProgUnit Anno)
 
-foldConstants :: Program Anno -> IO (Program Anno)
 foldConstants prog = do
+		constants <- mapM (buildConstants_recursive) prog
 		return prog
 
-buildConstants :: Program Anno -> IO (Constants)
-buildConstants prog = do
-		let imports = extractImports prog
-		filenames <- resolveModuleFilenames
-		return DMap.empty
+buildConstants_recursive :: ProgUnit Anno -> IO (Constants)
+buildConstants_recursive progUnit = do
+		availableImports <- gatherAvailableImports
+		let importStrings = extractImports progUnit
+		let importedProgunits = map (resolveImport availableImports) importStrings
+		let localConstants = buildConstants_single DMap.empty progUnit
 
-extractImports :: Program Anno -> [String]
+		return localConstants
+
+buildConstants_single :: Constants -> ProgUnit Anno -> Constants
+buildConstants_single prevConstants prog = DMap.empty
+
+gatherAvailableImports :: IO(FilenameMap)
+gatherAvailableImports = do
+		currentDir <- getCurrentDirectory
+		filenames <- getDirectoryContents currentDir
+		headParsedFiles <- parseFile (head filenames)
+		moduleList <- foldM (resolveModule) DMap.empty filenames
+		return moduleList
+
+extractImports :: ProgUnit Anno -> [String]
 extractImports prog = stringUses
 	where
 		uses = everything (++) (mkQ [] getUses) prog
 		stringUses = map (\(Use _ (str, _) _ _) -> str) uses
 
-resolveImport :: FilenameMapping -> String -> String
-resolveImport mapping moduleName = moduleName
+--extractImports :: Program Anno -> [String]
+--extractImports prog = stringUses
+--	where
+--		uses = everything (++) (mkQ [] getUses) prog
+--		stringUses = map (\(Use _ (str, _) _ _) -> str) uses
 
-resolveModuleFilenames :: IO(FilenameMapping)
-resolveModuleFilenames = do
-				currentDir <- getCurrentDirectory
-				filenames <- getDirectoryContents currentDir
-				-- let parsedPrograms = parseFiles filenames
-				-- let mapping = resolveInternalModules DMap.empty (parsedPrograms)
-				return DMap.empty
+resolveImport :: FilenameMap -> String -> ProgUnit Anno
+resolveImport filenameMap moduleName = DMap.findWithDefault (error ("Cannot find imported file " ++ moduleName)) moduleName filenameMap
 
-resolveInternalModules :: FilenameMapping -> [ProgUnit Anno] -> FilenameMapping
-resolveInternalModules mapping prog = foldl (\accum item -> DMap.insert (getUnitName item) item accum) mapping prog
+resolveModule :: FilenameMap -> String -> IO(FilenameMap)
+resolveModule filenameMap filename = do
+			prog <- parseFile filename
+			let moduleNames = map (getUnitName) prog
+			let map = foldl (\accum (name, ast) -> DMap.insert name ast accum) filenameMap (zip moduleNames prog)
+
+			return map
+
+--resolveModule :: String -> IO(FilenameMap)
+--resolveModule filename = do
+--			prog <- parseFile filename
+--			let moduleNames = map (getUnitName) prog
+--			let map = foldl (\accum (name, ast) -> DMap.insert name ast accum) DMap.empty (zip moduleNames prog)
+
+--			return map

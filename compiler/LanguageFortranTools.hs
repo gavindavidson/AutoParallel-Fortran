@@ -17,8 +17,6 @@ type Anno = DMap.Map (String) [String]
 nullAnno :: Anno
 nullAnno = DMap.empty
 
-parseFiles filenames = map (parseFile) filenames
-
 --	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
 parseFile filename = do inp <- readProcess "cpp" [filename, "-D", "NO_IO", "-P"] "" 
                  	return $ parse $ preProcess inp
