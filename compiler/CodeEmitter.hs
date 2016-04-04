@@ -110,9 +110,6 @@ produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeader
 								((SrcLoc _ fortran_ls _), (SrcLoc _ _ _)) = firstFortranSrc
 								nonGeneratedBlockCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [block_ls+1..fortran_ls-1]
 
-getUses :: Uses Anno -> [Uses Anno]
-getUses uses = [uses]
-
 --	Function is used (along with "getFirstBlockSrc") by "produceCodeProgUnit" to determine which lines of the original
 --	source can be taken as is. It is used to determine where the first Fortran nodes of the AST appear in the source
 --	because the Fortran nodes are the ones that have been transformed.

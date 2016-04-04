@@ -1,5 +1,5 @@
 folder="../testFiles"
-filename="bondv1.f95"
+filename="press.f95"
 # # filename="press.f95"
 # # ../codeBase_tests/adam.f95  
 # #../codeBase_tests/bondv1.f95  
@@ -17,8 +17,8 @@ echo ""
 echo "Running on "$originalfile
 echo ""
 # ./Transformer $originalfile +RTS -h -RTS
-./Transformer $originalfile
-# ./Transformer $originalfile > treeWalker.out
+# ./Transformer $originalfile
+./Transformer $originalfile > treeWalker.out
 # ./Transformer +RTS -h -RTS $originalfile $outfile > treeWalker.out
 # hp2ps -c Transformer.hp
 # python changes.py $originalfile $outfile

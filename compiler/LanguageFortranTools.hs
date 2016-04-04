@@ -17,12 +17,14 @@ type Anno = DMap.Map (String) [String]
 nullAnno :: Anno
 nullAnno = DMap.empty
 
---	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
-parseFile s = do inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
-                 return $ parse $ preProcess inp
+parseFiles filenames = map (parseFile) filenames
 
-cpp s = do 	inp <- readProcess "cpp" [s, "-D", "NO_IO", "-P"] "" 
-        	return inp
+--	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
+parseFile filename = do inp <- readProcess "cpp" [filename, "-D", "NO_IO", "-P"] "" 
+                 	return $ parse $ preProcess inp
+
+cpp filename = do 	inp <- readProcess "cpp" [filename, "-D", "NO_IO", "-P"] "" 
+        		return inp
 
 --	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
@@ -141,6 +143,19 @@ generateSubtractionExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Minus nullAnno) 
 
 generateDivisionExpr :: Expr Anno -> Expr Anno -> Expr Anno
 generateDivisionExpr expr1 expr2 = Bin nullAnno nullSrcSpan (Div nullAnno) expr1 expr2
+
+getUses :: Uses Anno -> [Uses Anno]
+getUses uses = case uses of 
+					(Use _ _ _ _) -> [uses]
+					_ -> []
+
+getUnitName :: ProgUnit Anno -> String
+getUnitName progunit = foldl (++) [] (gmapQ (mkQ [] getUnitName') progunit)
+
+getUnitName' :: SubName Anno -> String
+getUnitName' (SubName _ str) = str
+getUnitName' _ = ""
+
 
 --	Used to standardise SrcSpans so that nodes of an AST may be matched up even if they appear in completely different
 --	parts of a program. Also used to signify that a node has been changed and cannot be copied from the orignal source during code
