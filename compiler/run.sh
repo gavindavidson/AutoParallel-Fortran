@@ -1,6 +1,6 @@
 folder="../testFiles"
+# filename="params_common_sn.f95"
 filename="press.f95"
-# # filename="press.f95"
 # # ../codeBase_tests/adam.f95  
 # #../codeBase_tests/bondv1.f95  
 # #../codeBase_tests/feedbf.f95	

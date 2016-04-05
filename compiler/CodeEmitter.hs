@@ -558,7 +558,7 @@ declareGlobalReductionArray varname arraySize program = case decl_list of
 														[] -> Nothing
 														_ -> Just (decl)
 			where
-				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
+				decl_list = everything (++) (mkQ [] (extractDeclaration_varname varname)) program
 				one = generateConstant 1
 				newVarName = generateGlobalReductionArray varname
 				decl = applyIntent (Out nullAnno) (replaceAllOccurences_varname (addDimension (head decl_list) one arraySize) varname newVarName)
@@ -568,7 +568,7 @@ declareLocalReductionArray varname arraySize program = case decl_list of
 														[] -> Nothing
 														_ -> Just (decl)
 			where
-				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
+				decl_list = everything (++) (mkQ [] (extractDeclaration_varname varname)) program
 				one = generateConstant 1
 				newVarName = generateLocalReductionArray varname
 				decl = addDimension (replaceAllOccurences_varname (head decl_list) varname newVarName) one arraySize
@@ -612,7 +612,7 @@ adaptOriginalDeclaration_intent varname intent program = case decl_list of
 														[] -> Nothing
 														_ -> Just (decl)
 			where 
-				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
+				decl_list = everything (++) (mkQ [] (extractDeclaration_varname varname)) program
 				decl = case containsParameterAttr (head decl_list) of
 							True -> applyGeneratedSrcSpans (head decl_list)
 							False -> applyGeneratedSrcSpans (applyIntent (intent) (head decl_list))
@@ -622,7 +622,7 @@ adaptOriginalDeclaration_varname varname newVarname program = case decl_list of
 														[] -> Nothing
 														_ -> Just (decl)
 			where 
-				decl_list = everything (++) (mkQ [] (extractDeclaration varname)) program
+				decl_list = everything (++) (mkQ [] (extractDeclaration_varname varname)) program
 				decl = applyGeneratedSrcSpans (replaceAllOccurences_varname (head decl_list) varname newVarname)
 
 stripDeclAttrs :: Decl Anno -> Decl Anno
@@ -661,8 +661,8 @@ removeDeclAssignment (Decl anno src assgList typ) = Decl anno src newAssgList ty
 					newAssgList = map (\(expr1, _, _) -> (expr1, (NullExpr nullAnno nullSrcSpan), Nothing)) assgList
 removeDeclAssignment decl = decl
 
-extractDeclaration :: VarName Anno -> Decl Anno -> [Decl Anno]
-extractDeclaration varname  (Decl anno src lst typ)  	| firstHasVar || secondHasVar = [Decl anno src lst typ]
+extractDeclaration_varname :: VarName Anno -> Decl Anno -> [Decl Anno]
+extractDeclaration_varname varname  (Decl anno src lst typ)  	| firstHasVar || secondHasVar = [Decl anno src lst typ]
 														| otherwise = []
 			where
 				firstExprs = map (\(expr, _, _) -> expr) lst
@@ -670,19 +670,19 @@ extractDeclaration varname  (Decl anno src lst typ)  	| firstHasVar || secondHas
 
 				firstHasVar = foldl (\accum item -> accum || usesVarName_list [varname] item) False firstExprs
 				secondHasVar = foldl (\accum item -> accum || usesVarName_list [varname] item) False secondExprs
-extractDeclaration varname decl = []
+extractDeclaration_varname varname decl = []
 
 getOriginalDeclaration :: [String] -> VarName Anno -> Program Anno -> Maybe(String)
 getOriginalDeclaration originalLines varname program = case declSrc_list of
 														[] -> Nothing
 														_ -> Just (extractOriginalCode "" originalLines declSrc)
 			where 
-				declSrc_list = everything (++) (mkQ [] (extractDeclarationSrcSpan varname)) program
+				declSrc_list = everything (++) (mkQ [] (extractDeclaration_varnameSrcSpan varname)) program
 				declSrc = head declSrc_list
 
 
-extractDeclarationSrcSpan :: VarName Anno -> Decl Anno -> [SrcSpan]
-extractDeclarationSrcSpan varname (Decl _ src lst _) 	| firstHasVar || secondHasVar = [src]
+extractDeclaration_varnameSrcSpan :: VarName Anno -> Decl Anno -> [SrcSpan]
+extractDeclaration_varnameSrcSpan varname (Decl _ src lst _) 	| firstHasVar || secondHasVar = [src]
 														| otherwise = []
 			where
 				firstExprs = map (\(expr, _, _) -> expr) lst
@@ -690,7 +690,7 @@ extractDeclarationSrcSpan varname (Decl _ src lst _) 	| firstHasVar || secondHas
 
 				firstHasVar = foldl (\accum item -> accum || usesVarName_list [varname] item) False firstExprs
 				secondHasVar = foldl (\accum item -> accum || usesVarName_list [varname] item) False secondExprs
-extractDeclarationSrcSpan varname decl = []
+extractDeclaration_varnameSrcSpan varname decl = []
 
 
 anyChildGenerated :: Fortran Anno -> Bool
