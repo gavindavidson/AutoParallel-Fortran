@@ -14,18 +14,20 @@ import LanguageFortranTools
 type Constants = DMap.Map (VarName Anno) (Expr Anno)
 type FilenameMap = DMap.Map String (ProgUnit Anno)
 
-foldConstants progUnit = do
+foldConstants filename progUnit = do
 		-- constants <- mapM (buildConstants_recursive) prog
-		constants <- buildConstants_recursive progUnit
+		let path = extractPath filename
+		constants <- buildConstants_recursive path progUnit
+		putStr $ show constants
 		return progUnit
 
-buildConstants_recursive :: ProgUnit Anno -> IO (Constants)
-buildConstants_recursive progUnit = do
-		availableImports <- gatherAvailableImports
+buildConstants_recursive :: String -> ProgUnit Anno -> IO (Constants)
+buildConstants_recursive path progUnit = do
+		availableImports <- gatherAvailableImports path
 		let importStrings = extractScopedImports progUnit
 		let importedProgunits = map (resolveImport availableImports) importStrings
 
-		recursiveConstants_list <- mapM (buildConstants_recursive) importedProgunits
+		recursiveConstants_list <- mapM (buildConstants_recursive path) importedProgunits
 		let recursiveConstants = foldl (combineConstants) DMap.empty recursiveConstants_list
 
 		let constants = buildConstants_single recursiveConstants progUnit
@@ -33,15 +35,30 @@ buildConstants_recursive progUnit = do
 		return constants
 
 buildConstants_single :: Constants -> ProgUnit Anno -> Constants
-buildConstants_single previousConsts progUnit = DMap.empty
+buildConstants_single previousConsts progUnit = constants
 		where
-			declartions = extractDeclartions progUnit
+			declarations = extractDeclarations progUnit
+			declarationExprs = foldl (\accum item -> accum ++ (extractDeclarationExpr item)) [] declarations
+			nonNullDeclarationExprs = filter (\(var, expr) -> (applyGeneratedSrcSpans expr) /= NullExpr nullAnno nullSrcSpan) declarationExprs
+			constants = foldl (\accum (var, expr) -> DMap.insert var expr accum) previousConsts nonNullDeclarationExprs
 
-gatherAvailableImports :: IO(FilenameMap)
-gatherAvailableImports = do
+extractDeclarationExpr :: Decl Anno-> [(VarName Anno, Expr Anno)]
+extractDeclarationExpr (Decl anno src exprList typ) = map (\(expr1, expr2, _) -> (head (extractVarNames expr1), expr2) ) exprList
+extractDeclarationExpr _ = []
+
+-- [(Expr p, Expr p, Maybe Int)]
+
+gatherAvailableImports :: String -> IO(FilenameMap)
+gatherAvailableImports path = do
 		currentDir <- getCurrentDirectory
-		filenames <- getDirectoryContents currentDir
-		let fortranFilenames = filter (\x -> (last (splitOn "/" x)) == ".f95") filenames
+		currentDirFilenames <- getDirectoryContents currentDir
+		sourceDirBasenames <- getDirectoryContents path
+		let sourceDirFilenames = map (\x -> path ++ x) sourceDirBasenames
+		let filenames = currentDirFilenames ++ sourceDirFilenames
+		let fortranFilenames = filter (\x -> (last (splitOn "." x)) == "f95") filenames
+		putStr "\n"
+		putStr "Fortran filenames:\n"
+		putStr $ show $ fortranFilenames
 		moduleList <- foldM (resolveModule) DMap.empty fortranFilenames
 		return moduleList
 
@@ -63,7 +80,9 @@ resolveImport filenameMap moduleName = DMap.findWithDefault (error ("Cannot find
 
 resolveModule :: FilenameMap -> String -> IO(FilenameMap)
 resolveModule filenameMap filename = do
+			putStr ("\nProcessing " ++ filename)
 			prog <- parseFile filename
+			putStr ("\nProcessed " ++ filename)
 			let moduleNames = map (getUnitName) prog
 			let map = foldl (\accum (name, ast) -> DMap.insert name ast accum) filenameMap (zip moduleNames prog)
 
@@ -72,8 +91,15 @@ resolveModule filenameMap filename = do
 combineConstants :: Constants -> Constants -> Constants
 combineConstants constants1 constants2 = foldl (\accum item -> DMap.insert item (DMap.findWithDefault (error "Missing constant") item constants2) accum) constants1 (DMap.keys constants2)
 
-extractDeclartions :: ProgUnit Anno -> [Decl Anno]
-extractDeclartions progUnit = everything (++) (mkQ [] getDecl) progUnit
+extractDeclarations :: ProgUnit Anno -> [Decl Anno]
+extractDeclarations progUnit = everything (++) (mkQ [] getDecl) progUnit
+
+extractPath :: String -> String
+extractPath filename = extractPath' (splitOn "/" filename)
+
+extractPath' :: [String] -> String
+extractPath' (x:[]) = ""
+extractPath' (x:xs) = x ++ "/" ++ extractPath' xs
 
 getDecl :: Decl Anno -> [Decl Anno]
 getDecl (DSeq _ _ _) = []

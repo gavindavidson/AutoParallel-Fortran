@@ -58,9 +58,9 @@ main = do
 	parsedProgram <- parseFile filename
 	putStr $ show $ parsedProgram
 	--constantFoldedProg <- foldConstants parsedProgram
-	-- constantFoldedProg <- mapM (foldConstants) parsedProgram
-	-- let parallelisedProg = paralleliseProgram constantFoldedProg
-	let parallelisedProg = paralleliseProgram parsedProgram
+	constantFoldedProg <- mapM (foldConstants filename) parsedProgram
+	let parallelisedProg = paralleliseProgram constantFoldedProg
+	-- let parallelisedProg = paralleliseProgram parsedProgram
 	let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
 
 	putStr $ compileAnnotationListing parallelisedProg

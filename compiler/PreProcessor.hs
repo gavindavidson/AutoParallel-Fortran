@@ -3,7 +3,7 @@ module PreProcessor where
 import Data.Char
 
 preProcess :: String -> String
-preProcess inputStr = andOperatorFix $ orOperatorFix $ containsStatementFix $ caseStatementFix $ inputStr
+preProcess inputStr = semiColonFix $ andOperatorFix $ orOperatorFix $ containsStatementFix $ caseStatementFix $ inputStr
 --preProcess inputStr = (show $ ((head inputStr) == '\n')) ++ "\n" ++ inputStr
 --preProcess inputStr = continuationFix $ inputStr
 
@@ -26,3 +26,6 @@ orOperatorFix input = caseInsensitive_strReplace ".or." " .or. " input
 
 andOperatorFix :: String -> String
 andOperatorFix input = caseInsensitive_strReplace ".and." " .and. " input
+
+semiColonFix :: String -> String
+semiColonFix input = caseInsensitive_strReplace ";" "\n" input
