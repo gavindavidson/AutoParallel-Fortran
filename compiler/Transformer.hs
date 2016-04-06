@@ -43,6 +43,9 @@ main = do
 	putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
 	putStr "<DONE>\t- Subroutine name case issue (velfg.f95)\n"
 	putStr "<DONE>\t- Missing \"end subroutine blah\"s\n"
+	putStr "\t- Throw error when kernel contains another kernel (that is not perfectly nested\n"
+	-- putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
+	-- putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
 	putStr "\n"
 
 	args <- getArgs

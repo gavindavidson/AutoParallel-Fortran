@@ -26,11 +26,14 @@ combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
 								(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
 										--OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran
-										if loopDependencyErrors == [] then newCodeSeg else codeSeg
+										-- if loopDependencyErrors == [] then newCodeSeg else codeSeg
+										newCodeSeg
 											where 
 												newCodeSeg = appendAnnotation (OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran) newAnnotation ""
-												reads = listRemoveDuplications $ outerReads ++ innerReads
-												writes = listRemoveDuplications $ outerWrites ++ innerWrites
+												-- reads = listRemoveDuplications $ outerReads ++ innerReads
+												-- writes = listRemoveDuplications $ outerWrites ++ innerWrites
+												reads = innerReads
+												writes = innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
 												newAnnotation = compilerName ++ ": Nested map at " ++ errorLocationFormatting src2 ++ " fused into surrounding map"
 												combinedAnnotations = combineAnnotations anno1 anno2
@@ -41,14 +44,18 @@ combineNestedKernels codeSeg = case codeSeg of
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
 								(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
-										if loopDependencyErrors == [] then newCodeSeg else codeSeg
+										-- if loopDependencyErrors == [] then newCodeSeg else codeSeg
+										newCodeSeg
 										--OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
 												newCodeSeg = appendAnnotation (OpenCLReduce (combinedAnnotations) src1 reads writes loopVs redVs innerFortran) newAnnotation ""
-												reads = listRemoveDuplications $ outerReads ++ innerReads
-												writes = listRemoveDuplications $ outerWrites ++ innerWrites
+												-- reads = listRemoveDuplications $ outerReads ++ innerReads
+												-- writes = listRemoveDuplications $ outerWrites ++ innerWrites
+												reads = innerReads
+												writes = innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
-												redVs = listRemoveDuplications $ outerRedVs ++ innerRedVs
+												-- redVs = listRemoveDuplications $ outerRedVs ++ innerRedVs
+												redVs = innerRedVs
 												newAnnotation = compilerName ++ ": Nested reduction at " ++ errorLocationFormatting src2 ++ " fused into surrounding reduction"
 												combinedAnnotations = combineAnnotations anno1 anno2
 
