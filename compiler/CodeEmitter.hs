@@ -108,7 +108,7 @@ produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeader
 
 								((SrcLoc _ block_ls _), (SrcLoc _ _ _)) = firstBlockSrc
 								((SrcLoc _ fortran_ls _), (SrcLoc _ _ _)) = firstFortranSrc
-								nonGeneratedBlockCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [block_ls+1..fortran_ls-1]
+								nonGeneratedBlockCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [block_ls..fortran_ls-1]
 
 --	Function is used (along with "getFirstBlockSrc") by "produceCodeProgUnit" to determine which lines of the original
 --	source can be taken as is. It is used to determine where the first Fortran nodes of the AST appear in the source
@@ -338,8 +338,10 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																			++ tabs ++ chunk_sizeDeclaration
 																			++ tabs ++ localSizeDeclaration 
 																			++ tabs ++ localIdDeclaration
+																			++ tabs ++ localIdFortranDeclaration
 																			++ tabs ++ groupIdDeclaration
-																			++ tabs ++ numGroupsDeclaration
+																			++ tabs ++ groupIdFortranDeclaration
+																			-- ++ tabs ++ numGroupsDeclaration
 																			-- ++ tabs ++ groupSizeDeclaration ++ " = " ++ outputExprFormatting groupSizeInitialisation_calculation ++ "\n"
 																			++ tabs ++ globalIdDeclaration 
 																			++ tabs ++ reductionIteratorDeclaration
@@ -350,6 +352,7 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																			++ writtenDeclStr
 																			++ generalDeclStr
 																			++ "\n"
+																			++ tabs ++ "! Arrays prefixed with \'local_\' should be declared using the \'__local\' modifier in C kernel version\n"
 																			++ workGroup_reductionArraysDeclStr
 																			++ global_reductionArraysDeclStr
 																			++ local_reductionVarsDeclatationStr
@@ -357,9 +360,13 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																			++ tabs ++ localSizeInitialisation
 																			++ tabs ++ localIdInitialisation
 																			++ tabs ++ groupIdInitialisation
-																			++ tabs ++ numGroupsInitialisation
+																			-- ++ tabs ++ numGroupsInitialisation
 																			-- ++ tabs ++ groupSizeInitialisation
 																			++ tabs ++ globalIdInitialisation
+																			++ "\n" ++ tabs ++ "! local_id_fortran and group_id_fortran are used to reconcile the fact that fortran arrays are referenced from 1"
+																			++ "\n" ++ tabs ++ "! not 0 like other OpenCL supporting languages\n"
+																			++ tabs ++ localIdFortranInitialisation
+																			++ tabs ++ groupIdFortranInitialisation
 																			-- ++ "! " ++ compilerName ++ ": Reduction vars: " ++ global_reductionVars ++ "\n"
 																			++ tabs ++ localChunkSize_str
 																			++ tabs ++ startPosition_str
@@ -397,15 +404,19 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 
 												localSizeVar = generateVar (VarName nullAnno "local_size")
 												localIdVar = generateVar (VarName nullAnno "local_id")
+												localIdFortranVar = generateVar (VarName nullAnno "local_id_fortran")
 												groupIdVar = generateVar (VarName nullAnno "group_id")
+												groupIdFortranVar = generateVar (VarName nullAnno "group_id_fortran")
 												--numGroupsVar = generateVar (VarName nullAnno "num_groups")
 												--groupSizeVar = generateVar (VarName nullAnno "group_size")
 												globalIdVar = generateVar (VarName nullAnno "global_id")
 
 												localSizeDeclaration = "integer :: " ++ outputExprFormatting localSizeVar ++ "\n"
 												localIdDeclaration = "integer :: " ++ outputExprFormatting localIdVar ++ "\n"
+												localIdFortranDeclaration = "integer :: " ++ outputExprFormatting localIdFortranVar ++ "\n"
 												groupIdDeclaration = "integer :: " ++ outputExprFormatting groupIdVar ++ "\n"
-												numGroupsDeclaration = "integer :: " ++ outputExprFormatting numGroupsVar ++ "\n"
+												groupIdFortranDeclaration = "integer :: " ++ outputExprFormatting groupIdFortranVar ++ "\n"
+												-- numGroupsDeclaration = "integer :: " ++ outputExprFormatting numGroupsVar ++ "\n"
 												--groupSizeDeclaration = "integer, Parameter :: " ++ outputExprFormatting groupSizeVar
 												globalIdDeclaration = "integer :: " ++ outputExprFormatting globalIdVar ++ "\n"
 												reductionIteratorDeclaration = "integer :: " ++ varnameStr reductionIterator ++ "\n"
@@ -415,8 +426,10 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 
 												localSizeInitialisation = "call " ++ outputExprFormatting (getLocalSize localSizeVar) ++ "\n"
 												localIdInitialisation = "call " ++ outputExprFormatting (getLocalId localIdVar) ++ "\n"
+												localIdFortranInitialisation = synthesiseAssg inTabs originalLines (generateAssgCode localIdFortranVar (generateAdditionExpr localIdVar (generateConstant 1)))
 												groupIdInitialisation = "call " ++ outputExprFormatting (getGroupID groupIdVar) ++ "\n"
-												numGroupsInitialisation = "call " ++ outputExprFormatting (getNumberGroups numGroupsVar) ++ "\n"
+												groupIdFortranInitialisation = synthesiseAssg inTabs originalLines (generateAssgCode groupIdFortranVar (generateAdditionExpr groupIdVar (generateConstant 1)))
+												-- numGroupsInitialisation = "call " ++ outputExprFormatting (getNumberGroups numGroupsVar) ++ "\n"
 												--groupSizeInitialisation = "call " ++ outputExprFormatting (getGroupSize groupSizeVar) ++ "\n"
 												globalIdInitialisation = "call " ++ outputExprFormatting (getGlobalID globalIdVar) ++ "\n"
 												groupSizeInitialisation_calculation = generateGlobalWorkItemsExpr l
@@ -437,7 +450,7 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (generalDecls)
 												
 												local_reductionVars = map (generateLocalReductionVar) reductionVarNames
-												local_reductionVarsInitStr = "! local_reductionVarsInitStr\n" ++ foldl (\accum (var, expr) -> accum ++ tabs ++ "local_" ++ varnameStr var ++ " = " ++ outputExprFormatting expr ++ "\n") "" rv
+												local_reductionVarsInitStr = foldl (\accum (var, expr) -> accum ++ tabs ++ "local_" ++ varnameStr var ++ " = " ++ outputExprFormatting expr ++ "\n") "" rv
 												local_reductionVarsDeclatation = map (\(red, local) -> stripDeclAttrs $ fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_varname red local prog)) (zip reductionVarNames local_reductionVars)
 												local_reductionVarsDeclatationStr = synthesiseDecls tabs local_reductionVarsDeclatation
 
@@ -449,14 +462,14 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																				(generateDivisionExpr 
 																					(generateGlobalWorkItemsExpr l)
 																					nthVar)
-																				numGroupsVar)
+																				nunitsVar)
 												localChunkSize_str = synthesiseAssg inTabs originalLines localChunkSize_assg
 
 												startPosition_str = (outputExprFormatting startPosition) ++ " = " ++ (outputExprFormatting localChunkSize) ++
 													" * " ++ (outputExprFormatting globalIdVar) ++ "\n"
 
 												reductionIterator = generateReductionIterator (r ++ w ++ (map (\(x,_,_,_) -> x) l) ++ reductionVarNames)
-												workItem_loopEnd = Bin nullAnno nullSrcSpan (Plus nullAnno) startPosition localChunkSize
+												workItem_loopEnd = generateSubtractionExpr (generateAdditionExpr startPosition localChunkSize) (generateConstant 1)
 												workItem_loopCode = appendFortran_recursive workItem_reductionCode workItem_loopInitialiserCode 
 												workItem_loop = generateLoop reductionIterator startPosition workItem_loopEnd workItem_loopCode
 												workItem_reductionCode = applyGeneratedSrcSpans (replaceAllOccurences_varnamePairs fortran reductionVarNames local_reductionVars)
@@ -470,7 +483,7 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												-- workGroup_reductionArrays_str =	foldl (generateLocalReductionArrayArgStr) "" workGroup_reductionArrays
 												workGroup_reductionArraysDecl = map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (declareLocalReductionArray x (nthVar) prog)) reductionVarNames
 												workGroup_reductionArraysDeclStr = synthesiseDecls tabs workGroup_reductionArraysDecl
-												workGroup_reductionArraysInitStr = foldl (generateReductionArrayAssignment tabs localIdVar) "" (zip workGroup_reductionArrays local_reductionVars)
+												workGroup_reductionArraysInitStr = foldl (generateReductionArrayAssignment tabs localIdFortranVar) "" (zip workGroup_reductionArrays local_reductionVars)
 												workGroup_reductionCode = generateWorkGroupReduction reductionVarNames reductionIterator fortran
 												workGroup_loop = generateLoop reductionIterator (generateConstant 1) localSizeVar workGroup_reductionCode
 
@@ -478,7 +491,7 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												global_reductionArraysDecl = map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (declareGlobalReductionArray x (nunitsVar) prog)) reductionVarNames
 												global_reductionArraysDeclStr = synthesiseDecls tabs global_reductionArraysDecl
 												-- global_reductionArrays_str = foldl (generateGloablReductionArrayArgStr) "" global_reductionArrays
-												global_reductionArraysAssignmentStr = foldl (generateReductionArrayAssignment tabs groupIdVar) "" (zip global_reductionArrays local_reductionVars)
+												global_reductionArraysAssignmentStr = foldl (generateReductionArrayAssignment tabs groupIdFortranVar) "" (zip global_reductionArrays local_reductionVars)
 
 localChunkSize = generateVar (VarName nullAnno "local_chunk_size")
 startPosition  = generateVar (VarName nullAnno "start_position")
@@ -520,8 +533,9 @@ generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Global work items: " ++
 				globalWorkItems = generateGlobalWorkItemsExpr l
 
 generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"\n! Global work items: " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
-															++ "! " ++ (outputExprFormatting nunitsVar) ++" = clGetDeviceInfo( CL_DEVICE_MAX_COMPUTE_UNITS )\n"
-															++"call " ++ (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
+															++ "! Work group size: " ++ outputExprFormatting nthVar ++ "\n"
+															-- ++ "! " ++ (outputExprFormatting nunitsVar) ++" = clGetDeviceInfo( CL_DEVICE_MAX_COMPUTE_UNITS )\n"
+															++ "call " ++ (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
 															++ "(" ++ allArgumentsStr ++ ")" ++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
 			where 
 				reductionVarNames = map (\(varname, expr) -> varname) rv
