@@ -59,16 +59,16 @@ main = do
 
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile filename
-	putStr $ show $ parsedProgram
+	--putStr $ show $ parsedProgram
 	--constantFoldedProg <- foldConstants parsedProgram
-	constantFoldedProg <- mapM (foldConstants filename) parsedProgram
-	let parallelisedProg = paralleliseProgram constantFoldedProg
-	-- let parallelisedProg = paralleliseProgram parsedProgram
+	--constantFoldedProg <- mapM (foldConstants filename) parsedProgram
+	--let parallelisedProg = paralleliseProgram constantFoldedProg
+	let parallelisedProg = paralleliseProgram parsedProgram
 	let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
 
 	putStr $ compileAnnotationListing parallelisedProg
 	
-	putStr "\n"
+	--putStr "\n"
 	putStr $ compileAnnotationListing combinedProg
 	-- putStr $ show $ combinedProg
 	-- putStr "\n"

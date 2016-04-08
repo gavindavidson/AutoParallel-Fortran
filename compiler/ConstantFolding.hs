@@ -1,5 +1,8 @@
 module ConstantFolding where
 
+--In future, the compiler will perhaps employ constant folding and an expression evaluator to perform
+--more in depth analysis. However, at the moment this functionality will not be included.
+
 import Data.Generics (mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 import Data.Char
