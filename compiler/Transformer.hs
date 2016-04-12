@@ -130,8 +130,6 @@ paralleliseLoop loopVars accessAnalysis loop 	=  -- appendAnnotation (
 										Just a -> loopVars ++ [a]
 										Nothing -> loopVars
 
-									-- varValueRecords = (\(_,x,_,_) -> x) accessAnalysis
-									localVarRecords = (\(x,_,_,_) -> x) accessAnalysis
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies loop
 									loopWrites = extractWrites_query loop
