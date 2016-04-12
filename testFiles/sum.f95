@@ -1,4 +1,4 @@
-#define size 1024
+#define size 512
 program sum
 
 	integer, dimension(size) :: a
