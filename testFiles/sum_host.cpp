@@ -12,10 +12,10 @@
 #include "cl.hpp"
 #include "util.hpp"
 
-#define nth 2
-#define nunits 2
+#define nth 8
+#define nunits 16
 #define debug 0
-#define tsize 1024
+#define tsize 81920000
 
 using std::cout;
 using std::endl;
@@ -185,10 +185,11 @@ int main(int argc, char* argv[]){
 	if (debug){
 		cout << "]" << endl;
 	}
-
+	
+	cout << "Values: " << tsize << endl;
+	
 	cout << "OpenCL run time: " << time_span.count() << endl;
-	cout << "OpenCL final total: " << ocl_total << endl << endl;
-
+	cout << "OpenCL final total: " << ocl_total << endl;
 	start = std::chrono::high_resolution_clock::now();
 	int seq_total = 0;
 	for (int i = 0; i < tsize; i++){
@@ -203,6 +204,6 @@ int main(int argc, char* argv[]){
 	if (seq_total == ocl_total){
 		result = "Test pasess";
 	}
-	cout << result << endl;
+	cout << result << endl << endl;
 
 }

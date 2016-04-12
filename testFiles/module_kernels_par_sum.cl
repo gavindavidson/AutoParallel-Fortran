@@ -20,7 +20,7 @@ __kernel void reduce_total_41(__global int *a,__global int *global_total_array) 
 
   local_id_fortran = (local_id + 1);
   group_id_fortran = (group_id + 1);
-  local_chunk_size = ((512 / 8) / 16);
+  local_chunk_size = ((81920000 / 8) / 16);
   start_position = local_chunk_size * global_id;
   local_total = 0;
   for (r_iter=start_position;r_iter<=((start_position + local_chunk_size) - 1);r_iter++) {
