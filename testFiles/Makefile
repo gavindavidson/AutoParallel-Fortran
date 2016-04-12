@@ -7,3 +7,7 @@ sum_host: sum_host.o
 
 sum_host.o: sum_host.cpp
 	g++ -c -std=c++11 -Wno-deprecated-declarations sum_host.cpp -I/opt/AMDAPP/include
+	#KombuchaShroomz
+	
+	#/usr/bin/X11/g++-4.8 -c -std=c++11 -Wno-deprecated-declarations sum_host.cpp -I/opt/AMDAPP/include
+	#Curieuse

@@ -101,11 +101,6 @@ int main(int argc, char* argv[]){
 		result_array[i] = 0;
 	}
 
-	local_array = (int *)malloc(sizeof(int)*nth);
-	for (int i = 0; i < nth; i++){
-		local_array[i] = 0;
-	}
-
 	input_buffer = cl::Buffer(device_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
 		sizeof(int)*tsize, input_array, &err);
 	checkErr(err, "input_buffer");
