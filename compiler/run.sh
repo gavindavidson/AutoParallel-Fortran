@@ -1,7 +1,8 @@
 folder="../testFiles"
 # folder="../../MSc_project/LES/F95Sources"
 # filename="params_common_sn.f95"
-filename="sum.f95"
+# filename="sum.f95"
+filename="multiply.f95"
 # filename="press.f95"
 # # ../codeBase_tests/adam.f95  
 # #../codeBase_tests/bondv1.f95  

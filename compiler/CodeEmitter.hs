@@ -281,6 +281,8 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap _ src r w l fortran) = 
 																	++ readDeclStr
 																	++ writtenDeclStr
 																	++ generalDeclStr
+																	++ tabs ++ globalIdDeclaration
+																	++ tabs ++ globalIdInitialisation
 																	++ "\n"
 																	++ tabs ++ "! " ++ compilerName ++ ": Synthesised loop variables\n"
 																	++ produceCode_fortran (tabs) originalLines loopInitialiserCode 
@@ -317,6 +319,9 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap _ src r w l fortran) = 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (writtenDecls)
 												generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (generalDecls)
+
+												globalIdDeclaration = "integer :: " ++ outputExprFormatting globalIdVar ++ "\n"
+												globalIdInitialisation = "call " ++ outputExprFormatting (getGlobalID globalIdVar) ++ "\n"
 
 												loopInitialisers = generateLoopInitialisers l globalIdVar Nothing
 												loopInitialiserCode = case loopInitialisers of
