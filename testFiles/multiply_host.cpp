@@ -12,8 +12,8 @@
 #include "cl.hpp"
 #include "util.hpp"
 
-#define nth 2
-#define nunits 2
+#define nth 32
+#define nunits 16
 #define debug 0
 // #define tsize 1024
 
@@ -176,7 +176,7 @@ int main(int argc, char* argv[]){
 
 	start = std::chrono::high_resolution_clock::now();
 
-	err = command_queue.enqueueNDRangeKernel(multiply_kernel, cl::NullRange, cl::NDRange(tsize), cl::NullRange	, NULL, &end_event);
+	err = command_queue.enqueueNDRangeKernel(multiply_kernel, cl::NullRange, cl::NDRange(tsize), cl::NDRange(nth)	, NULL, &end_event);
 	checkErr(err, "multiply_kernel: enqueueNDRangeKernel()");
 	end_event.wait();
 
