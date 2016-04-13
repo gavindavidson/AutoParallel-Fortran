@@ -15,16 +15,23 @@
 #define nth 2
 #define nunits 2
 #define debug 0
-#define tsize 1024
+// #define tsize 1024
 
 using std::cout;
+using std::cerr;
 using std::endl;
 using std::string;
 using std::vector;
 
+extern"C"{
+	void fortransum(int *array, int *size, int *result);
+	// void test_(int *array);
+}
+
 cl_int err;
 cl::Buffer input_buffer, result_buffer;
 int *input_array, *result_array;
+int tsize;
 
 std::chrono::high_resolution_clock::time_point start, end;
 std::chrono::duration<double> time_span;
@@ -43,6 +50,8 @@ inline void
 }
 
 int main(int argc, char* argv[]){
+	tsize = atoi(argv[1]);
+
 	vector<cl::Platform> platforms;
 	string platform_name;
 	cl::Platform::get(&platforms);
@@ -59,11 +68,11 @@ int main(int argc, char* argv[]){
 		NULL,
 		NULL,
 		&err);
-
-	if (err == CL_SUCCESS){
+	if (err == CL_SUCCESS && debug){
 		cout << "Initialised for CPU" << endl;
 	}
-	else {
+
+	if ((err != CL_SUCCESS)){
 		// Try GPU context
 		device_context = cl::Context(
 			CL_DEVICE_TYPE_GPU,
@@ -71,11 +80,28 @@ int main(int argc, char* argv[]){
 			NULL,
 			NULL,
 			&err);
-
-		if (err == CL_SUCCESS){
-			cout << "Initialised for GPU" << endl;
-		}
+			if ((err == CL_SUCCESS) && debug){
+				cout << "Initialised for GPU" << endl;
+			}
 	}
+
+
+	// if ((err == CL_SUCCESS)){
+	// 	cerr << "Initialised for CPU" << endl;
+	// }
+	// else {
+	// 	// Try GPU context
+	// 	device_context = cl::Context(
+	// 		CL_DEVICE_TYPE_GPU,
+	// 		context_props,
+	// 		NULL,
+	// 		NULL,
+	// 		&err);
+
+	// 	if ((err == CL_SUCCESS)){
+	// 		cerr << "Initialised for GPU" << endl;
+	// 	}
+	// }
 	vector<cl::Device> devices;
 	devices = device_context.getInfo<CL_CONTEXT_DEVICES>();
 	checkErr(devices.size() > 0 ? CL_SUCCESS : -1, "devices.size() > 0");
@@ -87,13 +113,15 @@ int main(int argc, char* argv[]){
 	int threads;
 	devices[0].getInfo(CL_DEVICE_MAX_WORK_GROUP_SIZE, &threads);
 	checkErr(err, "device_context()");
-	cout << "Running on: " << device_name << endl;
-	cout << "\tCompute Units: " << compute_units << endl;
-	cout << "\tThreads per unit: " << threads << endl;
+	if (debug){
+		cout << "Running on: " << device_name << endl;
+		cout << "\tCompute Units: " << compute_units << endl;
+		cout << "\tThreads per unit: " << threads << endl;
+	}
 
 	input_array = (int *)malloc(sizeof(int)*tsize);
 	for (int i = 0; i < tsize; i++){
-		input_array[i] = i;
+		input_array[i] = rand()%100;
 	}
 
 	result_array = (int *)malloc(sizeof(int)*nunits);
@@ -121,7 +149,7 @@ int main(int argc, char* argv[]){
 	checkErr(err, "Program::build(): kernel_prog");
 
 	// Build kernel object
-	sum_kernel = cl::Kernel(kernel_prog, "reduce_total_41");
+	sum_kernel = cl::Kernel(kernel_prog, "reduce_result_out_8");
 	checkErr(err, "sum_kernel");	
 
 
@@ -145,18 +173,16 @@ int main(int argc, char* argv[]){
 	// Assign arguments
 	sum_kernel.setArg(0, input_buffer);
 	checkErr(err, "sum_kernel: kernel(0)");
-	sum_kernel.setArg(1, result_buffer);
+	sum_kernel.setArg(1, tsize);
 	checkErr(err, "sum_kernel: kernel(1)");
+	sum_kernel.setArg(2, result_buffer);
+	checkErr(err, "sum_kernel: kernel(2)");
 
 	start = std::chrono::high_resolution_clock::now();
 
 	err = command_queue.enqueueNDRangeKernel(sum_kernel, cl::NullRange, cl::NDRange(nunits*nth), cl::NDRange(nth)	, NULL, &end_event);
 	checkErr(err, "sum_kernel: enqueueNDRangeKernel()");
 	end_event.wait();
-
-	end = std::chrono::high_resolution_clock::now();
-
-	time_span = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 
 	err = command_queue.enqueueReadBuffer(result_buffer, CL_TRUE, 0,
 		sizeof(int)*nunits, result_array);
@@ -173,36 +199,51 @@ int main(int argc, char* argv[]){
 		}
 		cout << "]" << endl;
 		cout << "[" << result_array[0];
-	}
-
-	int ocl_total = result_array[0];
-	for (int i = 1; i < nunits; i++){
-		if (debug){
+		for (int i = 1; i < nunits; i++){
 			cout << ", " << result_array[i];
 		}
-		ocl_total = ocl_total + result_array[i];
-	}
-	if (debug){
 		cout << "]" << endl;
 	}
 
-	cout << "OpenCL run time: " << time_span.count() << endl;
-	cout << "OpenCL final total: " << ocl_total << endl << endl;
-
-	start = std::chrono::high_resolution_clock::now();
-	int seq_total = 0;
-	for (int i = 0; i < tsize; i++){
-		seq_total = seq_total + input_array[i];
+	int ocl_total = result_array[0];	
+	for (int i = 1; i < nunits; i++){
+		ocl_total = ocl_total + result_array[i];
 	}
 	end = std::chrono::high_resolution_clock::now();
 	time_span = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+	double ocl_runtime = time_span.count();
 
-	cout << "Sequential run time: " << time_span.count() << endl;
-	cout << "Sequential final total: " << seq_total << endl;
-	string result = "Test fails";
-	if (seq_total == ocl_total){
-		result = "Test pasess";
+	if (debug){
+		cout << "Values: " << tsize << endl;
+		cout << "OpenCL run time: " << ocl_runtime << endl;
+		cout << "OpenCL final total: " << ocl_total << endl << endl;
 	}
-	cout << result << endl;
+
+	start = std::chrono::high_resolution_clock::now();
+	int seq_total;
+	fortransum(input_array, &tsize, &seq_total);
+	end = std::chrono::high_resolution_clock::now();
+	time_span = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+	double seq_runtime = time_span.count();
+
+	if (debug){
+		cout << "Fortran run time: "  << time_span.count() << endl;
+		cout << "Fortran final total: " << seq_total << endl;
+	}
+	else{
+		string test_str = "Failed";
+		if (seq_total == ocl_total){
+			test_str = "Passed";
+		}
+		cout << device_name 
+			<< "\tValues: " << tsize
+			<< "\tTest: " << test_str 
+			<< "\tOcl: " << ocl_runtime 
+			<< "\tSeq: " << seq_runtime << endl;
+	}
+
+	if (seq_total != ocl_total){
+		cerr << "Test fails: " << seq_total << " != " << ocl_total << endl;
+	}
 
 }
