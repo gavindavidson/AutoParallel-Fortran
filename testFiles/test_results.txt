@@ -1,0 +1,363 @@
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32601
+Values: 128
+OpenCL run time: 2.3281e-05
+OpenCL final total: 8128
+Sequential run time: 3.51e-07
+Sequential final total: 8128
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32544
+Values: 128
+OpenCL run time: 2.2805e-05
+OpenCL final total: 8128
+Sequential run time: 3.51e-07
+Sequential final total: 8128
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32648
+Values: 128
+OpenCL run time: 2.2871e-05
+OpenCL final total: 8128
+Sequential run time: 3.53e-07
+Sequential final total: 8128
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32696
+Values: 256
+OpenCL run time: 2.2983e-05
+OpenCL final total: 32640
+Sequential run time: 5.96e-07
+Sequential final total: 32640
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32735
+Values: 256
+OpenCL run time: 2.3187e-05
+OpenCL final total: 32640
+Sequential run time: 6.74e-07
+Sequential final total: 32640
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32683
+Values: 256
+OpenCL run time: 2.3562e-05
+OpenCL final total: 32640
+Sequential run time: 6.09e-07
+Sequential final total: 32640
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32727
+Values: 512
+OpenCL run time: 3.6989e-05
+OpenCL final total: 130816
+Sequential run time: 2.666e-06
+Sequential final total: 130816
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32742
+Values: 512
+OpenCL run time: 2.3153e-05
+OpenCL final total: 130816
+Sequential run time: 1.076e-06
+Sequential final total: 130816
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32696
+Values: 512
+OpenCL run time: 2.3373e-05
+OpenCL final total: 130816
+Sequential run time: 1.14e-06
+Sequential final total: 130816
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32644
+Values: 1024
+OpenCL run time: 2.396e-05
+OpenCL final total: 523776
+Sequential run time: 2.302e-06
+Sequential final total: 523776
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32596
+Values: 1024
+OpenCL run time: 2.355e-05
+OpenCL final total: 523776
+Sequential run time: 2.094e-06
+Sequential final total: 523776
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32566
+Values: 1024
+OpenCL run time: 2.323e-05
+OpenCL final total: 523776
+Sequential run time: 2.069e-06
+Sequential final total: 523776
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32716
+Values: 2048
+OpenCL run time: 2.3662e-05
+OpenCL final total: 2096128
+Sequential run time: 4.158e-06
+Sequential final total: 2096128
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32674
+Values: 2048
+OpenCL run time: 2.4328e-05
+OpenCL final total: 2096128
+Sequential run time: 4.174e-06
+Sequential final total: 2096128
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32604
+Values: 2048
+OpenCL run time: 2.4117e-05
+OpenCL final total: 2096128
+Sequential run time: 4.161e-06
+Sequential final total: 2096128
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32589
+Values: 4096
+OpenCL run time: 2.7371e-05
+OpenCL final total: 8386560
+Sequential run time: 8.359e-06
+Sequential final total: 8386560
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32624
+Values: 4096
+OpenCL run time: 2.6122e-05
+OpenCL final total: 8386560
+Sequential run time: 8.437e-06
+Sequential final total: 8386560
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32542
+Values: 4096
+OpenCL run time: 2.6204e-05
+OpenCL final total: 8386560
+Sequential run time: 7.982e-06
+Sequential final total: 8386560
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32681
+Values: 8192
+OpenCL run time: 2.8969e-05
+OpenCL final total: 33550336
+Sequential run time: 1.6386e-05
+Sequential final total: 33550336
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32736
+Values: 8192
+OpenCL run time: 2.945e-05
+OpenCL final total: 33550336
+Sequential run time: 1.7027e-05
+Sequential final total: 33550336
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32692
+Values: 8192
+OpenCL run time: 2.9475e-05
+OpenCL final total: 33550336
+Sequential run time: 1.63e-05
+Sequential final total: 33550336
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32657
+Values: 81920
+OpenCL run time: 8.2237e-05
+OpenCL final total: -939565056
+Sequential run time: 0.000165323
+Sequential final total: -939565056
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32560
+Values: 81920
+OpenCL run time: 8.2012e-05
+OpenCL final total: -939565056
+Sequential run time: 0.000166455
+Sequential final total: -939565056
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32555
+Values: 81920
+OpenCL run time: 8.233e-05
+OpenCL final total: -939565056
+Sequential run time: 0.000161159
+Sequential final total: -939565056
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32709
+Values: 819200
+OpenCL run time: 0.000636464
+OpenCL final total: 536461312
+Sequential run time: 0.00169996
+Sequential final total: 536461312
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32728
+Values: 819200
+OpenCL run time: 0.000636548
+OpenCL final total: 536461312
+Sequential run time: 0.00169219
+Sequential final total: 536461312
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32644
+Values: 819200
+OpenCL run time: 0.00063684
+OpenCL final total: 536461312
+Sequential run time: 0.0016646
+Sequential final total: 536461312
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32598
+Values: 8192000
+OpenCL run time: 0.00614241
+OpenCL final total: 2143387648
+Sequential run time: 0.0165689
+Sequential final total: 2143387648
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32760
+Values: 8192000
+OpenCL run time: 0.00614128
+OpenCL final total: 2143387648
+Sequential run time: 0.0164215
+Sequential final total: 2143387648
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32753
+Values: 8192000
+OpenCL run time: 0.00614684
+OpenCL final total: 2143387648
+Sequential run time: 0.016411
+Sequential final total: 2143387648
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32735
+Values: 81920000
+OpenCL run time: 0.061206
+OpenCL final total: -40960000
+Sequential run time: 0.164566
+Sequential final total: -40960000
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32577
+Values: 81920000
+OpenCL run time: 0.0612352
+OpenCL final total: -40960000
+Sequential run time: 0.165619
+Sequential final total: -40960000
+Test pasess
+
+Initialised for GPU
+Running on: GeForce GTX 590
+	Compute Units: 16
+	Threads per unit: 32751
+Values: 81920000
+OpenCL run time: 0.0611994
+OpenCL final total: -40960000
+Sequential run time: 0.164663
+Sequential final total: -40960000
+Test pasess
+

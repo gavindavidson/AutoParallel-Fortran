@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 module sum
  contains
 	subroutine fortransum(input_array, tsize, result_out) bind(C,name='fortransum')
@@ -21,7 +22,6 @@ end module sum
 ! 	do i = 1, size
 ! 		a(i) = i-1
 ! 	end do
-
 ! 	total = 0
 ! 	do i = 1, size
 ! 		total = total + a(i)

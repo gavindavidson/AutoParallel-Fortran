@@ -12,8 +12,8 @@
 #include "cl.hpp"
 #include "util.hpp"
 
-#define nth 2
-#define nunits 2
+#define nth 8
+#define nunits 16
 #define debug 0
 // #define tsize 1024
 
