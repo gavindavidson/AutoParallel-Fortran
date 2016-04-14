@@ -176,7 +176,7 @@ int main(int argc, char* argv[]){
 
 	start = std::chrono::high_resolution_clock::now();
 
-	err = command_queue.enqueueNDRangeKernel(multiply_kernel, cl::NullRange, cl::NDRange(tsize), cl::NDRange(nth)	, NULL, &end_event);
+	err = command_queue.enqueueNDRangeKernel(multiply_kernel, cl::NullRange, cl::NDRange(tsize), cl::NDRange(nth*nunits)	, NULL, &end_event);
 	checkErr(err, "multiply_kernel: enqueueNDRangeKernel()");
 	end_event.wait();
 

@@ -96,3 +96,102 @@ GeForce GTX 590	Values: 20480000	Test: Passed	Ocl: 0.0259891	Seq: 0.065137
 Wed Apr 13 18:31:31 UTC 2016
 ---
 
+---
+
+---
+Thu Apr 14 10:00:25 UTC 2016
+GeForce GTX 590	Values: 1024	Test: Passed	Ocl: 4.049e-05	Seq: 2.42e-06
+GeForce GTX 590	Values: 1024	Test: Passed	Ocl: 4.1936e-05	Seq: 2.628e-06
+GeForce GTX 590	Values: 1024	Test: Passed	Ocl: 4.1561e-05	Seq: 2.432e-06
+GeForce GTX 590	Values: 2048	Test: Passed	Ocl: 4.3375e-05	Seq: 6.032e-06
+GeForce GTX 590	Values: 2048	Test: Passed	Ocl: 4.2987e-05	Seq: 5.8e-06
+GeForce GTX 590	Values: 2048	Test: Passed	Ocl: 4.2061e-05	Seq: 5.881e-06
+GeForce GTX 590	Values: 4096	Test: Passed	Ocl: 4.6272e-05	Seq: 1.2006e-05
+GeForce GTX 590	Values: 4096	Test: Passed	Ocl: 4.6302e-05	Seq: 1.1963e-05
+GeForce GTX 590	Values: 4096	Test: Passed	Ocl: 4.6211e-05	Seq: 1.1944e-05
+GeForce GTX 590	Values: 8192	Test: Passed	Ocl: 5.4823e-05	Seq: 2.6633e-05
+GeForce GTX 590	Values: 8192	Test: Passed	Ocl: 5.3993e-05	Seq: 2.6033e-05
+GeForce GTX 590	Values: 8192	Test: Passed	Ocl: 5.4339e-05	Seq: 2.553e-05
+GeForce GTX 590	Values: 10240	Test: Passed	Ocl: 5.8161e-05	Seq: 3.2029e-05
+GeForce GTX 590	Values: 10240	Test: Passed	Ocl: 5.741e-05	Seq: 3.2691e-05
+GeForce GTX 590	Values: 10240	Test: Passed	Ocl: 6.331e-05	Seq: 3.2604e-05
+GeForce GTX 590	Values: 12288	Test: Passed	Ocl: 6.1863e-05	Seq: 3.8798e-05
+GeForce GTX 590	Values: 12288	Test: Passed	Ocl: 6.0937e-05	Seq: 3.7554e-05
+GeForce GTX 590	Values: 12288	Test: Passed	Ocl: 6.1182e-05	Seq: 3.8729e-05
+GeForce GTX 590	Values: 14336	Test: Passed	Ocl: 6.4079e-05	Seq: 4.4028e-05
+GeForce GTX 590	Values: 14336	Test: Passed	Ocl: 6.4362e-05	Seq: 4.4732e-05
+GeForce GTX 590	Values: 14336	Test: Passed	Ocl: 6.5048e-05	Seq: 4.6772e-05
+GeForce GTX 590	Values: 16384	Test: Passed	Ocl: 6.8425e-05	Seq: 4.9646e-05
+GeForce GTX 590	Values: 16384	Test: Passed	Ocl: 6.7914e-05	Seq: 5.2655e-05
+GeForce GTX 590	Values: 16384	Test: Passed	Ocl: 6.8625e-05	Seq: 5.2494e-05
+GeForce GTX 590	Values: 18432	Test: Passed	Ocl: 7.1376e-05	Seq: 5.7414e-05
+GeForce GTX 590	Values: 18432	Test: Passed	Ocl: 7.2072e-05	Seq: 5.8559e-05
+GeForce GTX 590	Values: 18432	Test: Passed	Ocl: 7.1346e-05	Seq: 5.6107e-05
+GeForce GTX 590	Values: 20480	Test: Passed	Ocl: 7.4859e-05	Seq: 6.427e-05
+GeForce GTX 590	Values: 20480	Test: Passed	Ocl: 7.5614e-05	Seq: 6.5976e-05
+GeForce GTX 590	Values: 20480	Test: Passed	Ocl: 7.4952e-05	Seq: 6.445e-05
+---
+GeForce GTX 590	Values: 10240	Test: Passed	Ocl: 5.8326e-05	Seq: 3.3749e-05
+GeForce GTX 590	Values: 10240	Test: Passed	Ocl: 5.7167e-05	Seq: 3.1427e-05
+GeForce GTX 590	Values: 10240	Test: Passed	Ocl: 5.7422e-05	Seq: 3.3677e-05
+GeForce GTX 590	Values: 20480	Test: Passed	Ocl: 7.4414e-05	Seq: 6.4039e-05
+GeForce GTX 590	Values: 20480	Test: Passed	Ocl: 7.5465e-05	Seq: 6.6298e-05
+GeForce GTX 590	Values: 20480	Test: Passed	Ocl: 7.5926e-05	Seq: 6.619e-05
+GeForce GTX 590	Values: 40960	Test: Passed	Ocl: 0.00011197	Seq: 0.000129282
+GeForce GTX 590	Values: 40960	Test: Passed	Ocl: 0.000112767	Seq: 0.00013143
+GeForce GTX 590	Values: 40960	Test: Passed	Ocl: 0.000113144	Seq: 0.000133948
+GeForce GTX 590	Values: 81920	Test: Passed	Ocl: 0.000186003	Seq: 0.000258903
+GeForce GTX 590	Values: 81920	Test: Passed	Ocl: 0.000185513	Seq: 0.000253201
+GeForce GTX 590	Values: 81920	Test: Passed	Ocl: 0.000185539	Seq: 0.000259739
+GeForce GTX 590	Values: 102400	Test: Passed	Ocl: 0.000222306	Seq: 0.000317284
+GeForce GTX 590	Values: 102400	Test: Passed	Ocl: 0.000223247	Seq: 0.000322371
+GeForce GTX 590	Values: 102400	Test: Passed	Ocl: 0.000221831	Seq: 0.000322798
+GeForce GTX 590	Values: 122880	Test: Passed	Ocl: 0.000258226	Seq: 0.000390361
+GeForce GTX 590	Values: 122880	Test: Passed	Ocl: 0.000259211	Seq: 0.000389251
+GeForce GTX 590	Values: 122880	Test: Passed	Ocl: 0.000260573	Seq: 0.000389623
+GeForce GTX 590	Values: 143360	Test: Passed	Ocl: 0.000294229	Seq: 0.000440662
+GeForce GTX 590	Values: 143360	Test: Passed	Ocl: 0.000295083	Seq: 0.000442779
+GeForce GTX 590	Values: 143360	Test: Passed	Ocl: 0.000297284	Seq: 0.000454902
+GeForce GTX 590	Values: 163840	Test: Passed	Ocl: 0.000332647	Seq: 0.000506565
+GeForce GTX 590	Values: 163840	Test: Passed	Ocl: 0.000332363	Seq: 0.000506488
+GeForce GTX 590	Values: 163840	Test: Passed	Ocl: 0.000336776	Seq: 0.000507933
+GeForce GTX 590	Values: 184320	Test: Passed	Ocl: 0.000368614	Seq: 0.000565772
+GeForce GTX 590	Values: 184320	Test: Passed	Ocl: 0.000368511	Seq: 0.000570351
+GeForce GTX 590	Values: 184320	Test: Passed	Ocl: 0.000370106	Seq: 0.000569024
+GeForce GTX 590	Values: 204800	Test: Passed	Ocl: 0.000405193	Seq: 0.000642775
+GeForce GTX 590	Values: 204800	Test: Passed	Ocl: 0.000405047	Seq: 0.000635754
+GeForce GTX 590	Values: 204800	Test: Passed	Ocl: 0.000406307	Seq: 0.000631507
+---
+GeForce GTX 590	Values: 1024000	Test: Passed	Ocl: 0.00132235	Seq: 0.00325148
+GeForce GTX 590	Values: 1024000	Test: Passed	Ocl: 0.0013216	Seq: 0.00323833
+GeForce GTX 590	Values: 1024000	Test: Passed	Ocl: 0.00132736	Seq: 0.00325828
+GeForce GTX 590	Values: 2048000	Test: Passed	Ocl: 0.00260207	Seq: 0.00653138
+GeForce GTX 590	Values: 2048000	Test: Passed	Ocl: 0.00260242	Seq: 0.0065374
+GeForce GTX 590	Values: 2048000	Test: Passed	Ocl: 0.00260254	Seq: 0.00656419
+GeForce GTX 590	Values: 4096000	Test: Passed	Ocl: 0.00516478	Seq: 0.0130342
+GeForce GTX 590	Values: 4096000	Test: Passed	Ocl: 0.00516385	Seq: 0.0130919
+GeForce GTX 590	Values: 4096000	Test: Passed	Ocl: 0.00516498	Seq: 0.0130625
+GeForce GTX 590	Values: 8192000	Test: Passed	Ocl: 0.0102918	Seq: 0.0261686
+GeForce GTX 590	Values: 8192000	Test: Passed	Ocl: 0.0102883	Seq: 0.0260949
+GeForce GTX 590	Values: 8192000	Test: Passed	Ocl: 0.0102913	Seq: 0.0259642
+GeForce GTX 590	Values: 10240000	Test: Passed	Ocl: 0.0128603	Seq: 0.0327589
+GeForce GTX 590	Values: 10240000	Test: Passed	Ocl: 0.0128597	Seq: 0.0326467
+GeForce GTX 590	Values: 10240000	Test: Passed	Ocl: 0.0128691	Seq: 0.0328196
+GeForce GTX 590	Values: 12288000	Test: Passed	Ocl: 0.0154153	Seq: 0.0389535
+GeForce GTX 590	Values: 12288000	Test: Passed	Ocl: 0.0154135	Seq: 0.0390672
+GeForce GTX 590	Values: 12288000	Test: Passed	Ocl: 0.0154125	Seq: 0.039038
+GeForce GTX 590	Values: 14336000	Test: Passed	Ocl: 0.0179907	Seq: 0.0454505
+GeForce GTX 590	Values: 14336000	Test: Passed	Ocl: 0.0179883	Seq: 0.0454614
+GeForce GTX 590	Values: 14336000	Test: Passed	Ocl: 0.0179995	Seq: 0.0454447
+GeForce GTX 590	Values: 16384000	Test: Passed	Ocl: 0.0205325	Seq: 0.0518533
+GeForce GTX 590	Values: 16384000	Test: Passed	Ocl: 0.0205336	Seq: 0.05188
+GeForce GTX 590	Values: 16384000	Test: Passed	Ocl: 0.0205369	Seq: 0.0517133
+GeForce GTX 590	Values: 18432000	Test: Passed	Ocl: 0.0231696	Seq: 0.0581113
+GeForce GTX 590	Values: 18432000	Test: Passed	Ocl: 0.0231416	Seq: 0.0581263
+GeForce GTX 590	Values: 18432000	Test: Passed	Ocl: 0.0231373	Seq: 0.0580214
+GeForce GTX 590	Values: 20480000	Test: Passed	Ocl: 0.0256754	Seq: 0.0643439
+GeForce GTX 590	Values: 20480000	Test: Passed	Ocl: 0.0257054	Seq: 0.0644802
+GeForce GTX 590	Values: 20480000	Test: Passed	Ocl: 0.0256732	Seq: 0.064466
+Thu Apr 14 10:02:27 UTC 2016
+---
+
