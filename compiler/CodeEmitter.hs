@@ -21,8 +21,8 @@ import LanguageFortranTools
 --	The strategy taken is one of traversing the AST and emitting any unchanged host code. Where kernels are encountered,
 --	calls to the new kernel are emittied. The AST is then traversed again to extract all kernels and then the kernels are
 --	emitted.
-emit :: String -> Maybe(String) -> Program Anno -> IO ()
-emit filename specified ast = do
+emit :: [String] -> String -> Maybe(String) -> Program Anno -> IO ()
+emit cppDFlags filename specified ast = do
 				let newFilename = case specified of
 							Nothing -> defaultFilename (splitOn "/" filename)
 							Just spec -> spec
@@ -31,7 +31,7 @@ emit filename specified ast = do
 				let kernelModuleNamePath = generateKernelModuleName (splitOn "/" newFilename)
 				let kernelModuleName = getModuleName kernelModuleNamePath
 				
-				originalLines <- readOriginalFileLines filename
+				originalLines <- readOriginalFileLines cppDFlags filename
 				let originalListing = case originalLines of
 										[]	-> ""
 										_ -> foldl (\accum item -> accum ++ "\n" ++ item) (head originalLines) (tail originalLines)
@@ -64,9 +64,9 @@ generateOriginalFileName (x:xs) = x ++ "/" ++ generateOriginalFileName xs
 
 --	This function produces a list of strings where each element is a line of the original source. This
 --	list is used heavily in this module.
-readOriginalFileLines :: String -> IO ([String])
-readOriginalFileLines filename = do
-				content <- cpp filename
+readOriginalFileLines :: [String] -> String -> IO ([String])
+readOriginalFileLines cppDFlags filename = do
+				content <- cpp cppDFlags filename
 				let contentLines = lines content
 				return contentLines
 

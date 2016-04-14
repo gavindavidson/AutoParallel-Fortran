@@ -16,49 +16,55 @@ import VarDependencyAnalysis
 import LanguageFortranTools
 import CodeEmitter
 import LoopAnalysis
-import ConstantFolding
 
 main :: IO ()
 main = do
-	putStr "STUFF TO DO:\n"
-	putStr "\t- Check for identity value (reduction)\n"
-	putStr "<DONE>\t- Finish kernel emission\n"
-	putStr "<DONE>\t- Emit code for final host reductions\n"
-	putStr "<HALF>\t- Emit NDRange information to host\n"
-	putStr "\t\t- .. in correct format for Wim's compiler\n"
-	putStr "<DONE>\t- Produce CPP'd version of code\n"
-	putStr "<DONE>\t- Make kernels subroutines\n"
-	putStr "<DONE>\t- Unique kernel names\n"
-	putStr "<DONE>\t- Add kernels/subroutines to module for each original source file\n"
-	putStr "<DONE>\t- Add declarations for arguments to kernels\n"
-	putStr "<DONE>\t- Add integer :: g_id, get_global_id(g_id,0) code segments\n"
-	putStr "<DONE>\t- Make annotations String -> Anno maps\n"
-	putStr "<DONE>\t- Make kernel loop variable calculations deal with different starts\n"
-	putStr "<DONE>\t- Update error messages (\"i, j, k were not used\")\n"
-	putStr "<WORKS>\t- Test reduce and map combination\n"
-	putStr "\t- Array/scaler optimisations\n"
-	putStr "<DONE>\t- Make output prettier\n"
-	putStr "<TBC>\t- Fix generated kernel code (Wim's email)\n"
-	putStr "<DONE>\t- Fix if block generation to include elses\n"
-	putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
-	putStr "<DONE>\t- Subroutine name case issue (velfg.f95)\n"
-	putStr "<DONE>\t- Missing \"end subroutine blah\"s\n"
-	putStr "\t- Throw error when kernel contains another kernel (that is not perfectly nested\n"
+	-- putStr "STUFF TO DO:\n"
+	-- putStr "\t- Check for identity value (reduction)\n"
+	-- putStr "<DONE>\t- Finish kernel emission\n"
+	-- putStr "<DONE>\t- Emit code for final host reductions\n"
+	-- putStr "<HALF>\t- Emit NDRange information to host\n"
+	-- putStr "\t\t- .. in correct format for Wim's compiler\n"
+	-- putStr "<DONE>\t- Produce CPP'd version of code\n"
+	-- putStr "<DONE>\t- Make kernels subroutines\n"
+	-- putStr "<DONE>\t- Unique kernel names\n"
+	-- putStr "<DONE>\t- Add kernels/subroutines to module for each original source file\n"
+	-- putStr "<DONE>\t- Add declarations for arguments to kernels\n"
+	-- putStr "<DONE>\t- Add integer :: g_id, get_global_id(g_id,0) code segments\n"
+	-- putStr "<DONE>\t- Make annotations String -> Anno maps\n"
+	-- putStr "<DONE>\t- Make kernel loop variable calculations deal with different starts\n"
+	-- putStr "<DONE>\t- Update error messages (\"i, j, k were not used\")\n"
+	-- putStr "<WORKS>\t- Test reduce and map combination\n"
+	-- putStr "\t- Array/scaler optimisations\n"
+	-- putStr "<DONE>\t- Make output prettier\n"
+	-- putStr "<TBC>\t- Fix generated kernel code (Wim's email)\n"
+	-- putStr "<DONE>\t- Fix if block generation to include elses\n"
+	-- putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
+	-- putStr "<DONE>\t- Subroutine name case issue (velfg.f95)\n"
+	-- putStr "<DONE>\t- Missing \"end subroutine blah\"s\n"
+	-- putStr "\t- Throw error when kernel contains another kernel (that is not perfectly nested\n"
 	-- putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
 	-- putStr "\t- Fix VarAccessAnalysis to deal with ifs better\n"
-	putStr "\n"
+	-- putStr "\n"
 
 	args <- getArgs
 	let argMap = processArgs args
 
-	let filename = DMap.findWithDefault (usageError) filenameFlag argMap
-	let newFilename = DMap.lookup outFileFlag argMap
+	let filename = case DMap.lookup filenameFlag argMap of
+						Just filename -> (head filename)
+						Nothing -> usageError
+	let newFilename = case DMap.lookup outFileFlag argMap of
+						Just filename -> Just (head filename)
+						Nothing -> Nothing
 	let loopFusionBound = case DMap.lookup loopFusionBoundFlag argMap of
-							Just bound -> Just (read bound :: Float)
+							Just bound -> Just (read (head bound) :: Float)
 							Nothing -> Nothing
+	let cppDFlags = DMap.findWithDefault [] "-D" argMap
+
+	putStr (show argMap)
 
 	--a <- parseFile "../testFiles/arrayLoop.f95"
-	parsedProgram <- parseFile filename
+	parsedProgram <- parseFile cppDFlags filename
 	--putStr $ show $ parsedProgram
 	--constantFoldedProg <- foldConstants parsedProgram
 	--constantFoldedProg <- mapM (foldConstants filename) parsedProgram
@@ -74,7 +80,7 @@ main = do
 	-- putStr "\n"
 	--emit (filename) "" parsedProgram
 	
-	emit filename newFilename combinedProg
+	emit cppDFlags filename newFilename combinedProg
 
 	--emit (filename) "" parallelisedProg
 	-- putStr $ show $ parsedProgram
@@ -88,15 +94,23 @@ filenameFlag = "filename"
 outFileFlag = "-out"
 loopFusionBoundFlag = "-lfb"
 
-processArgs :: [String] -> DMap.Map String String
+processArgs :: [String] -> DMap.Map String [String]
 processArgs argList 	| 	even (length argList) = usageError
 						| 	(length argList) == 0 = usageError
-						|	otherwise = foldl (\accum (flagIndex, valueIndex) -> DMap.insert (argList!!flagIndex) (argList!!valueIndex) accum) mapWithInpFile pairArgs
+						|	otherwise = foldl (\accum (flagIndex, valueIndex) -> addArg accum (argList!!flagIndex) (argList!!valueIndex)) mapWithInpFile pairArgs
+						-- |	otherwise = foldl (\accum (flagIndex, valueIndex) -> DMap.insert (argList!!flagIndex) (argList!!valueIndex) accum) mapWithInpFile pairArgs
 		where
-			mapWithInpFile = DMap.insert filenameFlag (head argList) DMap.empty
+			-- mapWithInpFile = DMap.insert filenameFlag (head argList) DMap.empty
+			mapWithInpFile = addArg DMap.empty filenameFlag (head argList)
 			oddArgs = [1,3.. (length argList)-1]
 			evenArgs = [2,4.. (length argList)-1]
 			pairArgs = zip oddArgs evenArgs
+
+addArg :: DMap.Map String [String] -> String -> String -> DMap.Map String [String]
+addArg argMap flag value = DMap.insert flag newValues argMap
+		where
+			oldValues = DMap.findWithDefault [] flag argMap
+			newValues = oldValues ++ [value]
 
 usageError = error "USAGE: <filename> [<flag> <value>]"
 

@@ -3,7 +3,7 @@ module PreProcessor where
 import Data.Char
 
 preProcess :: String -> String
-preProcess inputStr = semiColonFix $ andOperatorFix $ orOperatorFix $ containsStatementFix $ caseStatementFix $ inputStr
+preProcess inputStr =  andOperatorFix $ orOperatorFix $ containsStatementFix $ caseStatementFix $ inputStr
 --preProcess inputStr = (show $ ((head inputStr) == '\n')) ++ "\n" ++ inputStr
 --preProcess inputStr = continuationFix $ inputStr
 
