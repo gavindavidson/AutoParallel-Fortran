@@ -94,6 +94,11 @@ extractContainedVars :: (Typeable p, Data p) => Expr p -> [Expr p]
 extractContainedVars (Var _ _ lst) = foldl (\accumExprs (itemVar, itemExprs) -> accumExprs ++ itemExprs) [] lst
 extractContainedVars _ = []
 
+extractContainedOperands :: (Typeable p, Data p) => Expr p -> [Expr p]
+extractContainedOperands expr =  foldl (\accum item -> accum ++ (extractOperands item)) [] containedVars
+				where
+					containedVars = extractContainedVars expr
+
 extractFortran :: Fortran Anno -> [Fortran Anno]
 extractFortran fort = [fort]
 
@@ -324,7 +329,7 @@ extractPrimaryReductionOp assignee (Bin _ _ op expr1 expr2) = case assigneePrese
 extractPrimaryReductionOp assignee assignment = Nothing
 
 extractPrimaryReductionFunction ::  Expr Anno -> Expr Anno -> String
-extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent "" list
+extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent "" standardisedList
 						where
 							assigneePresent = (\accum (var, exprList) -> if elem (applyGeneratedSrcSpans assignee) exprList then varnameStr var else accum)
 							standardisedList = map (\(var, exprList) -> (var, map (applyGeneratedSrcSpans) exprList)) list

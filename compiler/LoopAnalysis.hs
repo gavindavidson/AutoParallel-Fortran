@@ -171,7 +171,7 @@ analyseIteratorUse_list nonTempWrittenOperands loopVars comment = foldl (analyse
 analyseIteratorUse_single :: [Expr Anno] -> String -> Anno -> VarName Anno -> Anno
 analyseIteratorUse_single nonTempWrittenOperands comment accumAnno loopVar = resultantMap
 								where
-									offendingExprs = filter (\item -> not (elem loopVar (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars item)))) nonTempWrittenOperands
+									offendingExprs = filter (\item -> not (elem loopVar (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedOperands item) ))) nonTempWrittenOperands
 									offendingExprsStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) offendingExprs
 
 									loopVarStr = varnameStr loopVar

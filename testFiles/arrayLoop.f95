@@ -30,16 +30,14 @@ program arrayLoop
 ! a = sum
 ! ! a = sum1
 ! a = sum2
-
+a = 100
 do loop1=0, d
   do loop2=0, c
-    b(loop1,loop3) = 12+45
-    b(loop1,loop2) = 12+45
-    b(loop1,loop2) = 12+45
+    a = min(b(loop1,loop2), a)
   end do
 end do
 
-a = b(loop1, loop2)
+hello = a
 
 ! do loop1=0, d
 !   do loop2=0, c

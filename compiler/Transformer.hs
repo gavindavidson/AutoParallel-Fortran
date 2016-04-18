@@ -61,8 +61,6 @@ main = do
 							Nothing -> Nothing
 	let cppDFlags = DMap.findWithDefault [] "-D" argMap
 
-	putStr (show argMap)
-
 	--a <- parseFile "../testFiles/arrayLoop.f95"
 	parsedProgram <- parseFile cppDFlags filename
 	--putStr $ show $ parsedProgram

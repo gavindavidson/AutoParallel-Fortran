@@ -46,6 +46,8 @@ def countDos(filename):
 	while (line != ""):
 		if (line.strip()[:2]=="do"):
 			doCount += 1
+		elif (line.strip()[:12]=="call reduce_"):
+			doCount -= 1
 		line = f.readline()
 	return doCount
 
@@ -86,19 +88,43 @@ def reduceCount(filename):
 		line = f.readline()
 	return reduceCount
 
-print "FILE 1: " + sys.argv[1]
-print "FILE 2: " + sys.argv[2]
-print "LINES"
-print "\t" + str(absoluteChange()) + "\tAbsolute line change"
-print "\t" + str(percentageChange()) + "%" + "\tPercentage line change"
-print "LOOPS"
-print "\t" + str(countDos(sys.argv[1])) + "\tLoop count in " + sys.argv[1]
-print "\t" + str(countDos(sys.argv[2])) + "\tLoop count in " + sys.argv[2]
-print "\t" + str(loopChange()) + "%" + "\tPercentage of loops changed:"
-print "LOOP CLUSTERS"
-print "\t" + str(countDoClusters(sys.argv[1], False)) + "\tLoop clusters found in " + sys.argv[1]
-print "\t" + str(countDoClusters(sys.argv[2], True)) + "\tOld loop clusters found in " + sys.argv[2]
-print "\t" + str(clusterChange()) + "%" + "\tPercentage of loop clusters parallelised"
-print "KERNELS"
-print "\t" + str(mapCount(sys.argv[2])) + "\tCalls to map kernels found in " + sys.argv[2]
-print "\t" + str(reduceCount(sys.argv[2])) + "\tCalls to reduce kernels found in " + sys.argv[2]
+tableMode = False
+if ("-t" in sys.argv):
+	tableMode = True
+
+csvMode = False
+if ("-csv" in sys.argv):
+	csvMode = True
+
+if (sys.argv[1] == "-h"):
+	print "original, new file, # line change, % line change, loop count 1, loop count 2, % loop count, clusters 1, cluster 2, % clusters, maps, reduces"
+
+elif tableMode:
+	print sys.argv[1] + "\t" + sys.argv[2] + "\t" + str(absoluteChange()) + "\t" + str(percentageChange()) + \
+	"\t" + str(countDos(sys.argv[1])) + "\t" + str(countDos(sys.argv[2])) + "\t" + str(loopChange()) + "%" + \
+	"\t" + str(countDoClusters(sys.argv[1], False)) + "\t" + str(countDoClusters(sys.argv[2], True)) + "\t" + \
+	str(clusterChange()) + "%" + "\t" + str(mapCount(sys.argv[2])) + "\t" + str(reduceCount(sys.argv[2]))
+
+elif csvMode:
+	print sys.argv[1] + "," + sys.argv[2] + "," + str(absoluteChange()) + "," + str(percentageChange()) + \
+	"," + str(countDos(sys.argv[1])) + "," + str(countDos(sys.argv[2])) + "," + str(loopChange()) + "%" + \
+	"," + str(countDoClusters(sys.argv[1], False)) + "," + str(countDoClusters(sys.argv[2], True)) + "," + \
+	str(clusterChange()) + "%" + "," + str(mapCount(sys.argv[2])) + "," + str(reduceCount(sys.argv[2]))
+	
+else:
+	print "FILE 1: " + sys.argv[1]
+	print "FILE 2: " + sys.argv[2]
+	print "LINES"
+	print "\t" + str(absoluteChange()) + "\tAbsolute line change"
+	print "\t" + str(percentageChange()) + "%" + "\tPercentage line change"
+	print "LOOPS"
+	print "\t" + str(countDos(sys.argv[1])) + "\tLoop count in " + sys.argv[1]
+	print "\t" + str(countDos(sys.argv[2])) + "\tLoop count in " + sys.argv[2]
+	print "\t" + str(loopChange()) + "%" + "\tPercentage of loops changed:"
+	print "LOOP CLUSTERS"
+	print "\t" + str(countDoClusters(sys.argv[1], False)) + "\tLoop clusters found in " + sys.argv[1]
+	print "\t" + str(countDoClusters(sys.argv[2], True)) + "\tOld loop clusters found in " + sys.argv[2]
+	print "\t" + str(clusterChange()) + "%" + "\tPercentage of loop clusters parallelised"
+	print "KERNELS"
+	print "\t" + str(mapCount(sys.argv[2])) + "\tCalls to map kernels found in " + sys.argv[2]
+	print "\t" + str(reduceCount(sys.argv[2])) + "\tCalls to reduce kernels found in " + sys.argv[2]
