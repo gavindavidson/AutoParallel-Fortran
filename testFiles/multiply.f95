@@ -1,6 +1,6 @@
 module multiply
 contains
-  subroutine fortranmultiply(input_array, factor, tsize, result_array)
+  subroutine fortranmultiply(input_array, factor, tsize, result_array) bind(C,name='fortranmultiply')
 
     integer :: tsize
     integer :: factor

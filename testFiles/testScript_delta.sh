@@ -20,6 +20,8 @@ do
 		./multiply_host $test_case 	>> testScript_mult_out.txt
 		./sum_host $test_case		>> testScript_sum_out.txt
 	done
+	echo "" >> testScript_mult_out.txt
+	echo "" >> testScript_sum_out.txt
 done
 
 echo "Big tests started at " `date`
@@ -31,6 +33,9 @@ do
 		./multiply_host $test_case 	>> testScript_mult_out.txt
 		./sum_host $test_case		>> testScript_sum_out.txt
 	done
+	echo "" >> testScript_mult_out.txt
+        echo "" >> testScript_sum_out.txt
+
 done
 
 echo "Huge tests started at " `date`
@@ -42,6 +47,8 @@ do
 		./multiply_host $test_case 	>> testScript_mult_out.txt
 		./sum_host $test_case		>> testScript_sum_out.txt
 	done
+	echo "" >> testScript_mult_out.txt
+        echo "" >> testScript_sum_out.txt
 done
 
 echo "---" >> testScript_sum_out.txt

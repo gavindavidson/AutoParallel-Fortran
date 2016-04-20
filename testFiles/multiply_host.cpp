@@ -12,7 +12,7 @@
 #include "cl.hpp"
 #include "util.hpp"
 
-#define nth 32
+#define nth 64
 #define nunits 16
 #define debug 0
 // #define tsize 1024
