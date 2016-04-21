@@ -1,7 +1,7 @@
 #	TEST SCRIPT FOR LES CODEBASE
 
 COMPILER="../../compiler/AutoParallel-Fortran"
-CHANGESPY="../../compiler/changes.py"
+CHANGESPY="changes.py"
 RESULTDIR="compilerResult"
 RESULTFILE="$RESULTDIR/compilerResults.txt"
 OUTEXT=".console"
