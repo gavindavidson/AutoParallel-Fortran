@@ -9,7 +9,7 @@ This project requires a Haskell compiler that is at least GHC version 6.0. Other
 
 ```bash
 cd compiler
-cd make
+make
 ```
 
 ## Use
