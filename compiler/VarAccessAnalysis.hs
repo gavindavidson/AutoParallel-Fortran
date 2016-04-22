@@ -1,5 +1,12 @@
 module VarAccessAnalysis where
 
+--	The code in this file is used to analyse which variables are read and written and where in a certain
+--	program. This information is then used to determine whether or not a variable in a loop can be deemed
+--	temporary and therefore governs how variables are treated. Analysis also determines values/expressions
+--	for variables at different points in the program. This is used when generating reduction kernels to be 
+--	able to assign an initial value to reduction variables. Finally, data from this analysis phase is used
+--	to differentiate between function calls and array accesses in the input source.
+
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
 import Language.Fortran
@@ -8,10 +15,6 @@ import Data.List
 import LanguageFortranTools
 import Control.Monad.State
 import qualified Data.Map.Strict as DMap
-
---	The code in this file is used to analyse which variables are read and written and where in a certain
---	program. This information is then used to determine whether or not a variable in a loop can be deemed
---	temporary and therefore governs how variables are treated. 
 
 --	Type used to colate data on variable accesses throughout a program.
 --						All reads 	All writes
@@ -45,11 +48,8 @@ analyseAllVarAccess prog = (localVarAccesses, localVarValues, arguments, declara
 analyseLocalVarAccess :: [VarName Anno] -> Program Anno -> LocalVarAccessAnalysis
 analyseLocalVarAccess declarations prog = analysis
 				where
-					--blockAnalysis = map (analyseAllVarAccess_block_delta declarations) $! blocks
 					blockAnalysis = foldl (\accum item -> accum ++ (gmapQ (mkQ DMap.empty (analyseAllVarAccess_block_delta declarations)) item)) [] prog
-					--blockAnalysis = everything (combineLocalVarAccessAnalysis) (mkQ DMap.empty (analyseAllVarAccess_block_delta declarations)) prog
 					progUnitAnalysis = foldl (\accum item -> accum ++ (gmapQ (mkQ DMap.empty (analyseLocalVarAccess declarations)) item)) [] prog
-					--progUnitAnalysis = gmapQ (mkQ DMap.empty (analyseLocalVarAccess declarations)) prog
 					analysis = foldl (combineLocalVarAccessAnalysis) DMap.empty (blockAnalysis ++ progUnitAnalysis)
 
 --	Since Language-Fortran does not seem to differentate between function calls and array access, it was necessary
@@ -117,13 +117,13 @@ analyseAllVarAccess_fortran declarations (Assg _ _ writeExpr readExpr) = analysi
 
 													analysis = foldl (addVarReadAccess (srcSpan readExpr)) DMap.empty readVarNames
 													analysis' = foldl (addVarWriteAccess (srcSpan writeExpr)) DMap.empty writtenVarNames
-analyseAllVarAccess_fortran declarations (If _ _ readExpr _ _ _) = DMap.empty-- analysis
+analyseAllVarAccess_fortran declarations (If _ _ readExpr _ _ _) = analysis
 												where
 													readExprs = extractOperands readExpr
 													readVarNames = foldl (collectVarNames_foldl declarations) [] readExprs
 
 													analysis = foldl (addVarReadAccess (srcSpan readExpr)) DMap.empty readVarNames
-analyseAllVarAccess_fortran declarations codeSeg = DMap.empty-- analysis
+analyseAllVarAccess_fortran declarations codeSeg = analysis
 												where 
 													extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExpr) codeSeg
 													extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
@@ -147,18 +147,11 @@ analyseAllVarAccess_fortran_delta declarations prevAnalysis codeSeg = case codeS
 									If _ _ readExpr _ _ _ -> analysis
 
 												where
-													--debugStr = (foldl (\accum item -> accum ++ "\n" ++ show item) "" extractedOperands) ++ "\n\n"
-													--			++ (foldl (\accum item -> accum ++ "\n" ++ show item) "" readExprs)
-
-													--extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExpr) (If a b readExpr c d e)
-													--extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
 													readExprs = extractOperands readExpr
 													readVarNames = foldl (collectVarNames_foldl declarations) [] readExprs
 
 													analysis = foldl (addVarReadAccess (srcSpan readExpr)) prevAnalysis readVarNames
 									_ -> analysisIncChildren 
-										--if readVarNames == [] then  analysisIncChildren
-										--	else error (show readVarNames)
 												where 
 													extractedExprs = gmapQ (mkQ (Null nullAnno nullSrcSpan) extractExpr) codeSeg
 													extractedOperands = foldl (\accum item -> accum ++ extractOperands item) [] extractedExprs
@@ -272,7 +265,7 @@ varAccessAnalysis_readsAfter' (_, SrcLoc _ line_end _) accessAnalysis accumAnaly
 checkHangingReads :: LocalVarAccessAnalysis -> VarName Anno -> Bool
 checkHangingReads analysis varname = case earliestRead of
 														Just r ->	case earliestWrite of
-																		Just w -> not (checkSrcSpanBefore_line w r)-- checkSrcSpanBefore_line r w
+																		Just w -> not (checkSrcSpanBefore_line w r)
 																		Nothing -> True
 														Nothing ->	False
 								where 

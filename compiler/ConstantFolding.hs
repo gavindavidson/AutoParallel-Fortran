@@ -3,6 +3,8 @@ module ConstantFolding where
 --In future, the compiler will perhaps employ constant folding and an expression evaluator to perform
 --more in depth analysis. However, at the moment this functionality will not be included.
 
+-- THIS MODULE IS NOT USED BY AUTOPARALLEL-FORTRAN AS OF 22/04/2016
+
 import Data.Generics (mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 import Data.Char
@@ -18,7 +20,6 @@ type Constants = DMap.Map (VarName Anno) (Expr Anno)
 type FilenameMap = DMap.Map String (ProgUnit Anno)
 
 foldConstants filename progUnit = do
-		-- constants <- mapM (buildConstants_recursive) prog
 		let path = extractPath filename
 		constants <- buildConstants_recursive path progUnit
 		putStr $ show constants
@@ -48,8 +49,6 @@ buildConstants_single previousConsts progUnit = constants
 extractDeclarationExpr :: Decl Anno-> [(VarName Anno, Expr Anno)]
 extractDeclarationExpr (Decl anno src exprList typ) = map (\(expr1, expr2, _) -> (head (extractVarNames expr1), expr2) ) exprList
 extractDeclarationExpr _ = []
-
--- [(Expr p, Expr p, Maybe Int)]
 
 gatherAvailableImports :: String -> IO(FilenameMap)
 gatherAvailableImports path = do

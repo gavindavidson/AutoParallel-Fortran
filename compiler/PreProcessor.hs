@@ -1,11 +1,11 @@
 module PreProcessor where
 
+--	Simple preprocessor used to circumvent some issues with Language-Fortran parser.
+
 import Data.Char
 
 preProcess :: String -> String
 preProcess inputStr =  andOperatorFix $ orOperatorFix $ containsStatementFix $ caseStatementFix $ inputStr
---preProcess inputStr = (show $ ((head inputStr) == '\n')) ++ "\n" ++ inputStr
---preProcess inputStr = continuationFix $ inputStr
 
 caseInsensitive_strReplace :: [Char] -> [Char] -> [Char] -> [Char]
 caseInsensitive_strReplace original replace str 	
@@ -19,7 +19,6 @@ caseStatementFix input = caseInsensitive_strReplace "\ncase(" "\n case(" (caseIn
 
 containsStatementFix :: String -> String
 containsStatementFix input = (caseInsensitive_strReplace "\ncontains" "\n contains " (caseInsensitive_strReplace "\ncontains " "\n contains " input))
--- caseInsensitive_strReplace "contains" " contains\n" 
 
 orOperatorFix :: String -> String
 orOperatorFix input = caseInsensitive_strReplace ".or." " .or. " input

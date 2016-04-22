@@ -1,5 +1,10 @@
 module LoopAnalysis where
 
+--	This module holds functions that perform the top level of analysis. They look to see whether each of the loops in the source
+--	can be parallelised or not. Calls to 'VarAccessAnalysis' and 'VarDependencyAnalysis' are made from here and the information
+--	produce by those other modules is used to deteremine whether the conditions for parallelism are met. This module also handles
+--	producing parallelism errors that are later attached to AST nodes. 
+
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 import Data.Char

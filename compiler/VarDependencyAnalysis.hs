@@ -1,5 +1,11 @@
 module VarDependencyAnalysis where
 
+--	The code in this file is used to perform some simple dependency analysis for a block of code. A call to 'analyseDependencies'
+--	will produce a set of direct dependencies between variables. A direct dependency is formed when one variable is used in the 
+--	calculation of another variable's assignment. It is possible under this scheme for variables to depend upon themselves and this
+--	fact is ued by Transformer.hs when looking to determine whether or not a loop represnets a reduction. This module also contains
+--	functions to get indirect dependencies and determine whether or not loops exhibit loop carried dependencies.
+
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
 import Language.Fortran
@@ -10,17 +16,8 @@ import qualified Data.Map.Strict as DMap
 import LanguageFortranTools
 import VarAccessAnalysis
 
---	The code in this file is used to perform some simple dependency analysis for a block of code. A call to 'analyseDependencies'
---	will produce a set of direct dependencies between variables. A direct dependency is formed when one variable is used in the 
---	calculation of another variable's assignment. It is possible under this scheme for variables to depend upon themselves and this
---	fact is ued by Transformer.hs when looking to determine whether or not a loop represnets a reduction.
-
---	THIS WILL BE CHANGED TO A MAP, RATHER THAN A LIST.
 --	Type used to colate dependency data between variables within a particular block of code
---							Variable A 			depends on all these variables
---type VarDependencyRecord = (VarName Anno, 	[VarName Anno])
---type VarDependencyAnalysis = [VarDependencyRecord]
---type VarDependencyAnalysis = DMap.Map (VarName Anno) [VarName Anno]
+--										Variable A 		depends on all these expressions
 type VarDependencyAnalysis = DMap.Map (VarName Anno) [Expr Anno]
 
 analyseDependencies :: Fortran Anno -> VarDependencyAnalysis
@@ -32,11 +29,6 @@ extractAssigments :: Fortran Anno -> [Fortran Anno]
 extractAssigments codeSeg = case codeSeg of 
 								Assg _ _ _ _ -> [codeSeg]
 								_	-> []
-
--- extractAssigments :: Fortran Anno -> [Fortran Anno]
--- extractAssigments codeSeg = case codeSeg of 
--- 								Assg _ _ _ _ -> [codeSeg]
--- 								_	-> foldl (++) [] (gmapQ (mkQ [] extractAssigments) codeSeg)
 
 constructDependencies :: VarDependencyAnalysis -> Fortran Anno -> VarDependencyAnalysis
 constructDependencies prevAnalysis (Assg _ _ expr1 expr2) = foldl (\accum item -> addDependencies accum item readOperands) prevAnalysis writtenVarNames
@@ -86,7 +78,6 @@ isIndirectlyDependentOn' analysis potDependent potDependee previouslyProcessed 	
 
 isIndirectlyDependentOn :: VarDependencyAnalysis -> VarName Anno -> Expr Anno -> Bool
 isIndirectlyDependentOn analysis potDependent potDependee	|	isDirectlyDependentOn analysis potDependent potDependee = True
-															-- |	otherwise = foldl (||) False $ map (\x -> isIndirectlyDependentOn analysis (head $ extractVarNames x) potDependee) dependencies
 															|	otherwise = foldl (||) False $ map (\x -> isIndirectlyDependentOn' analysis (head $ extractVarNames x) potDependee []) dependencies
 
 																	where 
@@ -102,7 +93,7 @@ loopCarriedDependencyCheck_query' loopIterators dependencyAnalysis (Assg _ _ exp
 loopCarriedDependencyCheck_query' _ _ _ = []
 
 loopCarriedDependencyCheck :: [VarName Anno] -> VarDependencyAnalysis -> Expr Anno -> [Expr Anno]
-loopCarriedDependencyCheck loopIterators dependencyAnalysis expr = loopCarriedDependencyProof -- foldl (++) [] exprLoopIteratorUsage
+loopCarriedDependencyCheck loopIterators dependencyAnalysis expr = loopCarriedDependencyProof
 								where
 									exprLoopIteratorUsage = loopIteratorUsage loopIterators expr
 									dependencies = getIndirectDependencies dependencyAnalysis (head $ extractVarNames expr)

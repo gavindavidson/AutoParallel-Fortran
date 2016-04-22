@@ -1,5 +1,16 @@
 module Main where
 
+-- 	This is the top level of the whole compiler. This module makes calls to all of the analysis, code emission and loop fusion elements of the
+-- 	the whole process. 
+
+--	STEPS
+--	-	Process command line arguments
+--	-	Parse input file
+--	-	Identify parallelism and transform AST
+--	-	Combine kernels in the AST
+--	-	Output parallelisation errors and information about kernel fusion
+--	-	Emit final code listings.
+
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
 import Language.Fortran
@@ -16,6 +27,7 @@ import VarDependencyAnalysis
 import LanguageFortranTools
 import CodeEmitter
 import LoopAnalysis
+
 
 main :: IO ()
 main = do
@@ -87,12 +99,12 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
-paralleliseLoop loopVars accessAnalysis loop 	=  -- appendAnnotation (
+paralleliseLoop loopVars accessAnalysis loop 	= 
 												case mapAttempt_bool of
 										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
 										False 	-> case reduceAttempt_bool of
 													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
-													False	-> reduceAttempt_ast -- ) ("localVarRecords " ++  errorLocationFormatting (srcSpan loop) ++ "\n\n") (show localVarRecords)
+													False	-> reduceAttempt_ast
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]

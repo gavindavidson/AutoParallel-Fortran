@@ -1,13 +1,16 @@
 module CombineKernels where
 
+--	This file contains code that handles combining adjacent and nested kernels. The intention is that the top level 'combineKernels' function will be called
+--	against an AST that has already been transformed with parallel kernels applied. When calling the 'combineKernels' function, a Maybe(Float) is supplied
+--	that represents a the loop fusion bound (the limit of how different the end values for two loops can be for them to be fused). If this input is 'Nothing'
+--	then no bound is enforced and all loops that meet the other fusion criteria are fused.
+
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 
 import LanguageFortranTools
 import VarDependencyAnalysis
 
---	This file contains code that handles combining adjacent and nested kernels. The intention is that the top level 'combineKernels' function will be called
---	against an AST that has already been transformed with parallel kernels applied.
 
 combineKernels :: Maybe(Float) -> Program Anno -> Program Anno
 combineKernels bound codeSeg = map (everywhere (mkT (combineKernelsBlock bound))) codeSeg
@@ -25,13 +28,9 @@ combineNestedKernels :: Fortran Anno -> Fortran Anno
 combineNestedKernels codeSeg = case codeSeg of
 					(OpenCLMap anno1 src1 outerReads outerWrites outerLoopVs fortran) -> case fortran of
 								(OpenCLMap anno2 src2 innerReads innerWrites innerLoopVs innerFortran) -> 
-										--OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran
-										-- if loopDependencyErrors == [] then newCodeSeg else codeSeg
 										newCodeSeg
 											where 
 												newCodeSeg = appendAnnotation (OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran) newAnnotation ""
-												-- reads = listRemoveDuplications $ outerReads ++ innerReads
-												-- writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												reads = innerReads
 												writes = innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
@@ -44,17 +43,12 @@ combineNestedKernels codeSeg = case codeSeg of
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
 								(OpenCLReduce anno2 src2 innerReads innerWrites innerLoopVs innerRedVs innerFortran) -> 
-										-- if loopDependencyErrors == [] then newCodeSeg else codeSeg
 										newCodeSeg
-										--OpenCLReduce (anno1++anno2++[newAnnotation]) src1 reads writes loopVs redVs innerFortran
 											where 
 												newCodeSeg = appendAnnotation (OpenCLReduce (combinedAnnotations) src1 reads writes loopVs redVs innerFortran) newAnnotation ""
-												-- reads = listRemoveDuplications $ outerReads ++ innerReads
-												-- writes = listRemoveDuplications $ outerWrites ++ innerWrites
 												reads = innerReads
 												writes = innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
-												-- redVs = listRemoveDuplications $ outerRedVs ++ innerRedVs
 												redVs = innerRedVs
 												newAnnotation = compilerName ++ ": Nested reduction at " ++ errorLocationFormatting src2 ++ " fused into surrounding reduction"
 												combinedAnnotations = combineAnnotations anno1 anno2

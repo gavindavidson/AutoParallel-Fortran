@@ -1,5 +1,7 @@
 module LanguageFortranTools where
 
+--	This module contains a set of functions that are used all over the source for the compiler. Essentially a utility module.
+
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Data.Typeable
 import Language.Fortran.Parser
@@ -182,9 +184,6 @@ appendAnnotation original key appendage = case original of
 		For anno f2 f3 f4 f5 f6 f7 -> For (appendToMap key appendage anno) f2 f3 f4 f5 f6 f7
 		OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (appendToMap key appendage anno) f2 f3 f4 f5 f6
 		OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (appendToMap key appendage anno) f2 f3 f4 f5 f6 f7
-		--For anno f2 f3 f4 f5 f6 f7 -> For (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
-		--OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap (anno ++ [appendage]) f2 f3 f4 f5 f6
-		--OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce (anno ++ [appendage]) f2 f3 f4 f5 f6 f7
 		_ -> original
 
 		-- appendToMap
@@ -198,14 +197,10 @@ appendAnnotationMap codeSeg newMap = case codeSeg of
 -- appendAnnotation original appendage = original
 
 --	Prepends a new item to the list of annotations already associated to a particular node
-prependAnnotation :: Fortran Anno -> String -> Fortran Anno
-prependAnnotation original appendage = case original of
-		--For anno f2 f3 f4 f5 f6 f7 -> For ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
-		--OpenCLMap anno f2 f3 f4 f5 f6 -> OpenCLMap ([appendage] ++ anno) f2 f3 f4 f5 f6
-		--OpenCLReduce anno f2 f3 f4 f5 f6 f7 -> OpenCLReduce ([appendage] ++ anno) f2 f3 f4 f5 f6 f7
-		_ -> original
+-- prependAnnotation :: Fortran Anno -> String -> Fortran Anno
+-- prependAnnotation original appendage = case original of
+-- 		_ -> original
 
---removeAllAnnotations :: Fortran Anno -> Fortran Anno
 removeAllAnnotations original = everywhere (mkT removeAnnotations) original
 
 removeAnnotations :: Fortran Anno -> Fortran Anno
@@ -225,7 +220,6 @@ usesVarName_list loopWrites _ = False
 
 usesVarName :: VarName Anno -> Expr Anno -> Bool
 usesVarName varnameInp (Var _ _ list) = foldl (||) False $ map (\(varname, exprs) -> varname == varnameInp) list
---usesVarName varnameInp _ = False
 
 isVar :: Expr Anno -> Bool
 isVar (Var _ _ _) = True
@@ -240,7 +234,6 @@ replaceAllOccurences_varnamePairs codeSeg originals replacements = foldl (\accum
 					where
 						pairs = zip originals replacements
 
--- replaceAllOccurences_varname :: Fortran Anno -> VarName Anno -> VarName Anno -> Fortran Anno
 replaceAllOccurences_varname :: (Data (a Anno)) => a Anno -> VarName Anno -> VarName Anno -> a Anno
 replaceAllOccurences_varname codeSeg original replacement = everywhere (mkT (replaceVarname original replacement)) codeSeg
 
@@ -254,8 +247,6 @@ varnameStr (VarName _ str) = str
 
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran Anno -> Fortran Anno -> Fortran Anno
---appendFortran_recursive newFortran (FSeq _ _ _ (FSeq _ _ _ fortran1)) = appendFortran_recursive newFortran fortran1 
---appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 (FSeq anno2 src2 fortran2 fortran3)) = FSeq anno1 src1 fortran1 (FSeq anno2 src2 fortran2 (appendFortran_recursive newFortran fortran3)) 
 appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 (NullStmt anno2 src2)) = FSeq anno1 src1 fortran1 newFortran
 appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 fortran2) = FSeq anno1 src1 fortran1 (appendFortran_recursive newFortran fortran2)
 appendFortran_recursive newFortran codeSeg = FSeq nullAnno nullSrcSpan codeSeg newFortran
@@ -265,8 +256,6 @@ appendFortran_recursive newFortran codeSeg = FSeq nullAnno nullSrcSpan codeSeg n
 removeLoopConstructs_recursive :: Fortran Anno -> Fortran Anno
 removeLoopConstructs_recursive (FSeq anno _ (For _ _ _ _ _ _ fortran1) fortran2) = removeLoopConstructs_recursive $ appendFortran_recursive fortran2 fortran1
 removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran) = removeLoopConstructs_recursive fortran
---removeLoopConstructs_recursive (OpenCLMap _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
---removeLoopConstructs_recursive (OpenCLReduce _ _ _ _ _ _ fortran1) = removeLoopConstructs_recursive fortran1
 removeLoopConstructs_recursive (FSeq _ _ fortran (NullStmt _ _)) = removeLoopConstructs_recursive fortran
 removeLoopConstructs_recursive codeSeg = codeSeg
 
