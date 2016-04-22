@@ -36,4 +36,4 @@ cd compiler
 
 ## Modification
 
-The parser used by this project was generated from a grammar file using the Happy parser generator. Therefore, making changes to the parser may require the installation of happy. Please refer to the readme in the original Language-Fortran repo for details on the installation of happy.
+The parser used by this project was generated from a grammar file using the Happy parser generator. Therefore, making changes to the parser (Parser.y or Lexer.x) may require the installation of happy. Please refer to the readme in the original Language-Fortran repo for details on the installation of happy.
