@@ -26,6 +26,7 @@ The `target.f95` could be replaced with an absolute or relative path if the file
 The optional command line flags are are follows:
 - *-out* defines the filename for the output host program. The name of the kernel file is derived from this filename. Not including this argument results in a default filename being used.
 - *-lfb* defines a value for the loop fusion bound. That is, the difference in iterator end value that is allowed for two loops to be fused. Not including this argument results in there not being a bound for loop fusion, and therefore all pairs of loops that meet the other conditions are fused.
+- Any other arguments will be treated as arguments to the C preprocessor (cpp) which is run by the compiler
 
 For example, to compile `target.f95` with a loop fusion bound of 10 and an output filename of `out.f95`:
 
