@@ -5,6 +5,28 @@ module LoopAnalysis where
 --	produce by those other modules is used to deteremine whether the conditions for parallelism are met. This module also handles
 --	producing parallelism errors that are later attached to AST nodes. 
 
+-- 	STRATEGY FOR NEW LOOP CARRIED DEPENDENCY CHECK
+-- 	Looking to build up a table of all of the possible combinations of loopVar/loop iterator values. This will only be really useful
+--	when constant folding works. For now, we use macros to hardcode the values for loop bounds. With the table, we check for loop 
+--	carried dependencies by looking at all accesses of a particular array within a particular loop. Given the set of distinct
+--	expressions that define array indices for READs and and the distinct set of expressions that define array indices for WRITES,
+--	make sure that no READ WRITE pair can exist at the same time in the table of possible combinations of loop iterator values. 
+-- 
+--	For example:
+-- 		for j in range(0,10,1)
+-- 			for k in range(i%2,10,2)
+-- 				p(j,k) = p(j,k-1) + 12
+-- 
+-- 	There cannot exist a situation where (j,k) exists in the table and (j,k-1) exists therefore there is no loop carried dependency
+--
+--	Building and extending the table will be performed when a new for loop is encountered. This is going to involve adding more
+--	arguments to some already rather complex functions and adding functionality to build this table. Further complications occur
+--	when loop bounds are defined in terms of outer loop iterators. The table itself will be a map of maps of maps of maps... to
+--	the power of the current loop nest depth. For example, the table will be a map of maps of maps for a triple nested loop
+--	iterating over i, j and k where each level of the map corresponds to a loop iterator variable. For example, if the value (1,1,4)
+-- 	is allowed for (i,j,k) then table[1][1][4] exists and contains an empty map. If the value (1,1,5) is not allowed for (i,j,k) then
+--	table[1][1][5] will not exist.
+
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 import Data.Char
@@ -19,6 +41,9 @@ import LanguageFortranTools
 --						errors 		reduction variables read variables		written variables		
 type AnalysisInfo = 	(Anno, 		[Expr Anno], 		[Expr Anno], 		[Expr Anno])
 
+-- data LoopIterTable = LoopIterTable (DMap.Map Int (LoopIterTable))
+-- data LoopIterTable = LoopIterTable (DMap.Map Int (LoopIterTable))
+
 analysisInfoBaseCase :: AnalysisInfo
 analysisInfoBaseCase = (nullAnno,[],[],[])
 
@@ -26,7 +51,7 @@ combineAnalysisInfo :: AnalysisInfo -> AnalysisInfo -> AnalysisInfo
 combineAnalysisInfo accum item = (combineMaps accumErrors itemErrors, accumReductionVars ++ itemReductionVars, accumReads ++ itemReads, accumWrites ++ itemWrites)
 								where
 									(accumErrors, accumReductionVars, accumReads, accumWrites) = accum
-									(itemErrors, itemReductionVars, itemReads, itemWrites) = item
+									(itemErrors, itemReductionVars, itemReads, itemWrites)	 = item
 									
 getErrorAnnotations :: AnalysisInfo -> Anno
 getErrorAnnotations (errors, _, _, _) = errors
@@ -185,6 +210,24 @@ analyseIteratorUse_single nonTempWrittenOperands comment accumAnno loopVar = res
 												else 
 													DMap.insert (outputTab ++ comment ++ "Non temporary, write variables accessed without use of loop iterator \"" ++ loopVarStr ++ "\":\n") offendingExprsStrs accumAnno
 									nonTempWrittenOperandsStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) nonTempWrittenOperands
+
+-- extendLoopIterTable :: [VarName Anno] -> LoopIterTable -> Expr Anno -> Expr Anno -> Expr Anno -> LoopIterTable
+-- extendLoopIterTable loopVars oldTable startExpr endExpr stepExpr  =  DMap.empty
+-- 																	-- | outermostValues == [] = LoopIterTable DMap.empty
+-- 																	-- | otherwise = LoopIterTable DMap.empty -- foldl (\accum key -> extendLoopIterTable loopVars (DMap.findWithDefault (error "extendLoopIterTable: findWithDefault") key accum) startExpr endExpr stepExpr) oldTable outermostValues
+-- 				where
+-- 					outermostValues = DMap.toList oldTable
+
+exprEvaluator :: Expr Anno -> Int
+exprEvaluator (Bin _ _ binOp expr1 expr2) = case binOp of
+												Plus _ -> exprEvaluator expr1 + exprEvaluator expr2
+												Minus _ -> exprEvaluator expr1 - exprEvaluator expr2
+												Mul _ -> exprEvaluator expr1 * exprEvaluator expr2
+												Div _ -> quot (exprEvaluator expr1) (exprEvaluator expr2)
+												Power _ -> (exprEvaluator expr1) ^ (exprEvaluator expr2)
+												_ -> 0
+exprEvaluator (Con _ _ str) = read str :: Int
+exprEvaluator _ = 0
 
 --	Function checks whether the primary in a reduction assignmnet is an associative operation. Checks both associative ops and functions.
 isAssociativeExpr :: Expr Anno -> Expr Anno -> Bool
