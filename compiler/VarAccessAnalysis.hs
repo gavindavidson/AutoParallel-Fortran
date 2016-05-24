@@ -13,7 +13,7 @@ import Language.Fortran
 import Data.Char
 import Data.List
 import LanguageFortranTools
-import Control.Monad.State
+-- import Control.Monad.State
 import qualified Data.Map.Strict as DMap
 
 --	Type used to colate data on variable accesses throughout a program.

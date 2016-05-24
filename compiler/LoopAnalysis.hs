@@ -5,28 +5,6 @@ module LoopAnalysis where
 --	produce by those other modules is used to deteremine whether the conditions for parallelism are met. This module also handles
 --	producing parallelism errors that are later attached to AST nodes. 
 
--- 	STRATEGY FOR NEW LOOP CARRIED DEPENDENCY CHECK
--- 	Looking to build up a table of all of the possible combinations of loopVar/loop iterator values. This will only be really useful
---	when constant folding works. For now, we use macros to hardcode the values for loop bounds. With the table, we check for loop 
---	carried dependencies by looking at all accesses of a particular array within a particular loop. Given the set of distinct
---	expressions that define array indices for READs and and the distinct set of expressions that define array indices for WRITES,
---	make sure that no READ WRITE pair can exist at the same time in the table of possible combinations of loop iterator values. 
--- 
---	For example:
--- 		for j in range(0,10,1)
--- 			for k in range(i%2,10,2)
--- 				p(j,k) = p(j,k-1) + 12
--- 
--- 	There cannot exist a situation where (j,k) exists in the table and (j,k-1) exists therefore there is no loop carried dependency
---
---	Building and extending the table will be performed when a new for loop is encountered. This is going to involve adding more
---	arguments to some already rather complex functions and adding functionality to build this table. Further complications occur
---	when loop bounds are defined in terms of outer loop iterators. The table itself will be a map of maps of maps of maps... to
---	the power of the current loop nest depth. For example, the table will be a map of maps of maps for a triple nested loop
---	iterating over i, j and k where each level of the map corresponds to a loop iterator variable. For example, if the value (1,1,4)
--- 	is allowed for (i,j,k) then table[1][1][4] exists and contains an empty map. If the value (1,1,5) is not allowed for (i,j,k) then
---	table[1][1][5] will not exist.
-
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 import Data.Char
@@ -40,12 +18,6 @@ import LanguageFortranTools
 --	Type used to standardise loop analysis functions
 --						errors 		reduction variables read variables		written variables		
 type AnalysisInfo = 	(Anno, 		[Expr Anno], 		[Expr Anno], 		[Expr Anno])
-
-type ValueTable = DMap.Map String Int
-
-data LoopIterTable = LoopIterRecord (DMap.Map Int LoopIterTable) 
-					| Empty
-					deriving (Show)
 
 analysisInfoBaseCase :: AnalysisInfo
 analysisInfoBaseCase = (nullAnno,[],[],[])
@@ -86,7 +58,7 @@ analyseLoop_map loopIterTable loopVars loopWrites nonTempVars accessAnalysis dep
 							expr2Analysis = (analyseAccess "Cannot map: " loopVars loopWrites nonTempVars accessAnalysis expr2)
 							expr2Operands = extractOperands expr2
 
-							loopCarriedDependencyList = loopCarriedDependencyCheck loopVars dependencies expr1
+							loopCarriedDependencyList = loopCarriedDependencyCheck loopVars loopIterTable dependencies expr1
 							loopCarriedDependencyBool = loopCarriedDependencyList /= []
 							loopCarriedDependencyErrorMap = if loopCarriedDependencyBool then
 											DMap.insert (outputTab ++ "Cannot map: Loop carried dependency on " ++ outputExprFormatting expr1 ++ ":\n")
@@ -159,7 +131,7 @@ analyseLoop_reduce loopIterTable condExprs loopVars loopWrites nonTempVars depen
 
 				potentialReductionVar = isNonTempAssignment && (dependsOnSelf) -- && doesNotUseFullLoopVar
 
-				loopCarriedDependencyList = loopCarriedDependencyCheck loopVars dependencies expr1
+				loopCarriedDependencyList = loopCarriedDependencyCheck loopVars loopIterTable dependencies expr1
 				loopCarriedDependencyBool = loopCarriedDependencyList /= []
 
 				errorMap1 = DMap.empty
@@ -215,85 +187,6 @@ analyseIteratorUse_single nonTempWrittenOperands comment accumAnno loopVar = res
 						else 
 							DMap.insert (outputTab ++ comment ++ "Non temporary, write variables accessed without use of loop iterator \"" ++ loopVarStr ++ "\":\n") offendingExprsStrs accumAnno
 			nonTempWrittenOperandsStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) nonTempWrittenOperands
-
-extendLoopIterTable :: LoopIterTable -> ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> LoopIterTable
-extendLoopIterTable oldTable valueTable ([]) startExpr endExpr stepExpr = addRangeToIterTable oldTable range
-		where
-			range = evaluateRange valueTable startExpr endExpr stepExpr
-extendLoopIterTable Empty valueTable _ startExpr endExpr stepExpr = addRangeToIterTable Empty range
-		where
-			range = evaluateRange valueTable startExpr endExpr stepExpr
-extendLoopIterTable oldTable valueTable loopVars startExpr endExpr stepExpr = foldl 
-																				--(\accum item -> extendLoopIterTable accum (DMap.insert firstLoopVarStr item DMap.empty) newLoopVars startExpr endExpr stepExpr)
-																				(extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr)
-																				oldTable 
-																				allowedValues
-		where
-			allowedValues = case oldTable of
-								LoopIterRecord a -> DMap.keys a
-								_ -> []
-
-extendLoopIterTableWithValues_foldl :: ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> LoopIterTable -> Int -> LoopIterTable
-extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr (LoopIterRecord oldRecord) chosenValue = LoopIterRecord (DMap.insert chosenValue newSubTable oldRecord)
-		where
-			oldSubTable = DMap.findWithDefault Empty chosenValue oldRecord
-			newSubTable = extendLoopIterTable oldSubTable (DMap.insert firstLoopVarStr chosenValue valueTable) newLoopVars startExpr endExpr stepExpr
-			firstLoopVarStr = varnameStr (head loopVars)
-			newLoopVars = tail loopVars
-
-addRangeToIterTable :: LoopIterTable -> [Int] -> LoopIterTable
-addRangeToIterTable oldTable range = LoopIterRecord (foldl (\accum key -> DMap.insert key Empty accum) oldRecord range)
-		where
-			oldRecord = case oldTable of
-							Empty -> DMap.empty
-							LoopIterRecord a -> a
-
-evaluateRange :: ValueTable -> Expr Anno -> Expr Anno -> Expr Anno -> [Int]
-evaluateRange vt startExpr endExpr stepExpr = range
-		where
-			startInt = evaluateExpr vt startExpr
-			endInt = evaluateExpr vt endExpr
-			stepInt = evaluateExpr vt stepExpr
-			range = case startInt of
-						Nothing -> []
-						Just start -> case endInt of
-										Nothing -> []
-										Just end -> case stepInt of
-														Nothing -> []
-														Just step -> [start,start+step..end]
-
-
-evaluateExpr :: ValueTable -> Expr Anno -> Maybe(Int)
-evaluateExpr vt (Bin _ _ binOp expr1 expr2) = case binOp of
-												Plus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (+)
-												Minus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (-)
-												Mul _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (*)
-												Div _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (quot)
-												Power _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (^)
-												_ -> Nothing
-evaluateExpr vt (Unary _ _ unOp expr) = case unOp of 
-												UMinus _ -> maybeNegative (evaluateExpr vt expr)
-												Not _ -> Nothing
-evaluateExpr vt (Var p src lst) | varString == "mod" = maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (mod)
-								| otherwise = DMap.lookup varString vt
-			where
-				varString = varnameStr $ head $ extractUsedVarName (Var p src lst)
-				headExprList = snd (head lst)
-				expr1 = head headExprList
-				expr2 = head $ tail headExprList
-evaluateExpr _ (Con _ _ str) = Just(read str :: Int)
-evaluateExpr _ _ = Nothing
-
-maybeBinOp :: Maybe(Int) -> Maybe(Int) -> (Int -> Int -> Int) -> Maybe(Int)
-maybeBinOp maybeInt1 maybeInt2 op = case maybeInt1 of
-											Nothing -> Nothing
-											Just int1 -> case maybeInt2 of
-															Nothing -> Nothing
-															Just int2 -> Just(op int1 int2)
-
-maybeNegative :: Maybe(Int) -> Maybe(Int)
-maybeNegative (Just(int)) = Just(-int)
-maybeNegative Nothing = Nothing
 
 --	Function checks whether the primary in a reduction assignmnet is an associative operation. Checks both associative ops and functions.
 isAssociativeExpr :: Expr Anno -> Expr Anno -> Bool
