@@ -41,8 +41,11 @@ import LanguageFortranTools
 --						errors 		reduction variables read variables		written variables		
 type AnalysisInfo = 	(Anno, 		[Expr Anno], 		[Expr Anno], 		[Expr Anno])
 
--- data LoopIterTable = LoopIterTable (DMap.Map Int (LoopIterTable))
--- data LoopIterTable = LoopIterTable (DMap.Map Int (LoopIterTable))
+type ValueTable = DMap.Map String Int
+
+data LoopIterTable = LoopIterRecord (DMap.Map Int LoopIterTable) 
+					| Empty
+					deriving (Show)
 
 analysisInfoBaseCase :: AnalysisInfo
 analysisInfoBaseCase = (nullAnno,[],[],[])
@@ -67,15 +70,15 @@ getWrites (_, _, _, writes) = writes
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
-analyseLoop_map :: [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> AnalysisInfo
-analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis dependencies codeSeg = case codeSeg of
+analyseLoop_map :: LoopIterTable -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> AnalysisInfo
+analyseLoop_map loopIterTable loopVars loopWrites nonTempVars accessAnalysis dependencies codeSeg = case codeSeg of
 		If _ _ expr _ elifList maybeElse -> foldl combineAnalysisInfo analysisInfoBaseCase (generalAnalysis ++ elifAnalysis_fortran ++ elifAnalysis_readExprs ++ [elseAnalysis])
 						where
-							generalAnalysis = gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis dependencies)) codeSeg
-							elifAnalysis_fortran = map (\(_, elif_fortran) -> analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis dependencies elif_fortran) elifList
+							generalAnalysis = gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopIterTable (loopVars) loopWrites nonTempVars accessAnalysis dependencies)) codeSeg
+							elifAnalysis_fortran = map (\(_, elif_fortran) -> analyseLoop_map loopIterTable (loopVars) loopWrites nonTempVars accessAnalysis dependencies elif_fortran) elifList
 							elifAnalysis_readExprs = map (\(elif_expr, _) -> (nullAnno,[],extractOperands elif_expr,[])) elifList
 							elseAnalysis = case maybeElse of
-												Just else_fortran ->  analyseLoop_map (loopVars) loopWrites nonTempVars accessAnalysis dependencies else_fortran
+												Just else_fortran ->  analyseLoop_map loopIterTable (loopVars) loopWrites nonTempVars accessAnalysis dependencies else_fortran
 												Nothing -> analysisInfoBaseCase
 		Assg _ srcspan expr1 expr2 -> foldl (combineAnalysisInfo) analysisInfoBaseCase [expr1Analysis, expr2Analysis, (loopCarriedDependencyErrorMap,[],expr2Operands,[expr1])] -- combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) (nullAnno,[],expr2Operands,[expr1])
 						where
@@ -91,9 +94,10 @@ analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis dependencies code
 												DMap.empty
 											else DMap.empty
 
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
+		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis -- ++ [(DMap.insert ("LOOPITERTABLE:\n") [ show (loopVars ++ [var]) ++ "\n" ++ (show newLoopIterTable) ++ "\n"] DMap.empty, [],[],[])])
 						where
-							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map (loopVars ++ [var]) loopWrites nonTempVars accessAnalysis dependencies)) codeSeg)
+							newLoopIterTable = extendLoopIterTable loopIterTable DMap.empty loopVars e1 e2 e3
+							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map newLoopIterTable (loopVars ++ [var]) loopWrites nonTempVars accessAnalysis dependencies)) codeSeg)
 		Call _ srcspan expr arglist -> (errorMap_call, [], [], argExprs)
 						where
 							errorMap_call = DMap.insert (outputTab ++ "Cannot map: Call to external function:\n")
@@ -103,23 +107,24 @@ analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis dependencies code
 		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (childrenAnalysis ++ nodeAccessAnalysis)
 						where
 							nodeAccessAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseAccess "Cannot map: " loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
-							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopVars loopWrites nonTempVars accessAnalysis dependencies)) codeSeg)
+							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map loopIterTable loopVars loopWrites nonTempVars accessAnalysis dependencies)) codeSeg)
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	doesn't represent a reduction. If the returned string is empty, the loop represents a possible parallel reduction
-analyseLoop_reduce :: [Expr Anno] -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran Anno -> AnalysisInfo
-analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
+analyseLoop_reduce :: LoopIterTable -> [Expr Anno] -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran Anno -> AnalysisInfo
+analyseLoop_reduce loopIterTable condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
 		If _ _ expr _ elifList maybeElse -> foldl combineAnalysisInfo analysisInfoBaseCase (generalAnalysis ++ elifAnalysis_fortran ++ elifAnalysis_readExprs ++ [elseAnalysis])
 							where
-								generalAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
-								elifAnalysis_fortran = map (\(elif_expr, elif_fortran) -> analyseLoop_reduce (condExprs ++ [elif_expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis elif_fortran) elifList
+								generalAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce loopIterTable (condExprs ++ [expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
+								elifAnalysis_fortran = map (\(elif_expr, elif_fortran) -> analyseLoop_reduce loopIterTable (condExprs ++ [elif_expr]) loopVars loopWrites nonTempVars dependencies accessAnalysis elif_fortran) elifList
 								elifAnalysis_readExprs = map (\(elif_expr, _) -> (nullAnno,[],extractOperands elif_expr,[])) elifList
 								elseAnalysis = case maybeElse of
-												Just else_fortran -> analyseLoop_reduce (condExprs) loopVars loopWrites nonTempVars dependencies accessAnalysis else_fortran
+												Just else_fortran -> analyseLoop_reduce loopIterTable (condExprs) loopVars loopWrites nonTempVars dependencies accessAnalysis else_fortran
 												Nothing -> analysisInfoBaseCase
-		For _ _ var _ _ _ _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
+		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis -- ++ [(DMap.insert ("LOOPITERTABLE:\n") [ show (loopVars ++ [var]) ++ "\n" ++ (show newLoopIterTable) ++ "\n"] DMap.empty, [],[],[])])
 							where
-								childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
+								newLoopIterTable = extendLoopIterTable loopIterTable DMap.empty loopVars e1 e2 e3
+								childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce newLoopIterTable condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo
 											(errorMap4
 											,
@@ -181,7 +186,7 @@ analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies access
 												DMap.empty
 				argExprs = everything (++) (mkQ [] extractExpr_list) arglist
 
-		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)	
+		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce loopIterTable condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)	
 
 analyseAccess :: String -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> Expr Anno -> AnalysisInfo
 analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis expr = (unusedIterMap, [],[],[])
@@ -200,34 +205,95 @@ analyseIteratorUse_list nonTempWrittenOperands loopVars comment = foldl (analyse
 
 analyseIteratorUse_single :: [Expr Anno] -> String -> Anno -> VarName Anno -> Anno
 analyseIteratorUse_single nonTempWrittenOperands comment accumAnno loopVar = resultantMap
-								where
-									offendingExprs = filter (\item -> not (elem loopVar (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedOperands item) ))) nonTempWrittenOperands
-									offendingExprsStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) offendingExprs
+		where
+			offendingExprs = filter (\item -> not (elem loopVar (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedOperands item) ))) nonTempWrittenOperands
+			offendingExprsStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) offendingExprs
 
-									loopVarStr = varnameStr loopVar
-									resultantMap = if (offendingExprs == []) 
-												then accumAnno
-												else 
-													DMap.insert (outputTab ++ comment ++ "Non temporary, write variables accessed without use of loop iterator \"" ++ loopVarStr ++ "\":\n") offendingExprsStrs accumAnno
-									nonTempWrittenOperandsStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) nonTempWrittenOperands
+			loopVarStr = varnameStr loopVar
+			resultantMap = if (offendingExprs == []) 
+						then accumAnno
+						else 
+							DMap.insert (outputTab ++ comment ++ "Non temporary, write variables accessed without use of loop iterator \"" ++ loopVarStr ++ "\":\n") offendingExprsStrs accumAnno
+			nonTempWrittenOperandsStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) nonTempWrittenOperands
 
--- extendLoopIterTable :: [VarName Anno] -> LoopIterTable -> Expr Anno -> Expr Anno -> Expr Anno -> LoopIterTable
--- extendLoopIterTable loopVars oldTable startExpr endExpr stepExpr  =  DMap.empty
--- 																	-- | outermostValues == [] = LoopIterTable DMap.empty
--- 																	-- | otherwise = LoopIterTable DMap.empty -- foldl (\accum key -> extendLoopIterTable loopVars (DMap.findWithDefault (error "extendLoopIterTable: findWithDefault") key accum) startExpr endExpr stepExpr) oldTable outermostValues
--- 				where
--- 					outermostValues = DMap.toList oldTable
+extendLoopIterTable :: LoopIterTable -> ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> LoopIterTable
+extendLoopIterTable oldTable valueTable ([]) startExpr endExpr stepExpr = addRangeToIterTable oldTable range
+		where
+			range = evaluateRange valueTable startExpr endExpr stepExpr
+extendLoopIterTable Empty valueTable _ startExpr endExpr stepExpr = addRangeToIterTable Empty range
+		where
+			range = evaluateRange valueTable startExpr endExpr stepExpr
+extendLoopIterTable oldTable valueTable loopVars startExpr endExpr stepExpr = foldl 
+																				--(\accum item -> extendLoopIterTable accum (DMap.insert firstLoopVarStr item DMap.empty) newLoopVars startExpr endExpr stepExpr)
+																				(extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr)
+																				oldTable 
+																				allowedValues
+		where
+			allowedValues = case oldTable of
+								LoopIterRecord a -> DMap.keys a
+								_ -> []
 
-exprEvaluator :: Expr Anno -> Int
-exprEvaluator (Bin _ _ binOp expr1 expr2) = case binOp of
-												Plus _ -> exprEvaluator expr1 + exprEvaluator expr2
-												Minus _ -> exprEvaluator expr1 - exprEvaluator expr2
-												Mul _ -> exprEvaluator expr1 * exprEvaluator expr2
-												Div _ -> quot (exprEvaluator expr1) (exprEvaluator expr2)
-												Power _ -> (exprEvaluator expr1) ^ (exprEvaluator expr2)
-												_ -> 0
-exprEvaluator (Con _ _ str) = read str :: Int
-exprEvaluator _ = 0
+extendLoopIterTableWithValues_foldl :: ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> LoopIterTable -> Int -> LoopIterTable
+extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr (LoopIterRecord oldRecord) chosenValue = LoopIterRecord (DMap.insert chosenValue newSubTable oldRecord)
+		where
+			oldSubTable = DMap.findWithDefault Empty chosenValue oldRecord
+			newSubTable = extendLoopIterTable oldSubTable (DMap.insert firstLoopVarStr chosenValue valueTable) newLoopVars startExpr endExpr stepExpr
+			firstLoopVarStr = varnameStr (head loopVars)
+			newLoopVars = tail loopVars
+
+addRangeToIterTable :: LoopIterTable -> [Int] -> LoopIterTable
+addRangeToIterTable oldTable range = LoopIterRecord (foldl (\accum key -> DMap.insert key Empty accum) oldRecord range)
+		where
+			oldRecord = case oldTable of
+							Empty -> DMap.empty
+							LoopIterRecord a -> a
+
+evaluateRange :: ValueTable -> Expr Anno -> Expr Anno -> Expr Anno -> [Int]
+evaluateRange vt startExpr endExpr stepExpr = range
+		where
+			startInt = evaluateExpr vt startExpr
+			endInt = evaluateExpr vt endExpr
+			stepInt = evaluateExpr vt stepExpr
+			range = case startInt of
+						Nothing -> []
+						Just start -> case endInt of
+										Nothing -> []
+										Just end -> case stepInt of
+														Nothing -> []
+														Just step -> [start,start+step..end]
+
+
+evaluateExpr :: ValueTable -> Expr Anno -> Maybe(Int)
+evaluateExpr vt (Bin _ _ binOp expr1 expr2) = case binOp of
+												Plus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (+)
+												Minus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (-)
+												Mul _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (*)
+												Div _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (quot)
+												Power _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (^)
+												_ -> Nothing
+evaluateExpr vt (Unary _ _ unOp expr) = case unOp of 
+												UMinus _ -> maybeNegative (evaluateExpr vt expr)
+												Not _ -> Nothing
+evaluateExpr vt (Var p src lst) | varString == "mod" = maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (mod)
+								| otherwise = DMap.lookup varString vt
+			where
+				varString = varnameStr $ head $ extractUsedVarName (Var p src lst)
+				headExprList = snd (head lst)
+				expr1 = head headExprList
+				expr2 = head $ tail headExprList
+evaluateExpr _ (Con _ _ str) = Just(read str :: Int)
+evaluateExpr _ _ = Nothing
+
+maybeBinOp :: Maybe(Int) -> Maybe(Int) -> (Int -> Int -> Int) -> Maybe(Int)
+maybeBinOp maybeInt1 maybeInt2 op = case maybeInt1 of
+											Nothing -> Nothing
+											Just int1 -> case maybeInt2 of
+															Nothing -> Nothing
+															Just int2 -> Just(op int1 int2)
+
+maybeNegative :: Maybe(Int) -> Maybe(Int)
+maybeNegative (Just(int)) = Just(-int)
+maybeNegative Nothing = Nothing
 
 --	Function checks whether the primary in a reduction assignmnet is an associative operation. Checks both associative ops and functions.
 isAssociativeExpr :: Expr Anno -> Expr Anno -> Bool

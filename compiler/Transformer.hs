@@ -52,6 +52,7 @@ main = do
 	let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
 
 	putStr $ compileAnnotationListing parallelisedProg
+	-- putStr $ show $ parallelisedProg
 
 	putStr $ compileAnnotationListing combinedProg
 	
@@ -114,10 +115,12 @@ paralleliseLoop loopVars accessAnalysis loop 	=
 									dependencies = analyseDependencies loop
 									loopWrites = extractWrites_query loop
 
+									-- mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
+									-- reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
@@ -142,7 +145,8 @@ paralleliseLoop_map loop loopVarNames loopWrites nonTempVars dependencies access
 
 									|	otherwise	=			(False, appendAnnotationMap loop errors_map)
 									where
-										loopAnalysis = analyseLoop_map loopVarNames loopWrites nonTempVars accessAnalysis dependencies loop
+										loopAnalysis = analyseLoop_map Empty [] loopWrites nonTempVars accessAnalysis dependencies loop
+										-- loopAnalysis = analyseLoop_map Empty loopVarNames loopWrites nonTempVars accessAnalysis dependencies loop
 										errors_map = getErrorAnnotations loopAnalysis
 										reads_map = getReads loopAnalysis
 										writes_map = getWrites loopAnalysis
@@ -168,7 +172,8 @@ paralleliseLoop_reduce loop loopVarNames loopWrites nonTempVars dependencies acc
 
 									|	otherwise				=	(False, appendAnnotationMap loop errors_reduce)
 									where
-										loopAnalysis = analyseLoop_reduce [] loopVarNames loopWrites nonTempVars dependencies accessAnalysis loop 
+										loopAnalysis = analyseLoop_reduce Empty [] [] loopWrites nonTempVars dependencies accessAnalysis loop 
+										-- loopAnalysis = analyseLoop_reduce [] loopVarNames loopWrites nonTempVars dependencies accessAnalysis loop 
 										errors_reduce = getErrorAnnotations loopAnalysis
 										reductionVariables = getReductionVars loopAnalysis
 										reads_reduce = getReads loopAnalysis
