@@ -100,12 +100,8 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
-paralleliseLoop loopVars accessAnalysis loop 	= 
-												case mapAttempt_bool of
-										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
-										False 	-> case reduceAttempt_bool of
-													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
-													False	-> reduceAttempt_ast
+paralleliseLoop loopVars accessAnalysis loop 	= appendAnnotation transformedAst (outputTab ++ "Cannot map or reduce: Loop carried dependency") (show loopDependencyCheck) -- transformedAst_lcd
+												
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
@@ -114,6 +110,7 @@ paralleliseLoop loopVars accessAnalysis loop 	=
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies loop
 									loopWrites = extractWrites_query loop
+									loopDependencyCheck = loopCarriedDependencyCheck_beta loop
 
 									-- mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
@@ -124,6 +121,14 @@ paralleliseLoop loopVars accessAnalysis loop 	=
 									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
+
+									transformedAst = case mapAttempt_bool of
+										True	-> appendAnnotation mapAttempt_ast (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) ""
+										False 	-> case reduceAttempt_bool of
+													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
+													False	-> reduceAttempt_ast
+									
+									-- transformedAst_lcd = if loopDependencyCheck /= [] then appendAnnotation transformedAst (outputTab ++ "Cannot map or reduce: Loop carried dependency") (show loopDependencyCheck) else transformedAst
 
 --	These functions are used to extract a list of varnames that are written to in a particular chunk of code. Used to asses
 extractWrites_query :: (Typeable p, Data p) => Fortran p -> [VarName p]

@@ -46,8 +46,8 @@ type VarDependencyAnalysis = DMap.Map (VarName Anno) [Expr Anno]
 --	There are two ArrayAccessExpressions passed around during analysis, one that holds all of the indexs
 --	of a variable that are written to, and one that tracks where the variable is read. These data
 --	structures are used to determine whether loop carried dependencies exist in a particular loop.
---										Variable A 		is accessed at index
-type ArrayAccessExpressions = DMap.Map (VarName Anno) 	[Expr Anno]
+--										Variable A 		is accessed at indices
+type ArrayAccessExpressions = DMap.Map (VarName Anno) 	[[Expr Anno]]
 
 --	Type used when determining allowed values for iterator variables. Holds the currently chosen values
 --	for previous iterator variables that allow the calculation of inner iterator variables in the case
@@ -124,8 +124,8 @@ isIndirectlyDependentOn analysis potDependent potDependee	|	isDirectlyDependentO
 
 loopCarriedDependencyCheck_query :: [VarName Anno] -> Fortran Anno -> [Expr Anno]
 loopCarriedDependencyCheck_query loopIterators codeSeg = everything (++) (mkQ [] (loopCarriedDependencyCheck_query' loopIterators dependencyAnalysis)) codeSeg
-					where
-						dependencyAnalysis = analyseDependencies codeSeg
+			where
+				dependencyAnalysis = analyseDependencies codeSeg
 
 loopCarriedDependencyCheck_query' :: [VarName Anno] -> VarDependencyAnalysis -> Fortran Anno -> [Expr Anno]
 loopCarriedDependencyCheck_query' loopIterators dependencyAnalysis (Assg _ _ expr _) = loopCarriedDependencyCheck loopIterators Empty dependencyAnalysis expr 
@@ -133,17 +133,95 @@ loopCarriedDependencyCheck_query' _ _ _ = []
 
 loopCarriedDependencyCheck :: [VarName Anno] -> LoopIterTable -> VarDependencyAnalysis -> Expr Anno -> [Expr Anno]
 loopCarriedDependencyCheck loopIterators loopIterTable dependencyAnalysis expr = loopCarriedDependencyProof
-								where
-									exprLoopIteratorUsage = loopIteratorUsage loopIterators expr
-									dependencies = getIndirectDependencies dependencyAnalysis (head $ extractVarNames expr)
-									selfDependencies = filter (\item -> listIntersection (extractVarNames item) (extractVarNames expr) /= []) dependencies
+			where
+				exprLoopIteratorUsage = loopIteratorUsage loopIterators expr
+				dependencies = getIndirectDependencies dependencyAnalysis (head $ extractVarNames expr)
+				selfDependencies = filter (\item -> listIntersection (extractVarNames item) (extractVarNames expr) /= []) dependencies
 
-									loopCarriedDependencyProof = filter (\item -> exprLoopIteratorUsage /= loopIteratorUsage loopIterators item) selfDependencies
+				loopCarriedDependencyProof = filter (\item -> exprLoopIteratorUsage /= loopIteratorUsage loopIterators item) selfDependencies
 
-loopCarriedDependencyCheck_beta :: [VarName Anno] -> LoopIterTable -> VarDependencyAnalysis -> Expr Anno -> [Expr Anno]
-loopCarriedDependencyCheck_beta loopIterators loopIterTable dependencyAnalysis expr = []
-								where
-									dependencies = getIndirectDependencies dependencyAnalysis (head $ extractVarNames expr)
+loopCarriedDependencyCheck_beta :: Fortran Anno -> LoopIterTable-- [(Expr Anno, Expr Anno)]
+loopCarriedDependencyCheck_beta codeSeg = loopIterTable -- foldl (++) [] varChecks
+			where
+				assignments = everything (++) (mkQ [] extractAssigments) codeSeg
+				(reads, writes) = foldl (extractArrayIndexReadWrite_foldl) (DMap.empty, DMap.empty) assignments
+				(loopIterTable, loopVars) = constructLoopIterTable Empty [] codeSeg
+
+				writtenVars = DMap.keys writes
+				varChecks = map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars
+
+loopCarriedDependency_varCheck :: LoopIterTable -> [VarName Anno] -> (ArrayAccessExpressions, ArrayAccessExpressions) -> VarName Anno -> [(Expr Anno, Expr Anno)]
+loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes) var = map (\(a,b) -> (makeVar a, makeVar b)) offendingPairs
+			where
+				-- writtenAccesses = DMap.findWithDefault (error $ "LoopCarriedDependencyVarCheck: written varname (" ++ show var ++ ") doesn't exist in ArrayAccessExpressions data structure:\n" ++ show writes ++ "\nkeys:\n" ++ show (DMap.keys writes) ++ "\n" ++ show ((head $ DMap.keys writes) == var))
+				-- 					var
+				-- 					writes
+				-- readsAccesses = DMap.findWithDefault (error "LoopCarriedDependencyVarCheck: read varname doesn't exist in ArrayAccessExpressions data structure")
+				-- 					var
+				-- 					reads
+
+				writtenAccesses = DMap.findWithDefault [] var writes
+				readsAccesses = DMap.findWithDefault [] var reads
+
+				offendingPairs = foldl (loopCarriedDependency_writtenExprCheck loopIterTable loopVars readsAccesses) [] writtenAccesses
+				makeVar = (\x -> Var nullAnno nullSrcSpan [(var, x)])
+
+
+loopCarriedDependency_writtenExprCheck :: LoopIterTable -> [VarName Anno] -> [[Expr Anno]] -> [([Expr Anno], [Expr Anno])] -> [Expr Anno] -> [([Expr Anno], [Expr Anno])]
+loopCarriedDependency_writtenExprCheck loopIterTable loopVars readExprs oldOffendingExprs writtenExpr = foldl (loopCarriedDependency_readExprCheck loopIterTable loopVars writtenExpr) oldOffendingExprs readExprs
+
+loopCarriedDependency_readExprCheck :: LoopIterTable -> [VarName Anno] -> [Expr Anno] -> [([Expr Anno], [Expr Anno])] -> [Expr Anno] -> [([Expr Anno], [Expr Anno])]
+loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = newOffendingExprs -- error $ show possibleIndices
+			where
+				possibleIndices = loopCarriedDependency_evaluatePossibleIndices loopIterTable DMap.empty loopVars readIndexExprs writtenIndexExprs
+				readIndices = foldl (\accum (reads, _) -> accum ++ [reads]) [] possibleIndices
+				writtenIndices = foldl (\accum (_, writes) -> accum ++ [writes]) [] possibleIndices
+				-- possibleIndices = zip readIndices writtenIndices
+				equalInLoop = map (\(a, b) -> if a == b then 1 else 0) possibleIndices
+				occurences = map (\(x, equal) -> (countOccurences x writtenIndices) - equal) (zip readIndices equalInLoop)
+				offend_bool = any (\x -> x > 0) occurences
+				newOffendingExprs = if offend_bool then oldOffendingExprs ++ [(writtenIndexExprs, readIndexExprs)] else oldOffendingExprs
+
+loopCarriedDependency_evaluatePossibleIndices :: LoopIterTable -> ValueTable -> [VarName Anno] -> [Expr Anno] -> [Expr Anno] -> [([Maybe(Int)], [Maybe(Int)])]
+loopCarriedDependency_evaluatePossibleIndices Empty valueTable loopVars exprs1 exprs2 = [(exprs1_eval, exprs2_eval)]
+			where
+				exprs1_eval = map (evaluateExpr valueTable) exprs1
+				exprs2_eval = map (evaluateExpr valueTable) exprs2
+
+loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) valueTable loopVars exprs1 exprs2 = if loopVars == [] then error "loopCarriedDependency_evaluatePossibleIndices: loopVars == []" else foldl (++) [] (map (selectValue_map) allowedValues)
+			where
+				allowedValues = DMap.keys iterTable
+				selectValue_map = (\x -> loopCarriedDependency_evaluatePossibleIndices (DMap.findWithDefault Empty x iterTable) (addToValueTable (head loopVars) x valueTable) newLoopVars exprs1 exprs2)
+				-- firstLoopVarStr = varnameStr (head loopVars)
+				newLoopVars = tail loopVars
+
+extractArrayIndexReadWrite_foldl :: (ArrayAccessExpressions, ArrayAccessExpressions) -> Fortran Anno -> (ArrayAccessExpressions, ArrayAccessExpressions)
+extractArrayIndexReadWrite_foldl (reads, writes) (Assg _ _ expr1 expr2) = if extractVarNames expr1 == [] then error "extractArrayIndexReadWrite_foldl: extractVarNames expr1 = []" else (newReads, newWrites)
+			where
+				readExpr_operands = filter (isVar) (extractOperands expr2)
+				readExpr_varNames = map (\x -> if extractVarNames x == [] then error "extractArrayIndexReadWrite_foldl: extractVarNames x = []" else head $ extractVarNames x) readExpr_operands
+				readExpr_indexExprs = map (extractContainedVars) readExpr_operands
+
+				writtenExpr_varName = head $ extractVarNames expr1
+				writtenExpr_indexExprs = extractContainedVars expr1
+
+				newReads = foldl (\accum (var, exprs) -> appendToMap var exprs accum) reads (zip readExpr_varNames readExpr_indexExprs)
+				newWrites = appendToMap writtenExpr_varName writtenExpr_indexExprs writes
+extractArrayIndexReadWrite_foldl (reads, writes) _ = (reads, writes)
+
+constructLoopIterTable :: LoopIterTable -> [VarName Anno] -> Fortran Anno -> (LoopIterTable, [VarName Anno])
+constructLoopIterTable oldTable loopVars (For _ _ var e1 e2 e3 fortran) = constructLoopIterTable newLoopIterTable (loopVars ++ [var]) fortran
+			where
+				newLoopIterTable = extendLoopIterTable oldTable DMap.empty loopVars e1 e2 e3
+constructLoopIterTable oldTable loopVars codeSeg = firstNonEmpty
+			where
+				childrenAnalysis = gmapQ (mkQ (Empty, []) (constructLoopIterTable oldTable loopVars)) codeSeg
+				nonEmptyTables = filter (\(table, _) -> loopIterTableNotEmpty table) childrenAnalysis
+				firstNonEmpty = if (length nonEmptyTables) == 0 then (oldTable, loopVars) else head nonEmptyTables
+
+loopIterTableNotEmpty :: LoopIterTable -> Bool
+loopIterTableNotEmpty Empty = False
+loopIterTableNotEmpty _ = True
 					
 loopIteratorUsage :: [VarName Anno] -> Expr Anno -> [[Expr Anno]]
 loopIteratorUsage loopIterators expr = loopIteratorUsageList
@@ -156,6 +234,9 @@ varNameUsageCheck exprs varnames =  match
 			where
 				usedVarnames = foldl (\accum item -> accum ++ extractUsedVarName item) [] exprs
 				match = (listIntersection varnames usedVarnames) /= []
+
+addToValueTable :: VarName Anno -> Int -> ValueTable -> ValueTable
+addToValueTable var value table = DMap.insert (varnameStr var) value table
 
 extendLoopIterTable :: LoopIterTable -> ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> LoopIterTable
 extendLoopIterTable oldTable valueTable ([]) startExpr endExpr stepExpr = addRangeToIterTable oldTable range
@@ -178,8 +259,8 @@ extendLoopIterTableWithValues_foldl :: ValueTable -> [VarName Anno] -> Expr Anno
 extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr (LoopIterRecord oldRecord) chosenValue = LoopIterRecord (DMap.insert chosenValue newSubTable oldRecord)
 		where
 			oldSubTable = DMap.findWithDefault Empty chosenValue oldRecord
-			newSubTable = extendLoopIterTable oldSubTable (DMap.insert firstLoopVarStr chosenValue valueTable) newLoopVars startExpr endExpr stepExpr
-			firstLoopVarStr = varnameStr (head loopVars)
+			newSubTable = extendLoopIterTable oldSubTable (addToValueTable (if loopVars == [] then error "extendLoopIterTableWithValues_foldl: loopVars = []" else head loopVars) chosenValue valueTable) newLoopVars startExpr endExpr stepExpr
+			-- firstLoopVarStr = varnameStr (head loopVars)
 			newLoopVars = tail loopVars
 
 addRangeToIterTable :: LoopIterTable -> [Int] -> LoopIterTable
@@ -215,8 +296,8 @@ evaluateExpr vt (Bin _ _ binOp expr1 expr2) = case binOp of
 evaluateExpr vt (Unary _ _ unOp expr) = case unOp of 
 												UMinus _ -> maybeNegative (evaluateExpr vt expr)
 												Not _ -> Nothing
-evaluateExpr vt (Var p src lst) | varString == "mod" = maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (mod)
-								| otherwise = DMap.lookup varString vt
+evaluateExpr vt (Var p src lst)   	| varString == "mod" = maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (mod)
+									| otherwise = DMap.lookup varString vt
 			where
 				varString = varnameStr $ head $ extractUsedVarName (Var p src lst)
 				headExprList = snd (head lst)
