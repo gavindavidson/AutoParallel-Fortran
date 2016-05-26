@@ -42,7 +42,7 @@ getWrites (_, _, _, writes) = writes
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
-analyseLoop_map :: LoopIterTable -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> AnalysisInfo
+analyseLoop_map :: TupleTable -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> AnalysisInfo
 analyseLoop_map loopIterTable loopVars loopWrites nonTempVars accessAnalysis dependencies codeSeg = case codeSeg of
 		If _ _ expr _ elifList maybeElse -> foldl combineAnalysisInfo analysisInfoBaseCase (generalAnalysis ++ elifAnalysis_fortran ++ elifAnalysis_readExprs ++ [elseAnalysis])
 						where
@@ -83,7 +83,7 @@ analyseLoop_map loopIterTable loopVars loopWrites nonTempVars accessAnalysis dep
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	doesn't represent a reduction. If the returned string is empty, the loop represents a possible parallel reduction
-analyseLoop_reduce :: LoopIterTable -> [Expr Anno] -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran Anno -> AnalysisInfo
+analyseLoop_reduce :: TupleTable -> [Expr Anno] -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> Fortran Anno -> AnalysisInfo
 analyseLoop_reduce loopIterTable condExprs loopVars loopWrites nonTempVars dependencies accessAnalysis codeSeg = case codeSeg of
 		If _ _ expr _ elifList maybeElse -> foldl combineAnalysisInfo analysisInfoBaseCase (generalAnalysis ++ elifAnalysis_fortran ++ elifAnalysis_readExprs ++ [elseAnalysis])
 							where

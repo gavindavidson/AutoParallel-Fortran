@@ -53,6 +53,7 @@ main = do
 
 	putStr $ compileAnnotationListing parallelisedProg
 	-- putStr $ show $ parallelisedProg
+	-- putStr $ show $ parsedProgram
 
 	putStr $ compileAnnotationListing combinedProg
 	
@@ -100,7 +101,7 @@ paralleliseForLoop  accessAnalysis inp = case inp of
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
-paralleliseLoop loopVars accessAnalysis loop 	= appendAnnotation transformedAst (outputTab ++ "Cannot map or reduce: Loop carried dependency") (show loopDependencyCheck) -- transformedAst_lcd
+paralleliseLoop loopVars accessAnalysis loop 	= transformedAst_lcd
 												
 								where
 									newLoopVars = case getLoopVar loop of
@@ -128,7 +129,8 @@ paralleliseLoop loopVars accessAnalysis loop 	= appendAnnotation transformedAst 
 													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
 													False	-> reduceAttempt_ast
 									
-									-- transformedAst_lcd = if loopDependencyCheck /= [] then appendAnnotation transformedAst (outputTab ++ "Cannot map or reduce: Loop carried dependency") (show loopDependencyCheck) else transformedAst
+									transformedAst_lcd = if loopDependencyCheck /= []
+																 then appendAnnotation transformedAst (outputTab ++ "Cannot map or reduce: Loop carried dependency") (show loopDependencyCheck) else transformedAst
 
 --	These functions are used to extract a list of varnames that are written to in a particular chunk of code. Used to asses
 extractWrites_query :: (Typeable p, Data p) => Fortran p -> [VarName p]

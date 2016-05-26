@@ -74,9 +74,6 @@ outputExprFormatting codeSeg = show codeSeg
 listRemoveDuplications :: Eq a => [a] -> [a]
 listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a
 
-countOccurences :: Eq a => a -> [a] -> Int
-countOccurences a lst = foldl (\accum item -> if item == a then accum + 1 else accum) 0 lst
-
 --	Used by SYB query to extract expressions
 extractExpr :: Expr Anno -> Expr Anno 
 extractExpr expr = expr
