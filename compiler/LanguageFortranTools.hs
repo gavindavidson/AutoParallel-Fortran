@@ -132,11 +132,14 @@ generateAndExprFromList list = foldl1 (generateAndExpr) list
 generateVar :: VarName Anno -> Expr Anno
 generateVar varname = Var nullAnno nullSrcSpan [(varname, [])]
 
+generateArrayVar :: VarName Anno -> [Expr Anno] -> Expr Anno
+generateArrayVar varname exprs = Var nullAnno nullSrcSpan [(varname, exprs)]
+
 generateConstant :: Int -> Expr Anno
 generateConstant value = Con nullAnno nullSrcSpan (show value)
 
-generateArrayVar :: VarName Anno -> Expr Anno -> Expr Anno
-generateArrayVar varname access = Var nullAnno nullSrcSpan [(varname, [access])]
+-- generateArrayVar :: VarName Anno -> Expr Anno -> Expr Anno
+-- generateArrayVar varname access = Var nullAnno nullSrcSpan [(varname, [access])]
 
 generateIf :: Expr Anno -> Fortran Anno -> Fortran Anno
 generateIf expr fortran = If nullAnno nullSrcSpan expr fortran [] Nothing
@@ -188,6 +191,9 @@ appendAnnotation original key appendage = case original of
 
 		-- appendToMap
 
+appendAnnotationList :: Fortran Anno -> String -> [String] -> Fortran Anno
+appendAnnotationList original key appendage = foldl (\accum item -> appendAnnotation accum key item) original appendage
+
 appendAnnotationMap :: Fortran Anno -> Anno -> Fortran Anno
 appendAnnotationMap codeSeg newMap = case codeSeg of
 		For anno f2 f3 f4 f5 f6 f7 -> For (combineAnnotations newMap anno) f2 f3 f4 f5 f6 f7
@@ -216,6 +222,7 @@ combineAnnotations a b = combineMaps a b
 
 usesVarName_list :: [VarName Anno] -> Expr Anno -> Bool
 usesVarName_list loopWrites (Var _ _ list) = foldl (||) False $ map (\(varname, exprs) -> elem varname loopWrites) list
+usesVarName_list loopWrites (Bin _ _ _ expr1 expr2) = (usesVarName_list loopWrites expr1) || (usesVarName_list loopWrites expr2)
 usesVarName_list loopWrites _ = False
 
 usesVarName :: VarName Anno -> Expr Anno -> Bool

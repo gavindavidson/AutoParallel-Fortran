@@ -111,7 +111,8 @@ analyseLoop_reduce loopIterTable condExprs loopVars loopWrites nonTempVars depen
 				readOperands = extractOperands expr2
 				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 
-				dependsOnSelfOnce = (length (filter (\item -> item == writtenVarname) readVarnames)) == 1
+				-- dependsOnSelfOnce = (length (filter (\item -> item == writtenVarname) readVarnames)) == 1
+				dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) writtenExprs) == 1
 
 				writtenVarname = head $ foldl (\accum item -> accum ++ extractVarNames item) [] writtenExprs
 				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] readExprs
@@ -140,7 +141,7 @@ analyseLoop_reduce loopIterTable condExprs loopVars loopWrites nonTempVars depen
 												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr1]
 												errorMap1
 											else errorMap1
-				errorMap3 = if potentialReductionVar && (not associative) && dependsOnSelfOnce then
+				errorMap3 = if dependsOnSelfOnce && potentialReductionVar && (not associative) then
 											DMap.insert (outputTab ++ "Cannot reduce: Not associative function:\n")
 												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr2]
 												errorMap2

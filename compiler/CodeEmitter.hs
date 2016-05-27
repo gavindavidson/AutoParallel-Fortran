@@ -735,7 +735,7 @@ generateWorkGroupReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	|
 											Nothing -> case extractPrimaryReductionFunction expr1 expr2 of
 														"" -> []
 														funcName -> [Assg nullAnno nullSrcSpan localReductionVar (Var nullAnno nullSrcSpan [(VarName nullAnno funcName, [localReductionVar, localReductionArray])])]
-						localReductionArray = generateArrayVar (generateLocalReductionArray (head (extractVarNames expr1))) (generateVar redIter)
+						localReductionArray = generateArrayVar (generateLocalReductionArray (head (extractVarNames expr1))) [(generateVar redIter)]
 						localReductionVar = generateVar (generateLocalReductionVar (head (extractVarNames expr1)))
 generateWorkGroupReduction_assgs reductionVars redIter codeSeg = []
 
@@ -755,7 +755,7 @@ generateFinalHostReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	|
 											Nothing -> case extractPrimaryReductionFunction expr1 expr2 of
 														"" -> []
 														funcName -> [Assg nullAnno nullSrcSpan finalReductionVar (Var nullAnno nullSrcSpan [(VarName nullAnno funcName, [finalReductionVar, finalReductionArray])])]
-						finalReductionArray = generateArrayVar (generateGlobalReductionArray (head (extractVarNames expr1))) (generateVar redIter)
+						finalReductionArray = generateArrayVar (generateGlobalReductionArray (head (extractVarNames expr1))) [(generateVar redIter)]
 						finalReductionVar = generateVar (head (extractVarNames expr1))
 generateFinalHostReduction_assgs reductionVars redIter codeSeg = []
 

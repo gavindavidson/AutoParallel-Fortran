@@ -111,7 +111,8 @@ paralleliseLoop loopVars accessAnalysis loop 	= transformedAst_lcd
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies loop
 									loopWrites = extractWrites_query loop
-									loopDependencyCheck = loopCarriedDependencyCheck_beta loop
+									loopCarriedDeps = loopCarriedDependencyCheck_beta loop
+									loopCarriedDeps_bool = loopCarriedDeps /= []
 
 									-- mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
@@ -129,8 +130,10 @@ paralleliseLoop loopVars accessAnalysis loop 	= transformedAst_lcd
 													True 	-> appendAnnotation reduceAttempt_ast (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ""
 													False	-> reduceAttempt_ast
 									
-									transformedAst_lcd = if loopDependencyCheck /= []
-																 then appendAnnotation transformedAst (outputTab ++ "Cannot map or reduce: Loop carried dependency") (show loopDependencyCheck) else transformedAst
+									-- transformedAst_lcd = if (mapAttempt_bool || reduceAttempt_bool) && (loopCarriedDeps_bool)
+									-- 							then appendAnnotationList loop (outputTab ++ "Cannot map or reduce: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) else transformedAst
+									transformedAst_lcd = if loopCarriedDeps_bool
+																 then appendAnnotationList transformedAst (outputTab ++ "Cannot map or reduce: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) else transformedAst
 
 --	These functions are used to extract a list of varnames that are written to in a particular chunk of code. Used to asses
 extractWrites_query :: (Typeable p, Data p) => Fortran p -> [VarName p]
@@ -224,7 +227,7 @@ getAnnotations codeSeg = case (tag codeSeg) == nullAnno of
 				False -> leadMessage ++ errorListing ++ "\n"
 			leadMessage = compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan codeSeg) ++ "\n"
 			errorListing = foldl (\errorDescription key -> errorDescription ++ key ++ 
-												(foldl (\errorInstance item -> errorInstance ++ "\t" ++ item) "" (applyAnnotationFormatting 3 (DMap.findWithDefault [] key errorMap))) ++ "\n"
+												(foldl (\errorInstance item -> errorInstance ++ "\t" ++ item) "" (applyAnnotationFormatting 2 (DMap.findWithDefault [] key errorMap))) ++ "\n"
 					) "" keys 
 			keys = DMap.keys errorMap
 			errorMap = tag codeSeg
@@ -236,6 +239,10 @@ applyAnnotationFormatting itemsPerLine items = formattedList
 				indexoredItems = zip indexorList items
 				formattedList = map (\(index, item) -> if (mod index itemsPerLine) == 0 && index /= (length items) 
 															then item ++ "\n" else item) indexoredItems 
+
+formatLoopCarriedDependencies :: [(Expr Anno, Expr Anno)] -> [String]
+formatLoopCarriedDependencies ((readExpr, writtenExpr):exprs) = [outputTab ++ (outputExprFormatting readExpr) ++ " -> " ++ (outputExprFormatting writtenExpr)] ++ formatLoopCarriedDependencies exprs
+formatLoopCarriedDependencies [] = []
 
 --	Returns a list of all of the names of variables that are used in a particular AST. getVarNames_query performs the traversal and applies
 --	getVarNames at appropriate moments.
