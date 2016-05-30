@@ -74,6 +74,9 @@ outputExprFormatting codeSeg = show codeSeg
 listRemoveDuplications :: Eq a => [a] -> [a]
 listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a
 
+listConcatUnique :: Eq a => [a] -> [a] -> [a]
+listConcatUnique a b = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) b a
+
 --	Used by SYB query to extract expressions
 extractExpr :: Expr Anno -> Expr Anno 
 extractExpr expr = expr
@@ -265,6 +268,19 @@ removeLoopConstructs_recursive (FSeq anno _ (For _ _ _ _ _ _ fortran1) fortran2)
 removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran) = removeLoopConstructs_recursive fortran
 removeLoopConstructs_recursive (FSeq _ _ fortran (NullStmt _ _)) = removeLoopConstructs_recursive fortran
 removeLoopConstructs_recursive codeSeg = codeSeg
+
+extractFirstChildFor :: Fortran Anno -> Maybe(Fortran Anno)
+extractFirstChildFor (For _ _ _ _ _ _ fortran) = firstFor
+		where
+			allFors = everything (++) (mkQ [] extractFor) fortran
+			firstFor = case allFors of
+						[] -> Nothing
+						otherwise -> Just(head allFors)
+
+extractFor :: Fortran Anno -> [Fortran Anno]
+extractFor codeSeg = case codeSeg of
+						For _ _ _ _ _ _ _ -> [codeSeg]
+						_ -> []
 
 extractLineNumber :: SrcSpan -> Int
 extractLineNumber ((SrcLoc _ line _), _) = line
