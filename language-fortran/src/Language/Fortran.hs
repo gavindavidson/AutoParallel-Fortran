@@ -383,9 +383,9 @@ instance Span (Fortran a) where
     srcSpan (ReadS x sp s e)         = sp
     srcSpan (TextStmt x sp s)        = sp
     srcSpan (NullStmt x sp)          = sp
-    srcSpan (SelectStmt x sp e fes)  = sp       -- GAV ADDED
+    srcSpan (SelectStmt x sp e fes)  = sp          -- GAV ADDED
     srcSpan (OpenCLMap x sp e1 e2 _ f2) = sp       -- GAV ADDED
-    srcSpan (OpenCLReduce x sp e1 e2 _ e3 f2) = sp       -- GAV ADDED
+    srcSpan (OpenCLReduce x sp e1 e2 _ e3 f2) = sp -- GAV ADDED
 
 -- Extract the tag 
 
@@ -510,9 +510,9 @@ instance Tagged Fortran where
     tag (ReadS x sp s e)        = x
     tag (TextStmt x sp s)       = x
     tag (NullStmt x sp)         = x
-    tag (SelectStmt x sp e fes)  = x       -- GAV ADDED
+    tag (SelectStmt x sp e fes)  = x          -- GAV ADDED
     tag (OpenCLMap x sp e1 e2 _ f2) = x       -- GAV ADDED
-    tag (OpenCLReduce x sp e1 e2 _ e3 f2) = x       -- GAV ADDED
+    tag (OpenCLReduce x sp e1 e2 _ e3 f2) = x -- GAV ADDED
 
 
 instance Tagged Expr where

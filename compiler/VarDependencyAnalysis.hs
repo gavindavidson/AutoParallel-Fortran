@@ -142,7 +142,9 @@ loopCarriedDependencyCheck loopIterators loopIterTable dependencyAnalysis expr =
 				loopCarriedDependencyProof = filter (\item -> exprLoopIteratorUsage /= loopIteratorUsage loopIterators item) selfDependencies
 
 loopCarriedDependencyCheck_beta :: Fortran Anno -> [(Expr Anno, Expr Anno)]
-loopCarriedDependencyCheck_beta codeSeg = offendingExprs
+loopCarriedDependencyCheck_beta codeSeg = -- error $ "WRITES:\n" ++ (show writes) 
+												-- ++ "\n\nREADS:\n" ++ (show reads) --
+												offendingExprs
 			where
 				assignments = everything (++) (mkQ [] extractAssigments) codeSeg
 				(reads, writes) = foldl' (extractArrayIndexReadWrite_foldl) (DMap.empty, DMap.empty) assignments
@@ -159,16 +161,25 @@ loopCarriedDependencyCheck_beta codeSeg = offendingExprs
 				offendingExprs = foldl (++) [] (map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars)
 
 loopCarriedDependencyCheck_iterative_beta :: Fortran Anno ->  Fortran Anno -> (Bool, [(Expr Anno, Expr Anno)])
-loopCarriedDependencyCheck_iterative_beta iteratingCodeSeg parallelCodeSeg = if length (loopVars) > 3 
-																				then error $ show loopIterTableIterations 
+loopCarriedDependencyCheck_iterative_beta iteratingCodeSeg parallelCodeSeg = 
+																			if length (loopVars) > 2 && False
+																				then error ("loopIterTableIterations:\n" ++ show loopIterTableIterations ++
+																							"\n\niteratingCodeSeg:\n" ++ show iteratingCodeSeg ++
+																							"\n\nparallelCodeSeg:\n" ++ show parallelCodeSeg ++
+																							"\n" ++
+																							"\n\nloopVars:\n" ++ show loopVars ++
+																							"\n\nloopVars_parallel:\n" ++ show loopVars_parallel ++
+																							"\n\nloopVars_iter:\n" ++ show loopVars_iter ++
+																							"\n")
 																				else 
 																					(checkFailure, if loopIterTable_successfull then offendingExprs else [])
 			where
 				assignments = everything (++) (mkQ [] extractAssigments) parallelCodeSeg
 				(reads, writes) = foldl' (extractArrayIndexReadWrite_foldl) (DMap.empty, DMap.empty) assignments
 				(loopIterTable_maybe, loopVars, str) = constructLoopIterTable (Just(Empty)) [] iteratingCodeSeg
-				(_, loopVars_parallel, _) = constructLoopIterTable (Just(Empty)) [] parallelCodeSeg
-				
+				-- (_, loopVars_parallel, _) = constructLoopIterTable (Just(Empty)) [] parallelCodeSeg
+				loopVars_parallel = extractLoopVars parallelCodeSeg
+
 				loopVars_iter = listSubtract loopVars loopVars_parallel
 				loopIterTableIterations = loopCarriedDependency_iterative_prepareIterTable loopVars_iter loopIterTable
 
@@ -191,7 +202,8 @@ loopCarriedDependency_iterative_prepareIterTable loopVars (LoopIterRecord iterTa
 			where
 				currentLoopVar = head loopVars
 				allowedValues = DMap.keys iterTable
-				selections = foldl (\accum item -> listConcatUnique accum (loopCarriedDependency_iterative_prepareIterTable (tail loopVars) (DMap.findWithDefault Empty item iterTable))) [] allowedValues
+				selections = foldl (\accum item -> accum ++ (loopCarriedDependency_iterative_prepareIterTable (tail loopVars) (DMap.findWithDefault Empty item iterTable))) [] allowedValues
+				-- selections = foldl (\accum item -> listConcatUnique accum (loopCarriedDependency_iterative_prepareIterTable (tail loopVars) (DMap.findWithDefault Empty item iterTable))) [] allowedValues
 
 loopCarriedDependency_varCheck :: TupleTable -> [VarName Anno] -> (ArrayAccessExpressions, ArrayAccessExpressions) -> VarName Anno -> [(Expr Anno, Expr Anno)]
 loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes) var = offendingExprs
@@ -216,7 +228,8 @@ loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs old
 				result = if offend_bool then oldOffendingExprs ++ [readIndexExprs] else oldOffendingExprs
 
 loopCarriedDependency_evaluatePossibleIndices :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [Expr Anno] -> (Bool, TupleTable, TupleTable) -> ValueTable -> (Bool, TupleTable, TupleTable) -- [([Maybe(Int)], [Maybe(Int)])] -- (Bool, TupleTable, TupleTable)
-loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prevCheck, prevReads, prevWrites) valueTable = -- (depExistsBool, newReads, newWrites)
+loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prevCheck, prevReads, prevWrites) valueTable = 
+																														-- (depExistsBool, newReads, newWrites)
 																														-- if length (DMap.keys valueTable) > 2 then error ("valueTable: " ++ show valueTable) else (depExistsBool, newReads, newWrites)
 																														
 																														-- if loopVars /= [] then error $ "loopCarriedDependency_evaluatePossibleIndices: loopVars: " ++ show loopVars
@@ -234,7 +247,7 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prev
 																														-- 						"not writesEvaluated " ++ (show $ not writesEvaluated) ++ show writes_eval ++ "\n")
 																														-- else (depExistsBool, newReads, newWrites)
 																														
-																														if 	r_w_equal && depExistsBool && length (loopVars) > 3 -- (readPreviouslyWritten || writePreviouslyRead) && readsEvaluated && writesEvaluated
+																														if 	r_w_equal && depExistsBool && False -- (readPreviouslyWritten || writePreviouslyRead) && readsEvaluated && writesEvaluated
 																																then error (	"prevReads\n" ++ (show prevReads) ++ "\n" ++
 																																				"prevWrites\n" ++ (show prevWrites) ++ "\n\n" ++
 																																				"newReads\n" ++ (show newReads) ++ "\n" ++
@@ -284,10 +297,15 @@ loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVar
 
 				exprs1_chosenVarMask = maskOnVarNameUsage chosenVar exprs1
 				exprs2_chosenVarMask = maskOnVarNameUsage chosenVar exprs2
-				varAffectsOutcome = True -- exprs1_chosenVarMask /= exprs2_chosenVarMask
+				varAffectsOutcome = exprs1_chosenVarMask /= exprs2_chosenVarMask
 
-				analysis = if varAffectsOutcome then foldl (\accum (table, value) -> loopCarriedDependency_evaluatePossibleIndices (accessIterTable value) newLoopVars exprs1 exprs2 accum table) previousAnalysis (zip valueTableIterations allowedValues) 
-						else (if valueTableIterations /= [] then (\(table, value) -> loopCarriedDependency_evaluatePossibleIndices (accessIterTable value) newLoopVars exprs1 exprs2 previousAnalysis table) (head (zip valueTableIterations allowedValues)) else previousAnalysis)
+				analysis = if varAffectsOutcome 
+							then foldl (\accum (table, value) -> loopCarriedDependency_evaluatePossibleIndices (accessIterTable value) newLoopVars exprs1 exprs2 accum table) previousAnalysis (zip valueTableIterations allowedValues) 
+							else (
+								if valueTableIterations /= [] 
+									then (\(table, value) -> loopCarriedDependency_evaluatePossibleIndices (accessIterTable value) newLoopVars exprs1 exprs2 previousAnalysis table) (head (zip valueTableIterations allowedValues)) 
+									else previousAnalysis
+								)
 
 convertFromMaybe_foldl :: (Bool, [a]) -> Maybe(a) -> (Bool, [a])
 convertFromMaybe_foldl (prevCheck, prevList) (Just(item)) = (prevCheck && True, prevList++[item])
@@ -303,15 +321,16 @@ extractArrayIndexReadWrite_foldl :: (ArrayAccessExpressions, ArrayAccessExpressi
 extractArrayIndexReadWrite_foldl (reads, writes) (Assg _ _ expr1 expr2) = (newReads, newWrites)
 			where
 				readExpr_operands = filter (isVar) (extractOperands expr2)
-				readExpr_varNames = map (\x -> if extractVarNames x == [] then error "extractArrayIndexReadWrite_foldl: extractVarNames x = []" else head $ extractVarNames x) readExpr_operands
+				readExpr_varNames = map (\x -> head $ extractVarNames x) readExpr_operands
 				readExpr_indexExprs = map (extractContainedVars) readExpr_operands
 
 				writtenExpr_varName = head $ extractVarNames expr1
 				writtenExpr_indexExprs = extractContainedVars expr1
 
-				newReads = if writtenExpr_indexExprs /= []
-								then foldl (\accum (var, exprs) -> appendToMap var exprs accum) reads (zip readExpr_varNames readExpr_indexExprs)
-								else reads
+				newReads = -- if writtenExpr_indexExprs /= []
+								-- then 
+									foldl (\accum (var, exprs) -> if exprs /= [] then appendToMap var exprs accum else accum) reads (zip readExpr_varNames readExpr_indexExprs)
+								-- else reads
 				newWrites = if writtenExpr_indexExprs /= []
 								then appendToMap writtenExpr_varName writtenExpr_indexExprs writes
 								else writes
@@ -346,6 +365,11 @@ insertIntoTupleTable (indices) Empty = createTupleTable indices
 insertIntoTupleTable (indices) (LoopIterRecord table) = case DMap.lookup (head indices) table of 
 															Just subTable -> LoopIterRecord (DMap.insert (head indices) (insertIntoTupleTable (tail indices) subTable) table)
 															Nothing -> LoopIterRecord (DMap.insert (head indices) (createTupleTable (tail indices)) table)
+
+collapseIterTable :: TupleTable -> TupleTable
+collapseIterTable (LoopIterRecord iterTable) = iterTable
+			where
+				allowedValues = DMap.keys iterTable
 
 createTupleTable :: [Int] -> TupleTable
 createTupleTable [] = Empty

@@ -171,6 +171,10 @@ getUnitName' :: SubName Anno -> String
 getUnitName' (SubName _ str) = str
 getUnitName' _ = ""
 
+-- 	Function returns the loop variable for an AST representing a for loop
+getLoopVar :: Fortran p -> Maybe(VarName p)
+getLoopVar (For _ _ var _ _ _ _) = Just var
+getLoopVar _ = Nothing
 
 --	Used to standardise SrcSpans so that nodes of an AST may be matched up even if they appear in completely different
 --	parts of a program. Also used to signify that a node has been changed and cannot be copied from the orignal source during code
@@ -234,6 +238,13 @@ usesVarName varnameInp (Var _ _ list) = foldl (||) False $ map (\(varname, exprs
 isVar :: Expr Anno -> Bool
 isVar (Var _ _ _) = True
 isVar _ = False
+
+extractLoopVars :: Fortran Anno -> [VarName Anno]
+extractLoopVars codeSeg = everything (++) (mkQ [] extractLoopVars') codeSeg
+
+extractLoopVars' :: Fortran Anno -> [VarName Anno]
+extractLoopVars' (For _ _ var _ _ _ _) = [var]
+extractLoopVars' _ = []
 
 extractUsedVarName :: Expr Anno -> [VarName Anno]
 extractUsedVarName (Var _ _ list) = map (\(varname, exprs) -> varname) list
