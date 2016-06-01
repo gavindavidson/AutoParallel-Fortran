@@ -32,6 +32,11 @@ import LoopAnalysis
 main :: IO ()
 main = do
 
+	putStr "BUGS:"
+	putStr "\n<>\tInner loops whose conditions depend on outer iterators and have\n\ta possibility of not executing will always exhibit LCDs."
+	putStr "\n<>\tLCD analysis is very slow with large loop iterator bounds. Needs\n\tan optimisation."
+	putStr "\n\n"
+
 	args <- getArgs
 	let argMap = processArgs args
 
@@ -170,8 +175,8 @@ paralleliseLoop_map loop loopVarNames nonTempVars dependencies accessAnalysis
 										reads_map = getReads loopAnalysis
 										writes_map = getWrites loopAnalysis
 
-										loopCarriedDeps = loopCarriedDependencyCheck_beta loop
-										loopCarriedDeps_bool = loopCarriedDeps /= []
+										(loopCarriedDeps_bool, loopCarriedDeps) = loopCarriedDependencyCheck loop
+										-- loopCarriedDeps_bool = loopCarriedDeps /= []
 										errors_map' = if loopCarriedDeps_bool 
 														then DMap.insert (outputTab ++ "Cannot map: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_map
 														else errors_map
@@ -192,7 +197,7 @@ paralleliseLoop_map loop loopVarNames nonTempVars dependencies accessAnalysis
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
-paralleliseLoop_reduce ::Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_reduce :: Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
 paralleliseLoop_reduce loop loopVarNames nonTempVars dependencies accessAnalysis	
 									| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation reductionCode (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) "")
 									|	otherwise					=	(False, appendAnnotationMap loop errors_reduce')
@@ -205,8 +210,9 @@ paralleliseLoop_reduce loop loopVarNames nonTempVars dependencies accessAnalysis
 										reads_reduce = getReads loopAnalysis
 										writes_reduce = getWrites loopAnalysis
 
-										loopCarriedDeps = loopCarriedDependencyCheck_beta loop
-										loopCarriedDeps_bool = loopCarriedDeps /= []
+										(loopCarriedDeps_bool, loopCarriedDeps) = loopCarriedDependencyCheck loop
+										-- loopCarriedDeps = loopCarriedDependencyCheck loop
+										-- loopCarriedDeps_bool = loopCarriedDeps /= []
 										errors_reduce' = if loopCarriedDeps_bool 
 														then DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
 														else errors_reduce
@@ -240,7 +246,7 @@ paralleliseLoop_iterativeReduce iteratingLoop parallelLoop loopVarNames nonTempV
 			reads_reduce = getReads loopAnalysis
 			writes_reduce = getWrites loopAnalysis
 
-			(loopCarriedDeps_bool, loopCarriedDeps) = loopCarriedDependencyCheck_iterative_beta iteratingLoop parallelLoop
+			(loopCarriedDeps_bool, loopCarriedDeps) = loopCarriedDependencyCheck_iterative iteratingLoop parallelLoop
 			errors_reduce' = if loopCarriedDeps_bool 
 								then DMap.insert (outputTab ++ iterativeReduceComment ++ " Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
 								else errors_reduce
@@ -258,15 +264,17 @@ paralleliseLoop_iterativeReduce iteratingLoop parallelLoop loopVarNames nonTempV
 							Nothing -> error "paralleliseLoop_iterativeReduce: nextFor is Nothing"
 							Just a -> a
 
-			iterativeReductionCode = OpenCLReduce nullAnno (generateSrcSpan (srcSpan parallelLoop))  
+			iterativeReductionCode = case iteratingLoop of
+										For a1 a2 a3 a4 a5 a6 fortran -> For a1 a2 a3 a4 a5 a6 reductionCode
+										_ -> error "paralleliseLoop_iterativeReduce: iterating loop is not FOR"
+
+			reductionCode = OpenCLReduce nullAnno (generateSrcSpan (srcSpan parallelLoop))  
 							(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query parallelLoop)) ++ varNames_loopVariables) -- List of arguments to kernel that are READ
 		 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query parallelLoop))) -- List of arguments to kernel that are WRITTEN
 						(loopVariables) -- Loop variables of nested maps
 						(listRemoveDuplications (foldl (\accum item -> accum ++ [(item, getValueAtSrcSpan item (srcSpan parallelLoop) accessAnalysis)] ) [] (foldl (\accum item -> accum ++ extractVarNames item) [] reductionVariables))) -- List of variables that are considered 'reduction variables' along with their initial values
 						(removeLoopConstructs_recursive parallelLoop) -- Body of kernel code
 			iterativeReduceComment = "Cannot iterative reduce (iter:" ++ (errorLocationFormatting $ srcSpan iteratingLoop) ++ ", par:" ++ (errorLocationFormatting $ srcSpan parallelLoop) ++ "): "
-
--- loopCarriedDependencyCheck_iterative_beta
 
 --	Function uses a SYB query to get all of the loop condtions contained within a particular AST. loopCondtions_query traverses the AST
 --	and calls getLoopConditions when a Fortran node is encountered.

@@ -37,8 +37,6 @@ combineNestedKernels codeSeg = case codeSeg of
 												newAnnotation = compilerName ++ ": Nested map at " ++ errorLocationFormatting src2 ++ " fused into surrounding map"
 												combinedAnnotations = combineAnnotations anno1 anno2
 
-												loopDependencyErrors = loopCarriedDependencyCheck_query (extractVarNames_loopVars loopVs) newCodeSeg
-
 								otherwise -> codeSeg
 
 					(OpenCLReduce anno1 src1 outerReads outerWrites outerLoopVs outerRedVs fortran) -> case fortran of
@@ -52,8 +50,6 @@ combineNestedKernels codeSeg = case codeSeg of
 												redVs = innerRedVs
 												newAnnotation = compilerName ++ ": Nested reduction at " ++ errorLocationFormatting src2 ++ " fused into surrounding reduction"
 												combinedAnnotations = combineAnnotations anno1 anno2
-
-												loopDependencyErrors = loopCarriedDependencyCheck_query (extractVarNames_loopVars loopVs) newCodeSeg
 
 								otherwise -> codeSeg
 					otherwise -> codeSeg
@@ -88,7 +84,7 @@ combineAdjacentKernels bound codeSeg = case codeSeg of
 attemptCombineAdjacentMaps :: Maybe(Float) -> Fortran Anno -> Fortran Anno -> Maybe(Fortran Anno)
 attemptCombineAdjacentMaps 	bound
 							(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
-							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] || loopDependencyErrors /= []  = Nothing
+							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] || loopDependencyBool  = Nothing
 																					| otherwise = Just(resultantMap)
 									where
 										newSrc = generateSrcSpanMerge src1 src2
@@ -108,7 +104,8 @@ attemptCombineAdjacentMaps 	bound
 										yAndPredicate = generateAndExprFromList yPredicateList
 
 										loopVs = listRemoveDuplications $ loopVs1 ++ loopVs2
-										loopDependencyErrors = loopCarriedDependencyCheck_query (extractVarNames_loopVars loopVs) resultantMap
+										-- loopDependencyErrors = loopCarriedDependencyCheck_query (extractVarNames_loopVars loopVs) resultantMap
+										(loopDependencyBool, _) = loopCarriedDependencyCheck resultantMap
 
 										resultantMap = OpenCLMap anno newSrc combinedReads writes resultLoopVars fortran
 
