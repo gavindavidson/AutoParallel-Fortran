@@ -16,6 +16,12 @@ import PreProcessor
 
 type Anno = DMap.Map (String) [String]
 
+--	Type used when determining allowed values for iterator variables. Holds the currently chosen values
+--	for previous iterator variables that allow the calculation of inner iterator variables in the case
+--	of nested loops whose bounds depends on previous iterator variables.
+--	Also used during constant folding to hold current constants
+type ValueTable = DMap.Map String Float
+
 nullAnno :: Anno
 nullAnno = DMap.empty
 
@@ -104,8 +110,16 @@ extractContainedOperands expr =  foldl (\accum item -> accum ++ (extractOperands
 				where
 					containedVars = extractContainedVars expr
 
+extractAssignments :: Fortran Anno -> [Fortran Anno]
+extractAssignments codeSeg = case codeSeg of 
+								Assg _ _ _ _ -> [codeSeg]
+								_	-> []
+
 extractFortran :: Fortran Anno -> [Fortran Anno]
 extractFortran fort = [fort]
+
+extractDecl :: Decl Anno -> [Decl Anno]
+extractDecl decl = [decl]
 
 extractBlock :: Block Anno -> [Block Anno]
 extractBlock block = [block]
@@ -357,6 +371,73 @@ extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent 
 							assigneePresent = (\accum (var, exprList) -> if elem (applyGeneratedSrcSpans assignee) exprList then varnameStr var else accum)
 							standardisedList = map (\(var, exprList) -> (var, map (applyGeneratedSrcSpans) exprList)) list
 extractPrimaryReductionFunction assignee expr = "" -- error ("Error: extractPrimaryReductionFunction\nType: " ++ (show $ typeOf expr) ++ "\nShow: " ++ (show expr))
+
+evaluateRange_int :: ValueTable -> Expr Anno -> Expr Anno -> Expr Anno -> [Int]
+evaluateRange_int vt startExpr endExpr stepExpr = map (round) (evaluateRange vt startExpr endExpr stepExpr)
+
+evaluateRange :: ValueTable -> Expr Anno -> Expr Anno -> Expr Anno -> [Float]
+evaluateRange vt startExpr endExpr stepExpr = range
+		where
+			startInt = evaluateExpr vt startExpr
+			endInt = evaluateExpr vt endExpr
+			stepInt = evaluateExpr vt stepExpr
+			range = case startInt of
+						Nothing -> []
+						Just start -> case endInt of
+										Nothing -> []
+										Just end -> case stepInt of
+														Nothing -> []
+														Just step -> [start,start+step..end]
+evaluateExpr_int :: ValueTable -> Expr Anno -> Maybe(Int)
+evaluateExpr_int vt expr = case evaluateExpr vt expr of
+								Nothing -> Nothing
+								Just result -> Just (round result)
+
+evaluateExpr :: ValueTable -> Expr Anno -> Maybe(Float)
+evaluateExpr vt (Bin _ _ binOp expr1 expr2) = case binOp of
+												Plus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (+)
+												Minus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (-)
+												Mul _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (*)
+												-- Div _ -> maybeQuotOp (evaluateExpr vt expr1) (evaluateExpr vt expr2)
+												-- Power _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (^)
+												_ -> Nothing
+evaluateExpr vt (Unary _ _ unOp expr) = case unOp of 
+												UMinus _ -> maybeNegative (evaluateExpr vt expr)
+												Not _ -> Nothing
+evaluateExpr vt (Var p src lst)   	| varString == "mod" = maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (mod)
+									| otherwise = DMap.lookup varString vt
+			where
+				varString = varnameStr $ head $ extractUsedVarName (Var p src lst)
+				headExprList = snd (head lst)
+				expr1 = head headExprList
+				expr2 = head $ tail headExprList
+evaluateExpr _ (Con _ _ str) = Just(read str :: Float)
+evaluateExpr _ _ = Nothing
+
+
+-- maybeQuotOp :: Maybe(Float) -> Maybe(Float) -> Float
+-- maybeQuotOp maybeFloat1 maybeFloat2 = case maybeFloat1 of
+-- 											Nothing -> 0.0
+-- 											Just float1 -> case maybeFloat2 of
+-- 															Nothing -> 0.0
+-- 															Just float2 -> fromIntegral (quot (round float1) (round float2)) :: Float
+-- maybeBinOp_integral :: Integral a => Maybe(Float) -> Maybe(Float) -> (a -> a -> a) -> Maybe(Float)
+-- maybeBinOp_integral maybeFloat1 maybeFloat2 op = case maybeFloat1 of
+-- 											Nothing -> Nothing
+-- 											Just float1 -> case maybeFloat2 of
+-- 															Nothing -> Nothing
+-- 															Just float2 -> Just(op float1 float2)
+
+maybeBinOp :: Maybe(Float) -> Maybe(Float) -> (Float -> Float -> Float) -> Maybe(Float)
+maybeBinOp maybeFloat1 maybeFloat2 op = case maybeFloat1 of
+											Nothing -> Nothing
+											Just float1 -> case maybeFloat2 of
+															Nothing -> Nothing
+															Just float2 -> Just(op float1 float2)
+
+maybeNegative :: Maybe(Float) -> Maybe(Float)
+maybeNegative (Just(int)) = Just(-int)
+maybeNegative Nothing = Nothing
 
 trimFront :: String -> String
 trimFront inp = filter (\x -> x /= ' ' && x /= '\t') inp

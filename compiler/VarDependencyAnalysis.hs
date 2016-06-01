@@ -50,11 +50,6 @@ type VarDependencyAnalysis = DMap.Map (VarName Anno) [Expr Anno]
 --										Variable A 		is accessed at indices
 type ArrayAccessExpressions = DMap.Map (VarName Anno) 	[[Expr Anno]]
 
---	Type used when determining allowed values for iterator variables. Holds the currently chosen values
---	for previous iterator variables that allow the calculation of inner iterator variables in the case
---	of nested loops whose bounds depends on previous iterator variables.
-type ValueTable = DMap.Map String Int
-
 --	Type used to store all possible tuples of iterator values for nested iterator variables.
 data TupleTable = LoopIterRecord (DMap.Map Int TupleTable) 
 					| Empty
@@ -63,12 +58,7 @@ data TupleTable = LoopIterRecord (DMap.Map Int TupleTable)
 analyseDependencies :: Fortran Anno -> VarDependencyAnalysis
 analyseDependencies codeSeg = foldl (\accum item -> constructDependencies accum item) DMap.empty assignments
 						where
-							assignments = everything (++) (mkQ [] extractAssigments) codeSeg
-
-extractAssigments :: Fortran Anno -> [Fortran Anno]
-extractAssigments codeSeg = case codeSeg of 
-								Assg _ _ _ _ -> [codeSeg]
-								_	-> []
+							assignments = everything (++) (mkQ [] extractAssignments) codeSeg
 
 constructDependencies :: VarDependencyAnalysis -> Fortran Anno -> VarDependencyAnalysis
 constructDependencies prevAnalysis (Assg _ _ expr1 expr2) = foldl (\accum item -> addDependencies accum item readOperands) prevAnalysis writtenVarNames
@@ -146,7 +136,7 @@ loopCarriedDependencyCheck codeSeg = -- error $ "WRITES:\n" ++ (show writes)
 												-- ++ "\n\nREADS:\n" ++ (show reads) --
 												(checkFailure, offendingExprs)
 			where
-				assignments = everything (++) (mkQ [] extractAssigments) codeSeg
+				assignments = everything (++) (mkQ [] extractAssignments) codeSeg
 				(reads, writes) = foldl' (extractArrayIndexReadWrite_foldl) (DMap.empty, DMap.empty) assignments
 				(loopIterTable_maybe, loopVars, str) = constructLoopIterTable (Just(Empty)) [] codeSeg
 
@@ -175,7 +165,7 @@ loopCarriedDependencyCheck_iterative iteratingCodeSeg parallelCodeSeg =
 																				else 
 																					(checkFailure, if loopIterTable_successfull then offendingExprs else [])
 			where
-				assignments = everything (++) (mkQ [] extractAssigments) parallelCodeSeg
+				assignments = everything (++) (mkQ [] extractAssignments) parallelCodeSeg
 				(reads, writes) = foldl' (extractArrayIndexReadWrite_foldl) (DMap.empty, DMap.empty) assignments
 				(loopIterTable_maybe, loopVars, str) = constructLoopIterTable (Just(Empty)) [] iteratingCodeSeg
 				-- (_, loopVars_parallel, _) = constructLoopIterTable (Just(Empty)) [] parallelCodeSeg
@@ -264,8 +254,8 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prev
 
 				r_w_equal = (map (applyGeneratedSrcSpans) exprs1) == (map (applyGeneratedSrcSpans) exprs2)
 
-				reads_eval = map (evaluateExpr valueTable) exprs1
-				writes_eval = map (evaluateExpr valueTable) exprs2
+				reads_eval = map (evaluateExpr_int valueTable) exprs1
+				writes_eval = map (evaluateExpr_int valueTable) exprs2
 
 				(readsEvaluated, reads_fromMaybe) = foldl (convertFromMaybe_foldl) (True, []) reads_eval
 				(writesEvaluated, writes_fromMaybe) = foldl (convertFromMaybe_foldl) (True, []) writes_eval
@@ -435,12 +425,12 @@ extendLoopIterTable oldTable valueTable ([]) startExpr endExpr stepExpr = case r
 																			[] -> Nothing
 																			_ -> Just (addRangeToIterTable oldTable range)
 		where
-			range = evaluateRange valueTable startExpr endExpr stepExpr
+			range = evaluateRange_int valueTable startExpr endExpr stepExpr
 extendLoopIterTable Empty valueTable _ startExpr endExpr stepExpr = case range of
 																			[] -> Nothing
 																			_ -> Just (addRangeToIterTable Empty range)
 		where
-			range = evaluateRange valueTable startExpr endExpr stepExpr
+			range = evaluateRange_int valueTable startExpr endExpr stepExpr
 extendLoopIterTable oldTable valueTable loopVars startExpr endExpr stepExpr = foldl 
 																				--(\accum item -> extendLoopIterTable accum (DMap.insert firstLoopVarStr item DMap.empty) newLoopVars startExpr endExpr stepExpr)
 																				(extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr)
@@ -468,50 +458,3 @@ addRangeToIterTable oldTable range = LoopIterRecord (foldl (\accum key -> DMap.i
 			oldRecord = case oldTable of
 							Empty -> DMap.empty
 							LoopIterRecord a -> a
-
-evaluateRange :: ValueTable -> Expr Anno -> Expr Anno -> Expr Anno -> [Int]
-evaluateRange vt startExpr endExpr stepExpr = range
-		where
-			startInt = evaluateExpr vt startExpr
-			endInt = evaluateExpr vt endExpr
-			stepInt = evaluateExpr vt stepExpr
-			range = case startInt of
-						Nothing -> []
-						Just start -> case endInt of
-										Nothing -> []
-										Just end -> case stepInt of
-														Nothing -> []
-														Just step -> [start,start+step..end]
-
-
-evaluateExpr :: ValueTable -> Expr Anno -> Maybe(Int)
-evaluateExpr vt (Bin _ _ binOp expr1 expr2) = case binOp of
-												Plus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (+)
-												Minus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (-)
-												Mul _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (*)
-												Div _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (quot)
-												Power _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (^)
-												_ -> Nothing
-evaluateExpr vt (Unary _ _ unOp expr) = case unOp of 
-												UMinus _ -> maybeNegative (evaluateExpr vt expr)
-												Not _ -> Nothing
-evaluateExpr vt (Var p src lst)   	| varString == "mod" = maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (mod)
-									| otherwise = DMap.lookup varString vt
-			where
-				varString = varnameStr $ head $ extractUsedVarName (Var p src lst)
-				headExprList = snd (head lst)
-				expr1 = head headExprList
-				expr2 = head $ tail headExprList
-evaluateExpr _ (Con _ _ str) = Just(read str :: Int)
-evaluateExpr _ _ = Nothing
-
-maybeBinOp :: Maybe(Int) -> Maybe(Int) -> (Int -> Int -> Int) -> Maybe(Int)
-maybeBinOp maybeInt1 maybeInt2 op = case maybeInt1 of
-											Nothing -> Nothing
-											Just int1 -> case maybeInt2 of
-															Nothing -> Nothing
-															Just int2 -> Just(op int1 int2)
-
-maybeNegative :: Maybe(Int) -> Maybe(Int)
-maybeNegative (Just(int)) = Just(-int)
-maybeNegative Nothing = Nothing

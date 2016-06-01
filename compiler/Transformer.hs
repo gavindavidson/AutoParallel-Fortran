@@ -26,6 +26,7 @@ import VarAccessAnalysis
 import VarDependencyAnalysis
 import LanguageFortranTools
 import CodeEmitter
+import ConstantFolding
 import LoopAnalysis
 
 
@@ -54,6 +55,7 @@ main = do
 	parsedProgram <- parseFile cppDFlags filename
 
 	-- putStr $ show $ parsedProgram
+	putStr $ show $ map foldConstants parsedProgram
 
 	let parallelisedProg = paralleliseProgram parsedProgram
 	let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
