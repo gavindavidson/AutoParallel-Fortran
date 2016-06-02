@@ -120,19 +120,15 @@ paralleliseLoop loopVars accessAnalysis loop 	= transformedAst
 
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies loop
-									-- loopWrites = extractWrites_query loop
 
-									-- mapAttempt = paralleliseLoop_map loop newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									mapAttempt = paralleliseLoop_map loop newLoopVars nonTempVars dependencies accessAnalysis
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
-									-- reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars loopWrites nonTempVars dependencies accessAnalysis
 									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars nonTempVars dependencies accessAnalysis
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
 
-									-- iterativeReduceAttempt = paralleliseLoop_iterativeReduce loop nextFor newLoopVars nonTempVars dependencies accessAnalysis
 									iterativeReduceAttempt = paralleliseLoop_iterativeReduce reduceAttempt_ast nextFor newLoopVars nonTempVars dependencies accessAnalysis
 									iterativeReduceAttempt_bool = fst iterativeReduceAttempt
 									iterativeReduceAttempt_ast = snd iterativeReduceAttempt
@@ -234,6 +230,8 @@ paralleliseLoop_reduce loop loopVarNames nonTempVars dependencies accessAnalysis
 											(listRemoveDuplications (foldl (\accum item -> accum ++ [(item, getValueAtSrcSpan item (srcSpan loop) accessAnalysis)] ) [] (foldl (\accum item -> accum ++ extractVarNames item) [] reductionVariables))) -- List of variables that are considered 'reduction variables' along with their initial values
 											(removeLoopConstructs_recursive loop) -- Body of kernel code
 
+--	An iterative reduction (name change pending) occurs when a parallel reduction occurs in some nested loops but requires values from some outer, iterative loop. More advanced loop carried dependency
+--	analysis caused this to be necessary.
 paralleliseLoop_iterativeReduce :: Fortran Anno -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
 paralleliseLoop_iterativeReduce iteratingLoop parallelLoop loopVarNames nonTempVars dependencies accessAnalysis 
 				| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation iterativeReductionCode (compilerName ++ ": Iterative Reduction at " ++ errorLocationFormatting (srcSpan iteratingLoop) ++ " with parallal loop at "  ++ errorLocationFormatting (srcSpan parallelLoop)) "")

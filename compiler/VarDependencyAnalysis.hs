@@ -1,6 +1,6 @@
 module VarDependencyAnalysis where
 
---	The code in this file is used to perform some simple dependency analysis for a block of code. A call to 'analyseDependencies'
+--	The code in this file is used to perform dependency analysis for a block of code. A call to 'analyseDependencies'
 --	will produce a set of direct dependencies between variables. A direct dependency is formed when one variable is used in the 
 --	calculation of another variable's assignment. It is possible under this scheme for variables to depend upon themselves and this
 --	fact is ued by Transformer.hs when looking to determine whether or not a loop represnets a reduction. This module also contains
@@ -113,28 +113,23 @@ isIndirectlyDependentOn analysis potDependent potDependee	|	isDirectlyDependentO
 																	where 
 																		dependencies = getDirectDependencies analysis potDependent 
 
--- loopCarriedDependencyCheck_query :: [VarName Anno] -> Fortran Anno -> [Expr Anno]
--- loopCarriedDependencyCheck_query loopIterators codeSeg = everything (++) (mkQ [] (loopCarriedDependencyCheck_query' loopIterators dependencyAnalysis)) codeSeg
--- 			where
--- 				dependencyAnalysis = analyseDependencies codeSeg
-
--- loopCarriedDependencyCheck_query' :: [VarName Anno] -> VarDependencyAnalysis -> Fortran Anno -> [Expr Anno]
--- loopCarriedDependencyCheck_query' loopIterators dependencyAnalysis (Assg _ _ expr _) = loopCarriedDependencyCheck loopIterators Empty dependencyAnalysis expr 
--- loopCarriedDependencyCheck_query' _ _ _ = []
-
--- loopCarriedDependencyCheck :: [VarName Anno] -> TupleTable -> VarDependencyAnalysis -> Expr Anno -> [Expr Anno]
--- loopCarriedDependencyCheck loopIterators loopIterTable dependencyAnalysis expr = loopCarriedDependencyProof
--- 			where
--- 				exprLoopIteratorUsage = loopIteratorUsage loopIterators expr
--- 				dependencies = getIndirectDependencies dependencyAnalysis (head $ extractVarNames expr)
--- 				selfDependencies = filter (\item -> listIntersection (extractVarNames item) (extractVarNames expr) /= []) dependencies
-
--- 				loopCarriedDependencyProof = filter (\item -> exprLoopIteratorUsage /= loopIteratorUsage loopIterators item) selfDependencies
-
+--	Given an AST representing a loop, this function will return a tuple containg a bool signifiying whether a loop carried dependency is possible
+--	and a list of pairs of expressions that cause the dependency. The process is as follows:
+--		+	Extract all assignments in the loop in question
+--		+	Use the assignments to build up two data structures that pair variables with the array index
+--			expressions that are used to WRITE to the variable and to READ from the variable.
+--		+	Build a 'loopIterTable' which is a data structure representing all of the possible combinations
+--			of loop iterator values for the particular loop.
+--		+	For every var that is written to, compare with any reads to that var. Iterate through all of
+--			the possible loop iterator values and evaluate the index positions that the read and the write
+--			index expressions boil down to. Keep track of all index values used to READ the var and all 
+--			index values used to WRITE to the var and make sure that if a WRITE never occurs to a place
+--			that has PREVIOUSLY been read (not in this iteration) and a READ never occurs to a place that
+--			has been PREVIOUSLY written to.
+--		+	Index expressions that cause dependencies are passed back to eventually be returned to the
+--			caller.
 loopCarriedDependencyCheck :: Fortran Anno -> (Bool, [(Expr Anno, Expr Anno)])
-loopCarriedDependencyCheck codeSeg = -- error $ "WRITES:\n" ++ (show writes) 
-												-- ++ "\n\nREADS:\n" ++ (show reads) --
-												(checkFailure, offendingExprs)
+loopCarriedDependencyCheck codeSeg = (checkFailure, offendingExprs)
 			where
 				assignments = everything (++) (mkQ [] extractAssignments) codeSeg
 				(reads, writes) = foldl' (extractArrayIndexReadWrite_foldl) (DMap.empty, DMap.empty) assignments
@@ -145,30 +140,21 @@ loopCarriedDependencyCheck codeSeg = -- error $ "WRITES:\n" ++ (show writes)
 								Just a -> (True, a)
 
 				writtenVars = DMap.keys writes
-				-- varChecks = foldl (||) False (map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars)
 				varChecks = map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars
-				-- offendingVars = map fst (filter (\(var, check) -> check) (zip writtenVars varChecks))
 				offendingExprs = foldl (++) [] (map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars)
 				checkFailure = (not loopIterTable_successfull) || offendingExprs /= []
 
+--	Given an AST representing a loop, this function will return a tuple containg a bool signifiying whether a loop carried dependency is possible
+--	and a list of pairs of expressions that cause the dependency. This version is different from the one above in that this one deals with
+--	parallel loops that are nested in iterative loops and require values for loop iterator(s) of the outer loop(s). Works in the same way as above,
+--	except only reads/writes in the parallel loop(s) are considered but loop iterator values for the iterating loops are included during the
+--	analysis.
 loopCarriedDependencyCheck_iterative :: Fortran Anno ->  Fortran Anno -> (Bool, [(Expr Anno, Expr Anno)])
-loopCarriedDependencyCheck_iterative iteratingCodeSeg parallelCodeSeg = 
-																			if length (loopVars) > 2 && False
-																				then error ("loopIterTableIterations:\n" ++ show loopIterTableIterations ++
-																							"\n\niteratingCodeSeg:\n" ++ show iteratingCodeSeg ++
-																							"\n\nparallelCodeSeg:\n" ++ show parallelCodeSeg ++
-																							"\n" ++
-																							"\n\nloopVars:\n" ++ show loopVars ++
-																							"\n\nloopVars_parallel:\n" ++ show loopVars_parallel ++
-																							"\n\nloopVars_iter:\n" ++ show loopVars_iter ++
-																							"\n")
-																				else 
-																					(checkFailure, if loopIterTable_successfull then offendingExprs else [])
+loopCarriedDependencyCheck_iterative iteratingCodeSeg parallelCodeSeg = (checkFailure, if loopIterTable_successfull then offendingExprs else [])
 			where
 				assignments = everything (++) (mkQ [] extractAssignments) parallelCodeSeg
 				(reads, writes) = foldl' (extractArrayIndexReadWrite_foldl) (DMap.empty, DMap.empty) assignments
 				(loopIterTable_maybe, loopVars, str) = constructLoopIterTable (Just(Empty)) [] iteratingCodeSeg
-				-- (_, loopVars_parallel, _) = constructLoopIterTable (Just(Empty)) [] parallelCodeSeg
 				loopVars_parallel = extractLoopVars parallelCodeSeg
 
 				loopVars_iter = listSubtract loopVars loopVars_parallel
@@ -179,10 +165,7 @@ loopCarriedDependencyCheck_iterative iteratingCodeSeg parallelCodeSeg =
 												Just a -> (True, a)
 
 				writtenVars = DMap.keys writes
-				-- varChecks = foldl (||) False (map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars)
 				varChecks = map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars
-				-- offendingVars = map fst (filter (\(var, check) -> check) (zip writtenVars varChecks))
-				-- offendingExprs = listRemoveDuplications (foldl (\accum loopIT -> (foldl (++) [] (map (loopCarriedDependency_varCheck loopIT loopVars (reads, writes)) writtenVars))) [] loopIterTableIterations)
 				offendingExprs = foldl (\accum loopIT -> listConcatUnique accum (foldl (++) [] (map (loopCarriedDependency_varCheck loopIT loopVars_parallel (reads, writes)) writtenVars))) [] loopIterTableIterations
 
 				checkFailure = (not loopIterTable_successfull) || offendingExprs /= []
@@ -194,8 +177,7 @@ loopCarriedDependency_iterative_prepareIterTable loopVars (LoopIterRecord iterTa
 				currentLoopVar = head loopVars
 				allowedValues = DMap.keys iterTable
 				selections = foldl (\accum item -> accum ++ (loopCarriedDependency_iterative_prepareIterTable (tail loopVars) (DMap.findWithDefault Empty item iterTable))) [] allowedValues
-				-- selections = foldl (\accum item -> listConcatUnique accum (loopCarriedDependency_iterative_prepareIterTable (tail loopVars) (DMap.findWithDefault Empty item iterTable))) [] allowedValues
-
+				
 loopCarriedDependency_varCheck :: TupleTable -> [VarName Anno] -> (ArrayAccessExpressions, ArrayAccessExpressions) -> VarName Anno -> [(Expr Anno, Expr Anno)]
 loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes) var = offendingExprs
 			where
@@ -213,47 +195,27 @@ loopCarriedDependency_writtenExprCheck loopIterTable loopVars readExprs oldOffen
 				dependencyPairs = map (\x -> (x, writtenExpr)) offendingReads
 
 loopCarriedDependency_readExprCheck :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [[Expr Anno]] -> [Expr Anno] -> [[Expr Anno]]
-loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = result --if length loopVars > 3 then error ("writes:\n" ++ show writes ++ "\n\nReads:\n" ++ show reads) else result
+loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = result
 			where
 				(offend_bool, reads, writes) = loopCarriedDependency_evaluatePossibleIndices loopIterTable loopVars readIndexExprs writtenIndexExprs (False, Empty, Empty) DMap.empty
 				result = if offend_bool then oldOffendingExprs ++ [readIndexExprs] else oldOffendingExprs
 
-loopCarriedDependency_evaluatePossibleIndices :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [Expr Anno] -> (Bool, TupleTable, TupleTable) -> ValueTable -> (Bool, TupleTable, TupleTable) -- [([Maybe(Int)], [Maybe(Int)])] -- (Bool, TupleTable, TupleTable)
-loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prevCheck, prevReads, prevWrites) valueTable = 
-																														-- (depExistsBool, newReads, newWrites)
-																														-- if length (DMap.keys valueTable) > 2 then error ("valueTable: " ++ show valueTable) else (depExistsBool, newReads, newWrites)
-																														
-																														-- if loopVars /= [] then error $ "loopCarriedDependency_evaluatePossibleIndices: loopVars: " ++ show loopVars
-																														-- 								++ "\nvalueTable: " ++ show valueTable else (depExistsBool, newReads, newWrites)
-																														-- if 	length (DMap.keys valueTable) > 1 &&
-																														-- 	(readPreviouslyWritten || writePreviouslyRead) then error ("readPreviouslyWritten " ++ (show readPreviouslyWritten) ++ "\n" ++
-																														-- 															"writePreviouslyRead " ++ (show writePreviouslyRead) ++ "\n" ++
-																														-- 															"depExistsBool " ++ (show depExistsBool) ++ "\n" ++
-																														-- 															"valueTable" ++ show valueTable)
-																														-- 	else (depExistsBool, newReads, newWrites)
-																																				-- "writePreviouslyRead " ++ (show writePreviouslyRead) ++ "\n"
-																														-- if depExistsBool then error ("readPreviouslyWritten " ++ (show readPreviouslyWritten) ++ "\n" ++
-																														-- 						"writePreviouslyRead " ++ (show writePreviouslyRead) ++ "\n" ++
-																														-- 						"not readsEvaluated " ++ (show $ not readsEvaluated) ++ show reads_eval ++ "\n" ++
-																														-- 						"not writesEvaluated " ++ (show $ not writesEvaluated) ++ show writes_eval ++ "\n")
-																														-- else (depExistsBool, newReads, newWrites)
-																														
-																														if   debugCond && False-- (readPreviouslyWritten || writePreviouslyRead) && readsEvaluated && writesEvaluated
-																																then error (	"prevReads\n" ++ (show prevReads) ++ "\n" ++
-																																				"prevWrites\n" ++ (show prevWrites) ++ "\n\n" ++
-																																				"newReads\n" ++ (show newReads) ++ "\n" ++
-																																				"newWrites\n" ++ (show newWrites) ++ "\n\n" ++
-																																				"valueTable\n" ++ (show valueTable) ++ "\n\n" ++
-																																				"readPreviouslyWritten " ++ (show readPreviouslyWritten) ++ "\n" ++
-																																				"writePreviouslyRead " ++ (show writePreviouslyRead) ++ "\n" ++
-																																				"not readsEvaluated " ++ (show $ not readsEvaluated) ++ " " ++ show reads_eval ++ "\n" ++
-																																				"not writesEvaluated " ++ (show $ not writesEvaluated) ++ " " ++ show writes_eval ++ "\n")
-																															else (prevCheck || depExistsBool, newReads, newWrites)
+--	The evalation of the possible index values is performed here and the loop dependency analysis checks performed.
+--	ARGUMENTS (in order)
+--		TupleTable ---------------------Loop iterator table that is traversed as the recursion goes deeper. A value for the iterator at this 'level' of the table is selected
+--										and inserted into the 'value table' so that when the indices in question are evaluated, the value for that iterator variable is available.
+-- 		[VarName Anno] -----------------Loop variables list used to determine which loop iterator variable is the current one at this level of recursion. This allows for the correct
+--										variable name to be assigned a value in the value table from the current level of the loop iterator table.
+--	 	[Expr Anno] --------------------The indices that the current variable is READ at.
+--	 	[Expr Anno] --------------------The indices that the current variable is WRITTEN at.
+--	 	(Bool, TupleTable, TupleTable) -Since this is a fold, this is the accumulator. Bool is whether a dependency exists, the TupleTables are all of the resolved/evaluated index
+--										positions for all of the READS and WRITES (respecitvely) that have been calculated so far.
+--	 	ValueTable ---------------------A set of assigned values for the loop iterator variables that allows for indices that use loop iterators to be evaluated.
+--	 	(Bool, TupleTable, TupleTable) -Return type. Bool is whether a dependency exists, the TupleTables are all of the resolved/evaluated index
+--										positions for all of the READS and WRITES (respecitvely) that have been calculated so far.
+loopCarriedDependency_evaluatePossibleIndices :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [Expr Anno] -> (Bool, TupleTable, TupleTable) -> ValueTable -> (Bool, TupleTable, TupleTable)
+loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prevCheck, prevReads, prevWrites) valueTable = (prevCheck || depExistsBool, newReads, newWrites)
 			where
-				debugCond =  elem "l" (DMap.keys valueTable)
-
-				r_w_equal = (map (applyGeneratedSrcSpans) exprs1) == (map (applyGeneratedSrcSpans) exprs2)
-
 				reads_eval = map (evaluateExpr valueTable) exprs1
 				writes_eval = map (evaluateExpr valueTable) exprs2
 
@@ -270,17 +232,11 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prev
 					Just a -> True
 					Nothing -> False
 
-				-- newReads = if readsEvaluated then insertIntoTupleTable reads_fromMaybe prevReads else prevReads
-				-- newWrites = if writesEvaluated then insertIntoTupleTable writes_fromMaybe prevWrites else prevWrites
 				newReads = insertIntoTupleTable reads_fromMaybe_int prevReads
 				newWrites = insertIntoTupleTable writes_fromMaybe_int prevWrites
 				depExistsBool = readPreviouslyWritten || writePreviouslyRead || (not readsEvaluated) || (not writesEvaluated)
 
 loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVars exprs1 exprs2 previousAnalysis valueTable = analysis
-																															 -- case loopVars of 
-																																-- [x] -> analysis
-																																-- x:z:y:[]	-> error $ "IterTable:\n" ++ show (iterTable) ++ "\n\nCollapseIterTable:\n" ++ show (collapseIterTable (LoopIterRecord iterTable))
-																																-- _ -> analysis
 			where
 				allowedValues = DMap.keys iterTable
 				valueTableIterations = map (\x -> addToValueTable (chosenVar) (fromIntegral x :: Float) valueTable) allowedValues
@@ -291,6 +247,9 @@ loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVar
 
 				exprs1_chosenVarMask = maskOnVarNameUsage chosenVar exprs1
 				exprs2_chosenVarMask = maskOnVarNameUsage chosenVar exprs2
+
+				--	Check to see whether optimisation can be performed that essentially skips a whole loop iterator stage.
+				--	IDEA - DON'T DO THIS EVERY LOOP, DO A CHECK AT THE TOP LEVEL AND COLLAPSE LOOP ITER TABLE UP THERE. MAKE FASTER - YES?
 				varAffectsOutcome = exprs1_chosenVarMask /= exprs2_chosenVarMask
 
 				analysis = if varAffectsOutcome 
@@ -401,24 +360,11 @@ createTupleTable indices = LoopIterRecord (DMap.insert (head indices) (createTup
 lookupTupleTable :: [Int] -> TupleTable -> Maybe(TupleTable)
 lookupTupleTable [index] (LoopIterRecord table) = DMap.lookup index table
 lookupTupleTable (index:indices) (LoopIterRecord table) = lookupTupleTable indices (DMap.findWithDefault Empty index table)
--- lookupTupleTable _ Empty = Just(Empty)
 lookupTupleTable _ _ = Nothing
 
 tupleTableNotEmpty :: TupleTable -> Bool
 tupleTableNotEmpty Empty = False
 tupleTableNotEmpty _ = True
-					
--- loopIteratorUsage :: [VarName Anno] -> Expr Anno -> [[Expr Anno]]
--- loopIteratorUsage loopIterators expr = loopIteratorUsageList
--- 			where
--- 				accessExprs = map (extractOperands) (extractContainedVars expr)
--- 				loopIteratorUsageList = map (\item -> if (varNameUsageCheck item loopIterators) then map (applyGeneratedSrcSpans) item else []) accessExprs
-
--- varNameUsageCheck :: [Expr Anno] -> [VarName Anno] -> Bool
--- varNameUsageCheck exprs varnames =  match
--- 			where
--- 				usedVarnames = foldl (\accum item -> accum ++ extractUsedVarName item) [] exprs
--- 				match = (listIntersection varnames usedVarnames) /= []
 
 extendLoopIterTable :: TupleTable -> ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> Maybe(TupleTable)
 extendLoopIterTable oldTable valueTable ([]) startExpr endExpr stepExpr = case range of
@@ -432,7 +378,6 @@ extendLoopIterTable Empty valueTable _ startExpr endExpr stepExpr = case range o
 		where
 			range = evaluateRange valueTable startExpr endExpr stepExpr
 extendLoopIterTable oldTable valueTable loopVars startExpr endExpr stepExpr = foldl 
-																				--(\accum item -> extendLoopIterTable accum (DMap.insert firstLoopVarStr item DMap.empty) newLoopVars startExpr endExpr stepExpr)
 																				(extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr)
 																				(Just oldTable) 
 																				allowedValues
@@ -449,7 +394,6 @@ extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepEx
 		where
 			oldSubTable = DMap.findWithDefault Empty chosenValue oldRecord
 			newSubTable = extendLoopIterTable oldSubTable (addToValueTable (head loopVars) (fromIntegral chosenValue :: Float) valueTable) newLoopVars startExpr endExpr stepExpr
-			-- firstLoopVarStr = varNameStr (head loopVars)
 			newLoopVars = tail loopVars
 
 addRangeToIterTable :: TupleTable -> [Float] -> TupleTable
