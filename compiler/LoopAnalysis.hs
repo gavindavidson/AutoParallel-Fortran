@@ -192,7 +192,7 @@ analyseIteratorUse_single nonTempWrittenOperands comment accumAnno loopVar = res
 			offendingExprs = filter (\item -> not (elem loopVar (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedOperands item) ))) nonTempWrittenOperands
 			offendingExprsStrs = map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) offendingExprs
 
-			loopVarStr = varnameStr loopVar
+			loopVarStr = varNameStr loopVar
 			resultantMap = if (offendingExprs == []) 
 						then accumAnno
 						else 

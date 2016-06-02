@@ -21,7 +21,7 @@ type Anno = DMap.Map (String) [String]
 --	for previous iterator variables that allow the calculation of inner iterator variables in the case
 --	of nested loops whose bounds depends on previous iterator variables.
 --	Also used during constant folding to hold current constants
-type ValueTable = DMap.Map String Float
+type ValueTable = DMap.Map String (Float, BaseType Anno)
 
 nullAnno :: Anno
 nullAnno = DMap.empty
@@ -77,6 +77,23 @@ outputExprFormatting (Unary _ _ unOp expr) = "(" ++ op_str ++ outputExprFormatti
 
 outputExprFormatting codeSeg = show codeSeg
 
+listExtractSingleAppearances :: Eq a => [a] -> [a] 
+listExtractSingleAppearances list = listExtractSingleAppearances' list list
+
+listExtractSingleAppearances' :: Eq a => [a] -> [a] -> [a]
+listExtractSingleAppearances' (x:[]) wholeList = if appearences == 1 then [x] else []
+		where
+			appearences = listCountAppearences x wholeList
+listExtractSingleAppearances' (x:tailList) wholeList = if appearences == 1 then [x] ++ listExtractSingleAppearances' tailList wholeList else listExtractSingleAppearances' tailList wholeList
+		where
+			appearences = listCountAppearences x wholeList
+
+listCountAppearences :: Eq a => a -> [a] -> Int
+listCountAppearences value (x:[]) 	| 	value == x = 1
+									| 	otherwise = 0
+listCountAppearences value (x:list) 	| 	value == x = 1 + listCountAppearences value list
+									| 	otherwise = 0 + listCountAppearences value list
+
 --	Generic function that removes all duplicate elements from a list.
 listRemoveDuplications :: Eq a => [a] -> [a]
 listRemoveDuplications a = foldl (\accum item -> if notElem item accum then accum ++ [item] else accum) [] a
@@ -122,6 +139,14 @@ extractFortran fort = [fort]
 extractDecl :: Decl Anno -> [Decl Anno]
 extractDecl decl = [decl]
 
+-- extractBaseType :: Decl Anno -> BaseType Anno
+-- extractBaseType (Decl _ _ _ (BaseType _ bt _ _ _)) = bt
+-- extractBaseType (Decl _ _ _ (ArrayT _ _ bt _ _ _)) = bt
+
+extractBaseType :: Type Anno -> BaseType Anno
+extractBaseType (BaseType _ bt _ _ _) = bt
+extractBaseType (ArrayT _ _ bt _ _ _) = bt
+
 extractBlock :: Block Anno -> [Block Anno]
 extractBlock block = [block]
 
@@ -153,8 +178,11 @@ generateVar varname = Var nullAnno nullSrcSpan [(varname, [])]
 generateArrayVar :: VarName Anno -> [Expr Anno] -> Expr Anno
 generateArrayVar varname exprs = Var nullAnno nullSrcSpan [(varname, exprs)]
 
-generateConstant :: Int -> Expr Anno
-generateConstant value = Con nullAnno nullSrcSpan (show value)
+generateIntConstant :: Int -> Expr Anno
+generateIntConstant value = Con nullAnno nullSrcSpan (show value)
+
+generateFloatConstant :: Float -> Expr Anno
+generateFloatConstant value = Con nullAnno nullSrcSpan (show value)
 
 -- generateArrayVar :: VarName Anno -> Expr Anno -> Expr Anno
 -- generateArrayVar varname access = Var nullAnno nullSrcSpan [(varname, [access])]
@@ -278,8 +306,8 @@ replaceVarname original replacement inp 	| 	original == inp = replacement
 											|	otherwise = inp
 
 
-varnameStr :: VarName Anno -> String
-varnameStr (VarName _ str) = str
+varNameStr :: VarName Anno -> String
+varNameStr (VarName _ str) = str
 
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran Anno -> Fortran Anno -> Fortran Anno
@@ -369,7 +397,7 @@ extractPrimaryReductionOp assignee assignment = Nothing
 extractPrimaryReductionFunction ::  Expr Anno -> Expr Anno -> String
 extractPrimaryReductionFunction assignee (Var _ _ list) = foldl assigneePresent "" standardisedList
 						where
-							assigneePresent = (\accum (var, exprList) -> if elem (applyGeneratedSrcSpans assignee) exprList then varnameStr var else accum)
+							assigneePresent = (\accum (var, exprList) -> if elem (applyGeneratedSrcSpans assignee) exprList then varNameStr var else accum)
 							standardisedList = map (\(var, exprList) -> (var, map (applyGeneratedSrcSpans) exprList)) list
 extractPrimaryReductionFunction assignee expr = "" -- error ("Error: extractPrimaryReductionFunction\nType: " ++ (show $ typeOf expr) ++ "\nShow: " ++ (show expr))
 
@@ -395,27 +423,68 @@ evaluateRange vt startExpr endExpr stepExpr = range
 -- 								Just result -> Just (round result)
 
 evaluateExpr :: ValueTable -> Expr Anno -> Maybe(Float)
-evaluateExpr vt (Bin _ _ binOp expr1 expr2) = case binOp of
-												Plus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (+)
-												Minus _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (-)
-												Mul _ -> maybeBinOp (evaluateExpr vt expr1) (evaluateExpr vt expr2) (*)
-												Div _ -> maybeBinOp_integral (evaluateExpr vt expr1) (evaluateExpr vt expr2) (quot)
-												Power _ -> maybeBinOp_integral (evaluateExpr vt expr1) (evaluateExpr vt expr2) (^)
+evaluateExpr vt expr = extractEvaluatedValue (evaluateExpr_type vt expr)
+
+extractEvaluatedValue :: Maybe(Float, BaseType Anno) -> Maybe(Float)
+extractEvaluatedValue expr = case expr of
+							Nothing -> Nothing
+							Just (val, _) -> Just val
+
+extractEvaluatedType :: Maybe(Float, BaseType Anno) -> Maybe(BaseType Anno)
+extractEvaluatedType expr = case expr of
+							Nothing -> Nothing
+							Just (_, typ) -> Just typ
+
+evaluateExpr_type :: ValueTable -> Expr Anno -> Maybe(Float, BaseType Anno)
+evaluateExpr_type vt (Bin _ _ binOp expr1 expr2) = case binOp of
+												Plus _ -> 	maybeBinOp 			expr1_eval expr2_eval (+)
+												Minus _ -> 	maybeBinOp 			expr1_eval expr2_eval (-)
+												Mul _ -> 	maybeBinOp 			expr1_eval expr2_eval (*)
+												Div _ -> 	case extractEvaluatedType expr1_eval of
+																Just (Real _) -> 	maybeBinOp expr1_eval expr2_eval (/)
+																Just (Integer _) -> case extractEvaluatedType expr2_eval of
+																						Just (Real _) -> 	maybeBinOp expr1_eval expr2_eval (/)
+																						Just (Integer _) -> maybeBinOp_integral expr1_eval expr2_eval (quot)
+																						Nothing -> Nothing
+																Nothing -> Nothing
+												Power _ -> 	maybeBinOp_integral expr1_eval expr2_eval (^)
 												_ -> Nothing
-evaluateExpr vt (Unary _ _ unOp expr) = case unOp of 
-												UMinus _ -> maybeNegative (evaluateExpr vt expr)
-												Not _ -> Nothing
-evaluateExpr vt (Var p src lst)   	| varString == "mod" = maybeBinOp_integral (evaluateExpr vt expr1) (evaluateExpr vt expr2) (mod)
-									| otherwise = DMap.lookup varString vt
 			where
-				varString = varnameStr $ head $ extractUsedVarName (Var p src lst)
+				expr1_eval = evaluateExpr_type vt expr1
+				expr2_eval = evaluateExpr_type vt expr2
+evaluateExpr_type vt (Unary _ _ unOp expr) = case unOp of 
+												UMinus _ -> maybeNegative (evaluateExpr_type vt expr)
+												Not _ -> Nothing
+evaluateExpr_type vt (Var p src lst)   	| varString == "mod" = maybeBinOp_integral (evaluateExpr_type vt expr1) (evaluateExpr_type vt expr2) (mod)
+										| otherwise = lookupValueTable_type varString vt--DMap.lookup varString vt
+			where
+				varString = varNameStr $ head $ extractUsedVarName (Var p src lst)
 				headExprList = snd (head lst)
 				expr1 = head headExprList
 				expr2 = head $ tail headExprList
-evaluateExpr _ (Con _ _ str)	|	last str == '.' = Just ((read $ take (length str - 1) str) :: Float)
-								|	otherwise = Just(read str :: Float)
-evaluateExpr _ _ = Nothing
+evaluateExpr_type _ (Con _ _ str)	|	last str == '.' = Just ((read $ take (length str - 1) str) :: Float, Real nullAnno)
+									|	elem '.' str = Just(read str :: Float, Real nullAnno)
+									|	otherwise = Just(read str :: Float, Integer nullAnno)
+evaluateExpr_type _ _ = Nothing
 
+lookupValueTable :: String -> ValueTable -> Maybe(Float)
+lookupValueTable str table = value
+			where
+				(value, typ) =  case lookupValueTable_type str table of
+									Nothing -> (Nothing, Nothing)
+									Just (v, t) -> (Just v, Just t)
+
+lookupValueTable_type :: String -> ValueTable -> Maybe(Float, BaseType Anno)
+lookupValueTable_type str table =  DMap.lookup str table
+
+addToValueTable :: VarName Anno -> Float -> ValueTable -> ValueTable
+addToValueTable var value table = addToValueTable_type var value (Real nullAnno) table -- DMap.insert (varNameStr var) value table
+
+addToValueTable_type :: VarName Anno -> Float -> BaseType Anno -> ValueTable -> ValueTable
+addToValueTable_type var value typ table = DMap.insert (varNameStr var) (value, typ) table
+
+deleteValueFromTable :: VarName Anno -> ValueTable -> ValueTable
+deleteValueFromTable var table = DMap.delete (varNameStr var) table
 
 -- maybeQuotOp :: Maybe(Float) -> Maybe(Float) -> Float
 -- maybeQuotOp maybeFloat1 maybeFloat2 = case maybeFloat1 of
@@ -424,24 +493,29 @@ evaluateExpr _ _ = Nothing
 -- 															Nothing -> 0.0
 -- 															Just float2 -> fromIntegral (quot (round float1) (round float2)) :: Float
 
-maybeBinOp_integral :: Integral a => Maybe(Float) -> Maybe(Float) -> (a -> a -> a) -> Maybe(Float)
+maybeBinOp_integral :: Integral a => Maybe(Float, BaseType Anno) -> Maybe(Float, BaseType Anno) -> (a -> a -> a) -> Maybe(Float, BaseType Anno)
 maybeBinOp_integral maybeFloat1 maybeFloat2 op = resultValue
 			where
 				resultValue = case maybeFloat1 of
 											Nothing -> Nothing
-											Just float1 -> case maybeFloat2 of
+											Just (float1, typ1) -> case maybeFloat2 of
 															Nothing -> Nothing
-															Just float2 -> Just(fromIntegral (op (round float1) (round float2)) :: Float)
+															Just (float2, typ2) -> Just(fromIntegral (op (round float1) (round float2)) :: Float, Integer nullAnno)
 
-maybeBinOp :: Maybe(Float) -> Maybe(Float) -> (Float -> Float -> Float) -> Maybe(Float)
+maybeBinOp :: Maybe(Float, BaseType Anno) -> Maybe(Float, BaseType Anno) -> (Float -> Float -> Float) -> Maybe(Float, BaseType Anno)
 maybeBinOp maybeFloat1 maybeFloat2 op = case maybeFloat1 of
 											Nothing -> Nothing
-											Just float1 -> case maybeFloat2 of
+											Just (float1, typ1) -> case maybeFloat2 of
 															Nothing -> Nothing
-															Just float2 -> Just(op float1 float2)
+															Just (float2, typ2) -> Just(op float1 float2, resolveType typ1 typ2)
 
-maybeNegative :: Maybe(Float) -> Maybe(Float)
-maybeNegative (Just(int)) = Just(-int)
+--	ASSUME USE OF ONLY TWO TYPES (INTEGER AND REAL) IN EXPRESSION EVALUATION
+resolveType :: BaseType Anno -> BaseType Anno -> BaseType Anno
+resolveType type1 type2 | 	type1 == type2 = type1
+						|	otherwise = Real nullAnno
+
+maybeNegative :: Maybe(Float, BaseType Anno) -> Maybe(Float, BaseType Anno)
+maybeNegative (Just(int, typ)) = Just(-int, typ)
 maybeNegative Nothing = Nothing
 
 trimFront :: String -> String

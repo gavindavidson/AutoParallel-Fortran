@@ -123,7 +123,7 @@ data Decl     p = Decl           p SrcSpan [(Expr p, Expr p, Maybe Int)] (Type p
                 | MeasureUnitDef p SrcSpan [(MeasureUnit, MeasureUnitSpec p)]
                   deriving (Show, Functor, Typeable, Data, Eq)
 
-             -- BaseType  dimensions     type        Attributes   kind   len 
+                -- BaseType  dimensions         type        Attributes   kind   len 
 data Type     p = BaseType p                    (BaseType p) [Attr p] (Expr p) (Expr p)
                 | ArrayT   p [(Expr p, Expr p)] (BaseType p) [Attr p] (Expr p) (Expr p)
                   deriving (Show, Functor, Typeable, Data, Eq)

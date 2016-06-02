@@ -420,9 +420,6 @@ tupleTableNotEmpty _ = True
 -- 				usedVarnames = foldl (\accum item -> accum ++ extractUsedVarName item) [] exprs
 -- 				match = (listIntersection varnames usedVarnames) /= []
 
-addToValueTable :: VarName Anno -> Float -> ValueTable -> ValueTable
-addToValueTable var value table = DMap.insert (varnameStr var) value table
-
 extendLoopIterTable :: TupleTable -> ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> Maybe(TupleTable)
 extendLoopIterTable oldTable valueTable ([]) startExpr endExpr stepExpr = case range of
 																			[] -> Nothing
@@ -452,7 +449,7 @@ extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepEx
 		where
 			oldSubTable = DMap.findWithDefault Empty chosenValue oldRecord
 			newSubTable = extendLoopIterTable oldSubTable (addToValueTable (head loopVars) (fromIntegral chosenValue :: Float) valueTable) newLoopVars startExpr endExpr stepExpr
-			-- firstLoopVarStr = varnameStr (head loopVars)
+			-- firstLoopVarStr = varNameStr (head loopVars)
 			newLoopVars = tail loopVars
 
 addRangeToIterTable :: TupleTable -> [Float] -> TupleTable
