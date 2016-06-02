@@ -21,7 +21,7 @@ import LanguageFortranTools
 --	+	Return the transformed AST.
 
 foldConstants :: ProgUnit Anno -> ProgUnit Anno
-foldConstants codeSeg = error $ show constants_decls -- codeSeg
+foldConstants codeSeg =  codeSeg
 		where
 			decls = everything (++) (mkQ [] extractDecl) codeSeg
 			constants_decls = addDeclsToConstants decls DMap.empty

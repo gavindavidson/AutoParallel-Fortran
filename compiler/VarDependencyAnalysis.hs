@@ -254,23 +254,26 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prev
 
 				r_w_equal = (map (applyGeneratedSrcSpans) exprs1) == (map (applyGeneratedSrcSpans) exprs2)
 
-				reads_eval = map (evaluateExpr_int valueTable) exprs1
-				writes_eval = map (evaluateExpr_int valueTable) exprs2
+				reads_eval = map (evaluateExpr valueTable) exprs1
+				writes_eval = map (evaluateExpr valueTable) exprs2
 
 				(readsEvaluated, reads_fromMaybe) = foldl (convertFromMaybe_foldl) (True, []) reads_eval
 				(writesEvaluated, writes_fromMaybe) = foldl (convertFromMaybe_foldl) (True, []) writes_eval
 
-				readPreviouslyWritten = case lookupTupleTable reads_fromMaybe prevWrites of 
+				reads_fromMaybe_int = (map (round) reads_fromMaybe)
+				writes_fromMaybe_int = (map (round) writes_fromMaybe)
+
+				readPreviouslyWritten = case lookupTupleTable reads_fromMaybe_int prevWrites of 
 					Just a -> True
 					Nothing -> False
-				writePreviouslyRead = case lookupTupleTable writes_fromMaybe prevReads of 
+				writePreviouslyRead = case lookupTupleTable writes_fromMaybe_int prevReads of 
 					Just a -> True
 					Nothing -> False
 
 				-- newReads = if readsEvaluated then insertIntoTupleTable reads_fromMaybe prevReads else prevReads
 				-- newWrites = if writesEvaluated then insertIntoTupleTable writes_fromMaybe prevWrites else prevWrites
-				newReads = insertIntoTupleTable reads_fromMaybe prevReads
-				newWrites = insertIntoTupleTable writes_fromMaybe prevWrites
+				newReads = insertIntoTupleTable reads_fromMaybe_int prevReads
+				newWrites = insertIntoTupleTable writes_fromMaybe_int prevWrites
 				depExistsBool = readPreviouslyWritten || writePreviouslyRead || (not readsEvaluated) || (not writesEvaluated)
 
 loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVars exprs1 exprs2 previousAnalysis valueTable = analysis
@@ -280,7 +283,7 @@ loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVar
 																																-- _ -> analysis
 			where
 				allowedValues = DMap.keys iterTable
-				valueTableIterations = map (\x -> addToValueTable (chosenVar) x valueTable) allowedValues
+				valueTableIterations = map (\x -> addToValueTable (chosenVar) (fromIntegral x :: Float) valueTable) allowedValues
 				accessIterTable = (\x -> DMap.findWithDefault Empty x iterTable)
 
 				chosenVar = head loopVars
@@ -417,7 +420,7 @@ tupleTableNotEmpty _ = True
 -- 				usedVarnames = foldl (\accum item -> accum ++ extractUsedVarName item) [] exprs
 -- 				match = (listIntersection varnames usedVarnames) /= []
 
-addToValueTable :: VarName Anno -> Int -> ValueTable -> ValueTable
+addToValueTable :: VarName Anno -> Float -> ValueTable -> ValueTable
 addToValueTable var value table = DMap.insert (varnameStr var) value table
 
 extendLoopIterTable :: TupleTable -> ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> Maybe(TupleTable)
@@ -425,12 +428,12 @@ extendLoopIterTable oldTable valueTable ([]) startExpr endExpr stepExpr = case r
 																			[] -> Nothing
 																			_ -> Just (addRangeToIterTable oldTable range)
 		where
-			range = evaluateRange_int valueTable startExpr endExpr stepExpr
+			range = evaluateRange valueTable startExpr endExpr stepExpr
 extendLoopIterTable Empty valueTable _ startExpr endExpr stepExpr = case range of
 																			[] -> Nothing
 																			_ -> Just (addRangeToIterTable Empty range)
 		where
-			range = evaluateRange_int valueTable startExpr endExpr stepExpr
+			range = evaluateRange valueTable startExpr endExpr stepExpr
 extendLoopIterTable oldTable valueTable loopVars startExpr endExpr stepExpr = foldl 
 																				--(\accum item -> extendLoopIterTable accum (DMap.insert firstLoopVarStr item DMap.empty) newLoopVars startExpr endExpr stepExpr)
 																				(extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr)
@@ -448,12 +451,12 @@ extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepEx
 																																	Nothing -> Nothing
 		where
 			oldSubTable = DMap.findWithDefault Empty chosenValue oldRecord
-			newSubTable = extendLoopIterTable oldSubTable (addToValueTable (if loopVars == [] then error "extendLoopIterTableWithValues_foldl: loopVars = []" else head loopVars) chosenValue valueTable) newLoopVars startExpr endExpr stepExpr
+			newSubTable = extendLoopIterTable oldSubTable (addToValueTable (head loopVars) (fromIntegral chosenValue :: Float) valueTable) newLoopVars startExpr endExpr stepExpr
 			-- firstLoopVarStr = varnameStr (head loopVars)
 			newLoopVars = tail loopVars
 
-addRangeToIterTable :: TupleTable -> [Int] -> TupleTable
-addRangeToIterTable oldTable range = LoopIterRecord (foldl (\accum key -> DMap.insert key Empty accum) oldRecord range)
+addRangeToIterTable :: TupleTable -> [Float] -> TupleTable
+addRangeToIterTable oldTable range = LoopIterRecord (foldl (\accum key -> DMap.insert (round key) Empty accum) oldRecord range)
 		where
 			oldRecord = case oldTable of
 							Empty -> DMap.empty
