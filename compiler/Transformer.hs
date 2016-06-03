@@ -36,6 +36,7 @@ main = do
 	putStr "BUGS:"
 	putStr "\n<>\tInner loops whose conditions depend on outer iterators and have\n\ta possibility of not executing will always exhibit LCDs."
 	putStr "\n<>\tLCD analysis is very slow with large loop iterator bounds. Needs\n\tan optimisation."
+	putStr "\n<>\tLoop iterator value ranges have one extra value when steps larger\n\tthan one are used"
 	putStr "\n\n"
 
 	args <- getArgs
@@ -55,9 +56,9 @@ main = do
 	parsedProgram <- parseFile cppDFlags filename
 
 	-- putStr $ show $ parsedProgram
-	putStr $ show $ map foldConstants parsedProgram
+	let constantsFolded = map foldConstants parsedProgram
 
-	let parallelisedProg = paralleliseProgram parsedProgram
+	let parallelisedProg = paralleliseProgram constantsFolded
 	let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
 
 	putStr $ compileAnnotationListing parallelisedProg

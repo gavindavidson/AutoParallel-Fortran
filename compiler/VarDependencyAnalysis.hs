@@ -195,10 +195,44 @@ loopCarriedDependency_writtenExprCheck loopIterTable loopVars readExprs oldOffen
 				dependencyPairs = map (\x -> (x, writtenExpr)) offendingReads
 
 loopCarriedDependency_readExprCheck :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [[Expr Anno]] -> [Expr Anno] -> [[Expr Anno]]
-loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = result
+loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = 
+																												result
+																												-- if length loopVars > 2
+																												-- then	
+																												-- 	error ("writtenIndexExprs:\n" ++ (show writtenIndexExprs)
+																												-- 	++ "\n\nreadIndexExprs:\n" ++ (show readIndexExprs)
+																												-- 	++ "\n\nloopIterTable:\n" ++ (show loopIterTable)
+																												-- 	++ "\n\nloopIterTable_optimised:\n" ++ (show loopIterTable_optimised)
+																												-- 	-- ++ "\n\ncollapseIterTable_beta_test:\n" ++ (show collapseIterTable_beta_test)
+																												-- 	-- ++ "\n\nvalueTable_optimised:\n" ++ (show valueTable_optimised)
+																												-- 	-- ++ "\n\nloopVars_optimised:\n" ++ (show loopVars_optimised)
+																												-- 	)
+																												-- else 
+																												--  	result
 			where
-				(offend_bool, reads, writes) = loopCarriedDependency_evaluatePossibleIndices loopIterTable loopVars readIndexExprs writtenIndexExprs (False, Empty, Empty) DMap.empty
+				loopIterTable_optimised = optimiseLoopIterTable loopIterTable DMap.empty loopVars readIndexExprs writtenIndexExprs
+
+				(offend_bool, reads, writes) = loopCarriedDependency_evaluatePossibleIndices loopIterTable_optimised loopVars readIndexExprs writtenIndexExprs (False, Empty, Empty) DMap.empty
 				result = if offend_bool then oldOffendingExprs ++ [readIndexExprs] else oldOffendingExprs
+
+optimiseLoopIterTable :: TupleTable -> ValueTable -> [VarName Anno] -> [Expr Anno] -> [Expr Anno] -> TupleTable-- (TupleTable, ValueTable, [VarName Anno])
+optimiseLoopIterTable Empty valueTable loopVars readIndexExprs writtenIndexExprs = Empty
+optimiseLoopIterTable (LoopIterRecord iterTable) valueTable loopVars readIndexExprs writtenIndexExprs = newLoopIterTable
+			where
+				chosenVar = head loopVars
+
+				allowedValues = DMap.keys iterTable
+				accessIterTable = (\x -> DMap.findWithDefault Empty x iterTable)
+
+				read_chosenVarMask = maskOnVarNameUsage chosenVar readIndexExprs
+				written_chosenVarMask = maskOnVarNameUsage chosenVar writtenIndexExprs
+
+				varAffectsOutcome = read_chosenVarMask /= written_chosenVarMask
+
+				iterTable_recurseList = map (\item -> optimiseLoopIterTable (accessIterTable item) valueTable (tail loopVars) readIndexExprs writtenIndexExprs) allowedValues
+				iterTable_recurse = foldl (\accum (value, newTable) -> DMap.insert value newTable accum) iterTable (zip allowedValues iterTable_recurseList)
+
+				newLoopIterTable = if varAffectsOutcome then LoopIterRecord iterTable_recurse else collapseIterTable_beta (LoopIterRecord iterTable_recurse)
 
 --	The evalation of the possible index values is performed here and the loop dependency analysis checks performed.
 --	ARGUMENTS (in order)
@@ -214,10 +248,10 @@ loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs old
 --	 	(Bool, TupleTable, TupleTable) -Return type. Bool is whether a dependency exists, the TupleTables are all of the resolved/evaluated index
 --										positions for all of the READS and WRITES (respecitvely) that have been calculated so far.
 loopCarriedDependency_evaluatePossibleIndices :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [Expr Anno] -> (Bool, TupleTable, TupleTable) -> ValueTable -> (Bool, TupleTable, TupleTable)
-loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prevCheck, prevReads, prevWrites) valueTable = (prevCheck || depExistsBool, newReads, newWrites)
+loopCarriedDependency_evaluatePossibleIndices Empty loopVars readIndexExprs writtenIndexExprs (prevCheck, prevReads, prevWrites) valueTable = (prevCheck || depExistsBool, newReads, newWrites)
 			where
-				reads_eval = map (evaluateExpr valueTable) exprs1
-				writes_eval = map (evaluateExpr valueTable) exprs2
+				reads_eval = map (evaluateExpr valueTable) readIndexExprs
+				writes_eval = map (evaluateExpr valueTable) writtenIndexExprs
 
 				(readsEvaluated, reads_fromMaybe) = foldl (convertFromMaybe_foldl) (True, []) reads_eval
 				(writesEvaluated, writes_fromMaybe) = foldl (convertFromMaybe_foldl) (True, []) writes_eval
@@ -236,7 +270,7 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars exprs1 exprs2 (prev
 				newWrites = insertIntoTupleTable writes_fromMaybe_int prevWrites
 				depExistsBool = readPreviouslyWritten || writePreviouslyRead || (not readsEvaluated) || (not writesEvaluated)
 
-loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVars exprs1 exprs2 previousAnalysis valueTable = analysis
+loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVars readIndexExprs writtenIndexExprs previousAnalysis valueTable = analysis
 			where
 				allowedValues = DMap.keys iterTable
 				valueTableIterations = map (\x -> addToValueTable (chosenVar) (fromIntegral x :: Float) valueTable) allowedValues
@@ -245,20 +279,10 @@ loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVar
 				chosenVar = head loopVars
 				newLoopVars = tail loopVars
 
-				exprs1_chosenVarMask = maskOnVarNameUsage chosenVar exprs1
-				exprs2_chosenVarMask = maskOnVarNameUsage chosenVar exprs2
+				exprs1_chosenVarMask = maskOnVarNameUsage chosenVar readIndexExprs
+				exprs2_chosenVarMask = maskOnVarNameUsage chosenVar writtenIndexExprs
 
-				--	Check to see whether optimisation can be performed that essentially skips a whole loop iterator stage.
-				--	IDEA - DON'T DO THIS EVERY LOOP, DO A CHECK AT THE TOP LEVEL AND COLLAPSE LOOP ITER TABLE UP THERE. MAKE FASTER - YES?
-				varAffectsOutcome = exprs1_chosenVarMask /= exprs2_chosenVarMask
-
-				analysis = if varAffectsOutcome 
-							then foldl (\accum (table, value) -> loopCarriedDependency_evaluatePossibleIndices (accessIterTable value) newLoopVars exprs1 exprs2 accum table) previousAnalysis (zip valueTableIterations allowedValues) 
-							else (
-								if valueTableIterations /= [] 
-									then (\(table, value) -> loopCarriedDependency_evaluatePossibleIndices (collapseIterTable (LoopIterRecord iterTable)) newLoopVars exprs1 exprs2 previousAnalysis table) (head (zip valueTableIterations allowedValues)) 
-									else previousAnalysis
-								)
+				analysis = foldl (\accum (table, value) -> loopCarriedDependency_evaluatePossibleIndices (accessIterTable value) newLoopVars readIndexExprs writtenIndexExprs accum table) previousAnalysis (zip valueTableIterations allowedValues) 
 
 convertFromMaybe_foldl :: (Bool, [a]) -> Maybe(a) -> (Bool, [a])
 convertFromMaybe_foldl (prevCheck, prevList) (Just(item)) = (prevCheck && True, prevList++[item])
@@ -318,6 +342,18 @@ insertIntoTupleTable (indices) Empty = createTupleTable indices
 insertIntoTupleTable (indices) (LoopIterRecord table) = case DMap.lookup (head indices) table of 
 															Just subTable -> LoopIterRecord (DMap.insert (head indices) (insertIntoTupleTable (tail indices) subTable) table)
 															Nothing -> LoopIterRecord (DMap.insert (head indices) (createTupleTable (tail indices)) table)
+
+collapseIterTable_beta :: TupleTable -> TupleTable
+collapseIterTable_beta (LoopIterRecord iterTable) = foldl (\accum (key, newTable) -> insertIfNotRepresented key newTable accum) Empty (zip allowedValues subTables)
+			where
+				allowedValues = DMap.keys iterTable
+				subTables = map (\x -> DMap.findWithDefault Empty x iterTable) allowedValues
+
+insertIfNotRepresented :: Int -> TupleTable -> TupleTable -> TupleTable
+insertIfNotRepresented key newItem Empty = LoopIterRecord (DMap.insert key newItem DMap.empty)
+insertIfNotRepresented key newItem (LoopIterRecord table) = if not (elem newItem representedItems) then LoopIterRecord (DMap.insert key newItem table) else LoopIterRecord table
+			where
+				representedItems = map (\x -> DMap.findWithDefault Empty x table) (DMap.keys table)
 
 collapseIterTable :: TupleTable -> TupleTable
 collapseIterTable (LoopIterRecord iterTable) = foldl (\accum item -> joinTupleTable accum item) Empty subTables
