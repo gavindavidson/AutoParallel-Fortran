@@ -34,9 +34,9 @@ main :: IO ()
 main = do
 
 	putStr "BUGS:"
-	putStr "\n<>\tInner loops whose conditions depend on outer iterators and have\n\ta possibility of not executing will always exhibit LCDs."
 	putStr "\n<>\tLCD analysis is very slow with large loop iterator bounds. Needs\n\tan optimisation."
-	putStr "\n<>\tLoop iterator value ranges have one extra value when steps larger\n\tthan one are used"
+	putStr "\n<>\tDuplcations in the loop carried dependency output"
+	putStr "\n<>\tp(i,j,k) -> p(i,j,k)\tp(i,j,k) -> p(i,j,k)"
 	putStr "\n\n"
 
 	args <- getArgs
@@ -174,11 +174,13 @@ paralleliseLoop_map loop loopVarNames nonTempVars dependencies accessAnalysis
 										reads_map = getReads loopAnalysis
 										writes_map = getWrites loopAnalysis
 
-										(loopCarriedDeps_bool, loopCarriedDeps) = loopCarriedDependencyCheck loop
+										(loopCarriedDeps_bool, evaluated_bool, loopCarriedDeps) = loopCarriedDependencyCheck loop
 										-- loopCarriedDeps_bool = loopCarriedDeps /= []
-										errors_map' = if loopCarriedDeps_bool 
-														then DMap.insert (outputTab ++ "Cannot map: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_map
-														else errors_map
+										errors_map' = case loopCarriedDeps_bool of
+															True -> case evaluated_bool of
+																	True -> DMap.insert (outputTab ++ "Cannot map: Loop carried dependency detected:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_map
+																	False -> DMap.insert (outputTab ++ "Cannot map: Loop carried dependency possible (not evaluated):\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_map
+															False -> errors_map
 
 										loopVariables = loopCondtions_query loop
 
@@ -209,12 +211,18 @@ paralleliseLoop_reduce loop loopVarNames nonTempVars dependencies accessAnalysis
 										reads_reduce = getReads loopAnalysis
 										writes_reduce = getWrites loopAnalysis
 
-										(loopCarriedDeps_bool, loopCarriedDeps) = loopCarriedDependencyCheck loop
+										(loopCarriedDeps_bool, evaluated_bool, loopCarriedDeps) = loopCarriedDependencyCheck loop
 										-- loopCarriedDeps = loopCarriedDependencyCheck loop
 										-- loopCarriedDeps_bool = loopCarriedDeps /= []
-										errors_reduce' = if loopCarriedDeps_bool 
-														then DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
-														else errors_reduce
+										-- errors_reduce' = if loopCarriedDeps_bool 
+										-- 				then DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
+										-- 				else errors_reduce
+										errors_reduce' = case loopCarriedDeps_bool of
+															True -> case evaluated_bool of
+																	True -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency detected:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
+																	False -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency possible (not evaluated):\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
+															False -> errors_reduce
+
 
 										loopVariables = loopCondtions_query loop
 
@@ -247,10 +255,15 @@ paralleliseLoop_iterativeReduce iteratingLoop parallelLoop loopVarNames nonTempV
 			reads_reduce = getReads loopAnalysis
 			writes_reduce = getWrites loopAnalysis
 
-			(loopCarriedDeps_bool, loopCarriedDeps) = loopCarriedDependencyCheck_iterative iteratingLoop parallelLoop
-			errors_reduce' = if loopCarriedDeps_bool 
-								then DMap.insert (outputTab ++ iterativeReduceComment ++ " Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
-								else errors_reduce
+			(loopCarriedDeps_bool, evaluated_bool, loopCarriedDeps) = loopCarriedDependencyCheck_iterative iteratingLoop parallelLoop
+			errors_reduce' = case loopCarriedDeps_bool of
+															True -> case evaluated_bool of
+																	True -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency detected:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
+																	False -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency possible (not evaluated):\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
+															False -> errors_reduce
+			-- errors_reduce' = if loopCarriedDeps_bool 
+			-- 					then DMap.insert (outputTab ++ iterativeReduceComment ++ " Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
+			-- 					else errors_reduce
 
 			loopVariables = loopCondtions_query parallelLoop
 

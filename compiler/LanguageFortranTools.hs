@@ -8,6 +8,7 @@ import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
 import Data.List
+import Data.Maybe
 import System.Process
 import System.Directory
 import Text.Read
@@ -404,19 +405,20 @@ extractPrimaryReductionFunction assignee expr = "" -- error ("Error: extractPrim
 -- evaluateRange_int :: ValueTable -> Expr Anno -> Expr Anno -> Expr Anno -> [Int]
 -- evaluateRange_int vt startExpr endExpr stepExpr = map (round) (evaluateRange vt startExpr endExpr stepExpr)
 
-evaluateRange :: ValueTable -> Expr Anno -> Expr Anno -> Expr Anno -> [Float]
+evaluateRange :: ValueTable -> Expr Anno -> Expr Anno -> Expr Anno -> Maybe([Float])
 evaluateRange vt startExpr endExpr stepExpr = range
 		where
 			startInt = evaluateExpr vt startExpr
 			endInt = evaluateExpr vt endExpr
 			stepInt = evaluateExpr vt stepExpr
+
 			range = case startInt of
-						Nothing -> []
+						Nothing -> Nothing
 						Just start -> case endInt of
-										Nothing -> []
+										Nothing -> Nothing
 										Just end -> case stepInt of
-														Nothing -> []
-														Just step -> [start,start+step..end]
+														Nothing -> Nothing
+														Just step -> Just (map (fromIntegral) [round start :: Int,(round start :: Int)+(round step :: Int) ..round end :: Int])
 -- evaluateExpr_int :: ValueTable -> Expr Anno -> Maybe(Int)
 -- evaluateExpr_int vt expr = case evaluateExpr vt expr of
 -- 								Nothing -> Nothing

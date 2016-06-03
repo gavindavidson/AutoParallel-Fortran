@@ -104,8 +104,7 @@ attemptCombineAdjacentMaps 	bound
 										yAndPredicate = generateAndExprFromList yPredicateList
 
 										loopVs = listRemoveDuplications $ loopVs1 ++ loopVs2
-										-- loopDependencyErrors = loopCarriedDependencyCheck_query (extractVarNames_loopVars loopVs) resultantMap
-										(loopDependencyBool, _) = loopCarriedDependencyCheck resultantMap
+										(loopDependencyBool, _, _) = loopCarriedDependencyCheck resultantMap
 
 										resultantMap = OpenCLMap anno newSrc combinedReads writes resultLoopVars fortran
 
