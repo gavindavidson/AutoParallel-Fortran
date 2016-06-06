@@ -226,11 +226,7 @@ loopCarriedDependency_writtenExprCheck loopIterTable loopVars readExprs oldOffen
 				dependencyPairs = map (\x -> (x, writtenExpr)) offendingReads
 
 loopCarriedDependency_readExprCheck :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [[Expr Anno]] -> [Expr Anno] -> [[Expr Anno]]
-loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = if loopIterTable_optimised == Empty
-																													&& length loopVars  > 1
-																													then error ("loopIterTable_optimised == Empty")
-																													else
-																												result
+loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = result
 																												-- if length loopVars > 2
 																												-- then	
 																												-- 	error ("writtenIndexExprs:\n" ++ (show writtenIndexExprs)

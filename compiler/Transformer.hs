@@ -33,12 +33,13 @@ import LoopAnalysis
 main :: IO ()
 main = do
 
-	putStr "BUGS:"
-	putStr "\nNone that are known.."
+	putStr "Concerns:"
+	putStr "\n+\tMinimise the amount of loop iterator values that are necessary to check."
 	putStr "\n\n"
 
 	args <- getArgs
 	let argMap = processArgs args
+	putStr $ show argMap
 
 	let filename = case DMap.lookup filenameFlag argMap of
 						Just filename -> (head filename)
@@ -73,15 +74,32 @@ filenameFlag = "filename"
 outFileFlag = "-out"
 loopFusionBoundFlag = "-lfb"
 
+flags = ["filename", "-out", "-lfb", "-D"]
+
 processArgs :: [String] -> DMap.Map String [String]
-processArgs argList 	| 	even (length argList) = usageError
-						| 	(length argList) == 0 = usageError
-						|	otherwise = foldl (\accum (flagIndex, valueIndex) -> addArg accum (argList!!flagIndex) (argList!!valueIndex)) mapWithInpFile pairArgs
-		where
-			mapWithInpFile = addArg DMap.empty filenameFlag (head argList)
-			oddArgs = [1,3.. (length argList)-1]
-			evenArgs = [2,4.. (length argList)-1]
-			pairArgs = zip oddArgs evenArgs
+processArgs (filename:args) = DMap.insert "filename" [filename] (processArgs' args)
+processArgs [] = usageError
+
+processArgs' :: [String] -> DMap.Map String [String]
+processArgs' (flag:arg:args) 	|	elem flag flags = gatherFlag flag (arg:args) []
+								|	otherwise = error (flag ++ " not a recognised argument")
+processArgs' (flag:arg)			=	gatherFlag flag arg []
+processArgs' [] = DMap.empty
+
+gatherFlag :: String -> [String] -> [String] -> DMap.Map String [String]
+gatherFlag flag (arg:args)  collected	|	elem arg flags = DMap.insert flag collected (processArgs (arg:args))
+										|	otherwise = gatherFlag flag args (collected ++ [arg])
+gatherFlag flag [] collected = DMap.insert flag collected (processArgs' [])
+
+-- processArgs :: [String] -> DMap.Map String [String]
+-- processArgs argList 	| 	even (length argList) = usageError
+-- 						| 	(length argList) == 0 = usageError
+-- 						|	otherwise = foldl (\accum (flagIndex, valueIndex) -> addArg accum (argList!!flagIndex) (argList!!valueIndex)) mapWithInpFile pairArgs
+-- 		where
+-- 			mapWithInpFile = addArg DMap.empty filenameFlag (head argList)
+-- 			oddArgs = [1,3.. (length argList)-1]
+-- 			evenArgs = [2,4.. (length argList)-1]
+-- 			pairArgs = zip oddArgs evenArgs
 
 addArg :: DMap.Map String [String] -> String -> String -> DMap.Map String [String]
 addArg argMap flag value = DMap.insert flag newValues argMap
