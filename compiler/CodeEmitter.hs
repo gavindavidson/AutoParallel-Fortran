@@ -312,10 +312,12 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap _ src r w l fortran) =
 															[] -> ""
 															args -> foldl (\accum item -> accum ++ "," ++ varNameStr item) (varNameStr (head args)) (tail args)
 												
-												
-												readDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
-												writtenDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
-												generalDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
+												readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
+												writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
+												generalDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
+												-- readDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
+												-- writtenDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
+												-- generalDecls = map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (writtenDecls)
@@ -436,10 +438,12 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 															[] -> ""
 															args -> foldl (\accum item -> accum ++ "," ++ varNameStr item) (varNameStr (head args)) (tail args)
 												
-												
-												readDecls = removeDeclAssignments $ map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readVarNames
-												writtenDecls = removeDeclAssignments $ map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenVarNames
-												generalDecls = removeDeclAssignments $ map (\x ->fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalVarNames
+												readDecls = removeDeclAssignments $ map (\x -> fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readVarNames
+												writtenDecls = removeDeclAssignments $ map (\x -> fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenVarNames
+												generalDecls = removeDeclAssignments $ map (\x -> fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalVarNames
+												-- readDecls = removeDeclAssignments $ map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readVarNames
+												-- writtenDecls = removeDeclAssignments $ map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenVarNames
+												-- generalDecls = removeDeclAssignments $ map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalVarNames
 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (writtenDecls)
@@ -447,7 +451,8 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 												
 												local_reductionVars = map (generateLocalReductionVar) reductionVarNames
 												local_reductionVarsInitStr = foldl (\accum (var, expr) -> accum ++ tabs ++ "local_" ++ varNameStr var ++ " = " ++ outputExprFormatting expr ++ "\n") "" rv
-												local_reductionVarsDeclatation = map (\(red, local) -> stripDeclAttrs $ fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_varname red local prog)) (zip reductionVarNames local_reductionVars)
+												local_reductionVarsDeclatation = map (\(red, local) -> stripDeclAttrs $ adaptOriginalDeclaration_varname red local prog) (zip reductionVarNames local_reductionVars)
+												-- local_reductionVarsDeclatation = map (\(red, local) -> stripDeclAttrs $ fromMaybe (NullDecl nullAnno nullSrcSpan) (adaptOriginalDeclaration_varname red local prog)) (zip reductionVarNames local_reductionVars)
 												local_reductionVarsDeclatationStr = synthesiseDecls tabs local_reductionVarsDeclatation
 
 												localChunkSize_assg = generateAssgCode 
@@ -474,7 +479,8 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 																				_ -> foldl1 (\accum item -> appendFortran_recursive item accum) workItem_loopInitialisers
 
 												workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames
-												workGroup_reductionArraysDecl = map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (declareLocalReductionArray x (nthVar) prog)) reductionVarNames
+												workGroup_reductionArraysDecl = map (\x -> declareLocalReductionArray x (nthVar) prog) reductionVarNames
+												-- workGroup_reductionArraysDecl = map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (declareLocalReductionArray x (nthVar) prog)) reductionVarNames
 												workGroup_reductionArraysDeclStr = synthesiseDecls tabs workGroup_reductionArraysDecl
 												workGroup_reductionArraysInitStr = foldl (generateReductionArrayAssignment tabs localIdFortranVar) "" (zip workGroup_reductionArrays local_reductionVars)
 												workGroup_reductionCode = generateWorkGroupReduction reductionVarNames reductionIterator fortran
@@ -482,7 +488,8 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce _ src r w l rv fo
 
 
 												global_reductionArrays = map (generateGlobalReductionArray) reductionVarNames
-												global_reductionArraysDecl = map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (declareGlobalReductionArray x (nunitsVar) prog)) reductionVarNames
+												global_reductionArraysDecl = map (\x -> declareGlobalReductionArray x (nunitsVar) prog) reductionVarNames
+												-- global_reductionArraysDecl = map (\x -> fromMaybe (NullDecl nullAnno nullSrcSpan) (declareGlobalReductionArray x (nunitsVar) prog)) reductionVarNames
 												global_reductionArraysDeclStr = synthesiseDecls tabs global_reductionArraysDecl
 												global_reductionArraysAssignmentStr = foldl (generateReductionArrayAssignment tabs groupIdFortranVar) "" (zip global_reductionArrays local_reductionVars)
 
@@ -504,6 +511,11 @@ generateGloablReductionArrayArgStr accum item = accum ++ "\n" ++ tabInc ++ "__gl
 generateLocalReductionVar (VarName anno str) = VarName anno ("local_" ++ str)
 
 generateReductionArrayAssignment tabs accessor accum ((VarName _ s1),(VarName _ s2)) = accum++tabs++s1++"("++(outputExprFormatting accessor)++") = "++s2++"\n"
+
+-- Decl           p SrcSpan [(Expr p, Expr p, Maybe Int)] (Type p)
+-- BaseType p                    (BaseType p) [Attr p] (Expr p) (Expr p)
+generateImplicitDecl :: VarName Anno -> Decl Anno
+generateImplicitDecl var = Decl nullAnno nullSrcSpan [(generateVar var, (NullExpr nullAnno nullSrcSpan), Nothing)] (BaseType nullAnno (Real nullAnno) [] (NullExpr nullAnno nullSrcSpan) (NullExpr nullAnno nullSrcSpan))
 
 generateKernelName :: String -> SrcSpan -> [VarName Anno] -> String
 generateKernelName identifier src varnames = identifier
@@ -559,25 +571,49 @@ generateLoopIterationsExpr (var, start, end, step) = Bin nullAnno nullSrcSpan (D
 															(generateIntConstant 1))
 														step
 
-declareGlobalReductionArray :: VarName Anno -> Expr Anno -> Program Anno -> Maybe(Decl Anno)
-declareGlobalReductionArray varname arraySize program = case decl_list of
-														[] -> Nothing
-														_ -> Just (decl)
+declareGlobalReductionArray :: VarName Anno -> Expr Anno -> Program Anno -> Decl Anno -- Maybe(Decl Anno)
+declareGlobalReductionArray varname arraySize program = decl
+														-- case decl_list of
+														-- [] -> Nothing
+														-- _ -> Just (decl)
 			where
 				decl_list = everything (++) (mkQ [] (extractDeclaration_varname varname)) program
+				foundDecl = case decl_list of
+								[] -> generateImplicitDecl varname
+								_ -> head decl_list
 				one = generateIntConstant 1
 				newVarName = generateGlobalReductionArray varname
-				decl = applyIntent (Out nullAnno) (replaceAllOccurences_varname (addDimension (head decl_list) one arraySize) varname newVarName)
+				decl = applyIntent (Out nullAnno) (replaceAllOccurences_varname (addDimension foundDecl one arraySize) varname newVarName)
+				-- decl = applyIntent (Out nullAnno) (replaceAllOccurences_varname (addDimension (head decl_list) one arraySize) varname newVarName)
 
-declareLocalReductionArray :: VarName Anno -> Expr Anno -> Program Anno -> Maybe(Decl Anno)
-declareLocalReductionArray varname arraySize program = case decl_list of
-														[] -> Nothing
-														_ -> Just (decl)
+declareLocalReductionArray :: VarName Anno -> Expr Anno -> Program Anno -> Decl Anno -- Maybe(Decl Anno)
+declareLocalReductionArray varname arraySize program = decl
+														-- case decl_list of
+														-- [] -> Nothing
+														-- _ -> Just (decl)
 			where
 				decl_list = everything (++) (mkQ [] (extractDeclaration_varname varname)) program
+				foundDecl = case decl_list of
+								[] -> generateImplicitDecl varname
+								_ -> head decl_list
 				one = generateIntConstant 1
 				newVarName = generateLocalReductionArray varname
-				decl = addDimension (replaceAllOccurences_varname (head decl_list) varname newVarName) one arraySize
+				decl = addDimension (replaceAllOccurences_varname foundDecl varname newVarName) one arraySize
+				-- decl = addDimension (replaceAllOccurences_varname (head decl_list) varname newVarName) one arraySize
+
+adaptOriginalDeclaration_varname :: VarName Anno -> VarName Anno -> Program Anno -> Decl Anno -- Maybe(Decl Anno)
+adaptOriginalDeclaration_varname varname newVarname program = decl
+														-- case decl_list of
+														-- [] -> Nothing
+														-- _ -> Just (decl)
+			where 
+				decl_list = everything (++) (mkQ [] (extractDeclaration_varname varname)) program
+				foundDecl = case decl_list of
+								[] -> generateImplicitDecl varname
+								_ -> head decl_list
+				decl = applyGeneratedSrcSpans (replaceAllOccurences_varname foundDecl varname newVarname)
+				-- decl = applyGeneratedSrcSpans (replaceAllOccurences_varname (head decl_list) varname newVarname)
+
 
 
 addDimension :: Decl Anno -> Expr Anno -> Expr Anno -> Decl Anno
@@ -596,6 +632,7 @@ addNewDimensionClaus start end (attr:attrList) = case attr of
 
 appendDimension :: Expr Anno -> Expr Anno -> Attr Anno -> Attr Anno
 appendDimension start end (Dimension anno lst) = Dimension anno (lst ++ [(start, end)])
+appendDimension start end att = att
 
 extractDimensionAttr :: Attr Anno -> [Attr Anno]
 extractDimensionAttr attr = case attr of
@@ -622,14 +659,6 @@ adaptOriginalDeclaration_intent varname intent program = case decl_list of
 				decl = case containsParameterAttr (head decl_list) of
 							True -> applyGeneratedSrcSpans (head decl_list)
 							False -> applyGeneratedSrcSpans (applyIntent (intent) (head decl_list))
-
-adaptOriginalDeclaration_varname :: VarName Anno -> VarName Anno -> Program Anno -> Maybe(Decl Anno)
-adaptOriginalDeclaration_varname varname newVarname program = case decl_list of
-														[] -> Nothing
-														_ -> Just (decl)
-			where 
-				decl_list = everything (++) (mkQ [] (extractDeclaration_varname varname)) program
-				decl = applyGeneratedSrcSpans (replaceAllOccurences_varname (head decl_list) varname newVarname)
 
 stripDeclAttrs :: Decl Anno -> Decl Anno
 stripDeclAttrs decl = everywhere (mkT stripAttrs) decl

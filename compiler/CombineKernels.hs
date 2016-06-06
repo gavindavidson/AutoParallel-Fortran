@@ -84,7 +84,8 @@ combineAdjacentKernels bound codeSeg = case codeSeg of
 attemptCombineAdjacentMaps :: Maybe(Float) -> Fortran Anno -> Fortran Anno -> Maybe(Fortran Anno)
 attemptCombineAdjacentMaps 	bound
 							(OpenCLMap anno1 src1 reads1 writes1 loopVs1 fortran1) 
-							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] || loopDependencyBool  = Nothing
+							(OpenCLMap anno2 src2 reads2 writes2 loopVs2 fortran2) 	| resultLoopVars == [] -- || loopDependencyBool  
+																											= Nothing
 																					| otherwise = Just(resultantMap)
 									where
 										newSrc = generateSrcSpanMerge src1 src2
