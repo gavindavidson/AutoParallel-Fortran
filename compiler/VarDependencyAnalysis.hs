@@ -130,7 +130,7 @@ isIndirectlyDependentOn analysis potDependent potDependee	|	isDirectlyDependentO
 --			caller.
 loopCarriedDependencyCheck :: Fortran Anno -> (Bool, Bool, [(Expr Anno, Expr Anno)])
 loopCarriedDependencyCheck codeSeg 	|	simpleFailure = case inDepthFailure of 
-															True -> (True, loopIterTable_successfull, (offendingExprs ++ simpleOffenders))
+															True -> (True, loopIterTable_successfull, offendingExprs ++ simpleOffenders)
 															False -> (False, loopIterTable_successfull, [])
 									|	otherwise = (False, loopIterTable_successfull, [])
 			where
@@ -143,7 +143,6 @@ loopCarriedDependencyCheck codeSeg 	|	simpleFailure = case inDepthFailure of
 								Just a -> (True, a)
 
 				writtenVars = DMap.keys writes
-				varChecks = map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars
 				offendingExprs = foldl (++) [] (map (loopCarriedDependency_varCheck loopIterTable loopVars (reads, writes)) writtenVars)
 				inDepthFailure = (not loopIterTable_successfull) || offendingExprs /= []
 
@@ -156,7 +155,7 @@ loopCarriedDependencyCheck codeSeg 	|	simpleFailure = case inDepthFailure of
 --	analysis.
 loopCarriedDependencyCheck_iterative :: Fortran Anno ->  Fortran Anno -> (Bool, Bool, [(Expr Anno, Expr Anno)])
 loopCarriedDependencyCheck_iterative iteratingCodeSeg parallelCodeSeg 	|	simpleFailure = case inDepthFailure of 
-																				True -> (True, loopIterTable_successfull, if loopIterTable_successfull then (offendingExprs ++ simpleOffenders) else simpleOffenders)
+																				True -> (True, loopIterTable_successfull, if loopIterTable_successfull then offendingExprs ++ simpleOffenders else simpleOffenders)
 																				False -> (False, loopIterTable_successfull, [])
 																		|	otherwise = (False, loopIterTable_successfull, []) 
 			where
@@ -179,6 +178,8 @@ loopCarriedDependencyCheck_iterative iteratingCodeSeg parallelCodeSeg 	|	simpleF
 				inDepthFailure = (not loopIterTable_successfull) || offendingExprs /= []
 
 				(simpleFailure, simpleOffenders) = simpleLoopCarriedDependencyCheck reads writes
+
+				successfullExprs = (offendingExprs ++ simpleOffenders)
 
 simpleLoopCarriedDependencyCheck :: ArrayAccessExpressions -> ArrayAccessExpressions -> (Bool, [(Expr Anno, Expr Anno)])
 simpleLoopCarriedDependencyCheck reads writes = foldl (simpleLoopCarriedDependencyCheck' reads writes) (False, []) (DMap.keys writes)
@@ -225,7 +226,10 @@ loopCarriedDependency_writtenExprCheck loopIterTable loopVars readExprs oldOffen
 				dependencyPairs = map (\x -> (x, writtenExpr)) offendingReads
 
 loopCarriedDependency_readExprCheck :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [[Expr Anno]] -> [Expr Anno] -> [[Expr Anno]]
-loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = 
+loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs oldOffendingExprs readIndexExprs = if loopIterTable_optimised == Empty
+																													&& length loopVars  > 1
+																													then error ("loopIterTable_optimised == Empty")
+																													else
 																												result
 																												-- if length loopVars > 2
 																												-- then	
@@ -242,6 +246,7 @@ loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs old
 			where
 				loopIterTable_optimised = optimiseLoopIterTable loopIterTable DMap.empty loopVars readIndexExprs writtenIndexExprs
 
+				-- (offend_bool, reads, writes) = loopCarriedDependency_evaluatePossibleIndices loopIterTable loopVars readIndexExprs writtenIndexExprs (False, Empty, Empty) DMap.empty
 				(offend_bool, reads, writes) = loopCarriedDependency_evaluatePossibleIndices loopIterTable_optimised loopVars readIndexExprs writtenIndexExprs (False, Empty, Empty) DMap.empty
 				result = if offend_bool then oldOffendingExprs ++ [readIndexExprs] else oldOffendingExprs
 
@@ -278,8 +283,29 @@ optimiseLoopIterTable (LoopIterRecord iterTable) valueTable loopVars readIndexEx
 --	 	(Bool, TupleTable, TupleTable) -Return type. Bool is whether a dependency exists, the TupleTables are all of the resolved/evaluated index
 --										positions for all of the READS and WRITES (respecitvely) that have been calculated so far.
 loopCarriedDependency_evaluatePossibleIndices :: TupleTable -> [VarName Anno] -> [Expr Anno] -> [Expr Anno] -> (Bool, TupleTable, TupleTable) -> ValueTable -> (Bool, TupleTable, TupleTable)
-loopCarriedDependency_evaluatePossibleIndices Empty loopVars readIndexExprs writtenIndexExprs (prevCheck, prevReads, prevWrites) valueTable = (prevCheck || depExistsBool, newReads, newWrites)
+loopCarriedDependency_evaluatePossibleIndices Empty loopVars readIndexExprs writtenIndexExprs (prevCheck, prevReads, prevWrites) valueTable = 	
+																																				-- if eq_exprs 
+																																				-- 	then (False, newReads, newWrites)
+																																				-- 	else (prevCheck || depExistsBool, newReads, newWrites)
+																																				-- if 	eq_exprs 
+																																				-- 	&& depExistsBool 
+																																				-- 	&& vt_elems > 2
+																																				-- 	then error (
+																																				-- 			"\ndepExistsBool: " ++ (show depExistsBool)
+																																				-- 			++ "\nreadPreviouslyWritten: " ++ (show readPreviouslyWritten)
+																																				-- 			++ "\nwritePreviouslyRead: " ++ (show writePreviouslyRead)
+																																				-- 			++ "\n(not readsEvaluated): " ++ (show (not readsEvaluated))
+																																				-- 			++ "\n(not writesEvaluated): " ++ (show (not writesEvaluated))
+ 																																			-- 				++ "\nreads_eval: " ++ (show reads_eval)
+ 																																			-- 				++ "\nwrites_eval: " ++ (show writes_eval)
+ 																																			-- 				++ "\nvt_elems: " ++ (show vt_elems)
+  																																		-- 					)
+ 																																			-- 		else 
+ 																																						(prevCheck || depExistsBool, newReads, newWrites)
 			where
+				identcalExprs = map (applyGeneratedSrcSpans) readIndexExprs == map (applyGeneratedSrcSpans) writtenIndexExprs 
+				-- vt_elems = length (DMap.keys valueTable)
+
 				reads_eval = map (evaluateExpr valueTable) readIndexExprs
 				writes_eval = map (evaluateExpr valueTable) writtenIndexExprs
 
@@ -298,7 +324,7 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars readIndexExprs writ
 
 				newReads = insertIntoTupleTable reads_fromMaybe_int prevReads
 				newWrites = insertIntoTupleTable writes_fromMaybe_int prevWrites
-				depExistsBool = readPreviouslyWritten || writePreviouslyRead || (not readsEvaluated) || (not writesEvaluated)
+				depExistsBool = (not identcalExprs) && (readPreviouslyWritten || writePreviouslyRead || (not readsEvaluated) || (not writesEvaluated))
 
 loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVars readIndexExprs writtenIndexExprs previousAnalysis valueTable = analysis
 			where

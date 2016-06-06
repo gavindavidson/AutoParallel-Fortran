@@ -34,9 +34,7 @@ main :: IO ()
 main = do
 
 	putStr "BUGS:"
-	putStr "\n<>\tLCD analysis is very slow with large loop iterator bounds. Needs\n\tan optimisation."
-	putStr "\n<>\tDuplcations in the loop carried dependency output"
-	putStr "\n<>\tp(i,j,k) -> p(i,j,k)\tp(i,j,k) -> p(i,j,k)"
+	putStr "\nNone that are known.."
 	putStr "\n\n"
 
 	args <- getArgs
@@ -318,7 +316,7 @@ getAnnotations codeSeg = case (tag codeSeg) == nullAnno of
 				False -> leadMessage ++ errorListing ++ "\n"
 			leadMessage = compilerName ++ ": Cannot parallelise loop at " ++ errorLocationFormatting (srcSpan codeSeg) ++ "\n"
 			errorListing = foldl (\errorDescription key -> errorDescription ++ key ++ 
-												(foldl (\errorInstance item -> errorInstance ++ "\t" ++ item) "" (applyAnnotationFormatting 2 (DMap.findWithDefault [] key errorMap))) ++ "\n"
+												(foldl (\errorInstance item -> errorInstance ++ "\t" ++ item) "" (applyAnnotationFormatting 2 (listRemoveDuplications (DMap.findWithDefault [] key errorMap)))) ++ "\n"
 					) "" keys 
 			keys = DMap.keys errorMap
 			errorMap = tag codeSeg
