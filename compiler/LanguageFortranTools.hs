@@ -158,8 +158,12 @@ extractVarNames_loopVars = map (\(x,_,_,_) -> x)
 nullSrcSpan :: SrcSpan
 nullSrcSpan = (SrcLoc {srcFilename = "generated", srcLine = -1, srcColumn = -1}, SrcLoc {srcFilename = "generated", srcLine = -1, srcColumn = -1})
 
-generateSrcSpan :: SrcSpan -> SrcSpan
-generateSrcSpan ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
+-- generateSrcSpan :: SrcSpan -> SrcSpan
+-- generateSrcSpan ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
+
+generateSrcSpan :: String -> SrcSpan -> SrcSpan
+generateSrcSpan [] ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
+generateSrcSpan filename ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = filename, srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = filename, srcLine = eLine, srcColumn = eCol})
 
 generateAssgCode :: Expr Anno -> Expr Anno -> Fortran Anno
 generateAssgCode expr1 expr2 = Assg nullAnno nullSrcSpan expr1 expr2 

@@ -14,26 +14,19 @@ make
 
 ## Use
 
-The compiler is a purely command line tool and offers to graphical interface. There are a number of command line arguments that may be provided but only one is necessary: the path to the target file. For example, to run the compiler on a file named `target.f95`, located in the same directory as the compiler itself:
+The compiler is a purely command line tool and offers to graphical interface. There are a number of command line arguments that may be provided but only one is necessary: the path to the target file(s). For example, to run the compiler on a file named `target.f95`, located in the same directory as the compiler itself:
 
 ```bash
 cd compiler
 ./AutoParallel-Fortran target.f95
 ```
 
-The `target.f95` could be replaced with an absolute or relative path if the file was located elsewhere.
+The `target.f95` could be replaced with an absolute or relative path if the file was located elsewhere. Supplying more than one filename to the compiler as arguments will cause it to consider both as part of the same program and produce a super kernel style program, combining the kernels that would be produced by each source file into one super kernel.
 
 The optional command line flags are are follows:
-- *-out* defines the filename for the output host program. The name of the kernel file is derived from this filename. Not including this argument results in a default filename being used.
+- *-out* defines the directory where the output program will be saved. The name of the kernel file is derived from the original filenames. Not including this argument results in a the output being saved in the current directory.
 - *-lfb* defines a value for the loop fusion bound. That is, the difference in iterator end value that is allowed for two loops to be fused. Not including this argument results in there not being a bound for loop fusion, and therefore all pairs of loops that meet the other conditions are fused.
-- Any other arguments will be treated as arguments to the C preprocessor (cpp) which is run by the compiler
-
-For example, to compile `target.f95` with a loop fusion bound of 10 and an output filename of `out.f95`:
-
-```bash
-cd compiler
-./AutoParallel-Fortran target.f95 -out out.f95 -lfb 10
-```
+- *-D* defines a list of c preprocessor (cpp) macros that are to be defined.
 
 ## Modification
 

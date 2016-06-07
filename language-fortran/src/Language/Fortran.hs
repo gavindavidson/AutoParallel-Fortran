@@ -224,7 +224,7 @@ data Fortran  p = Assg p SrcSpan (Expr p) (Expr p)
                 | OpenCLReduce p SrcSpan
                   [VarName p]                           -- List of arguments to kernel that are READ
                   [VarName p]                           -- List of arguments to kernel that are WRITTEN
-                  [(VarName p, Expr p, Expr p, Expr p)] -- Loop variables of nested maps
+                  [(VarName p, Expr p, Expr p, Expr p)] -- Loop variables of nested reductions
                   [(VarName p, Expr p)]                 -- List of variables that are considered 'reduction variables' along with their initial values
                   (Fortran p)                           -- Body of kernel code
                   deriving (Show, Functor, Typeable, Data, Eq)

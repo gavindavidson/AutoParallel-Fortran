@@ -11,6 +11,7 @@ module Main where
 --	-	Output parallelisation errors and information about kernel fusion
 --	-	Emit final code listings.
 
+import Control.Monad
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
 import Language.Fortran
@@ -34,51 +35,65 @@ main :: IO ()
 main = do
 
 	putStr "Concerns:"
-	putStr "\n+\tMinimise the amount of loop iterator values that are necessary to check."
+	putStr "\n\t+\tMinimise the amount of loop iterator values that are necessary\n\t\tto check."
 	putStr "\n\n"
 
 	args <- getArgs
 	let argMap = processArgs args
-	putStr $ show argMap
 
-	let filename = case DMap.lookup filenameFlag argMap of
-						Just filename -> (head filename)
+	let filenames = case DMap.lookup filenameFlag argMap of
+						Just filename -> filename
 						Nothing -> usageError
-	let newFilename = case DMap.lookup outFileFlag argMap of
-						Just filename -> Just (head filename)
-						Nothing -> Nothing
+
+	let outDirectory = case DMap.lookup outDirectoryFlag argMap of
+						Just dirList -> head dirList
+						Nothing -> "./"
 	let loopFusionBound = case DMap.lookup loopFusionBoundFlag argMap of
 							Just bound -> Just (read (head bound) :: Float)
 							Nothing -> Nothing
-	let cppDFlags = DMap.findWithDefault [] "-D" argMap
+	let verbose = case DMap.lookup verboseFlag argMap of
+						Just a -> True
+						Nothing -> False
+	let cppDFlags = DMap.findWithDefault [] cppDefineFlag argMap
 
-	parsedProgram <- parseFile cppDFlags filename
+	parsedPrograms <- mapM (parseFile cppDFlags) filenames
+	parsedProgram <- parseFile cppDFlags (head filenames)
 
 	-- putStr $ show $ parsedProgram
-	let constantsFolded = map foldConstants parsedProgram
+	let constantsFolded = map (map foldConstants) parsedPrograms
+	-- let constantsFolded = map foldConstants parsedProgram
 
-	let parallelisedProg = paralleliseProgram constantsFolded
-	let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
+	let parallelisedPrograms = map (\(ast, f) -> paralleliseProgram f ast) (zip constantsFolded filenames)
+	let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
 
-	putStr $ compileAnnotationListing parallelisedProg
-	
+	-- let parallelisedProg = paralleliseProgram constantsFolded
+	-- let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
+
+	-- putStr $ compileAnnotationListing parallelisedProg
+	let annotationListings = zip3 filenames (map compileAnnotationListing parallelisedPrograms) (map compileAnnotationListing combinedPrograms)
+	mapM (\(filename, par_anno, comb_anno) -> putStr $ "FILE: " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
+
 	-- putStr $ "\n" ++ (show parallelisedProg)
 
-	putStr $ compileAnnotationListing combinedProg
+	-- putStr $ compileAnnotationListing combinedProg
 	-- putStr $ show $ parallelisedProg
-	
-	emit cppDFlags filename newFilename combinedProg
+	emit_beta outDirectory cppDFlags (zip combinedPrograms filenames)
+	-- emit cppDFlags (head filenames) newFilename combinedProg
+	-- emit cppDFlags filename newFilename combinedProg
 
 
 filenameFlag = "filename"
-outFileFlag = "-out"
+outDirectoryFlag = "-out"
 loopFusionBoundFlag = "-lfb"
+verboseFlag = "-v"
+cppDefineFlag = "-D"
 
-flags = ["filename", "-out", "-lfb", "-D"]
+flags = [filenameFlag, outDirectoryFlag, loopFusionBoundFlag, cppDefineFlag, verboseFlag]
 
 processArgs :: [String] -> DMap.Map String [String]
-processArgs (filename:args) = DMap.insert "filename" [filename] (processArgs' args)
 processArgs [] = usageError
+processArgs (arg:args)	|	elem arg flags = usageError
+						|	otherwise = gatherFlag filenameFlag (arg:args) []
 
 processArgs' :: [String] -> DMap.Map String [String]
 processArgs' (flag:arg:args) 	|	elem flag flags = gatherFlag flag (arg:args) []
@@ -87,19 +102,9 @@ processArgs' (flag:arg)			=	gatherFlag flag arg []
 processArgs' [] = DMap.empty
 
 gatherFlag :: String -> [String] -> [String] -> DMap.Map String [String]
-gatherFlag flag (arg:args)  collected	|	elem arg flags = DMap.insert flag collected (processArgs (arg:args))
+gatherFlag flag (arg:args)  collected	|	elem arg flags = DMap.insert flag collected (processArgs' (arg:args))
 										|	otherwise = gatherFlag flag args (collected ++ [arg])
 gatherFlag flag [] collected = DMap.insert flag collected (processArgs' [])
-
--- processArgs :: [String] -> DMap.Map String [String]
--- processArgs argList 	| 	even (length argList) = usageError
--- 						| 	(length argList) == 0 = usageError
--- 						|	otherwise = foldl (\accum (flagIndex, valueIndex) -> addArg accum (argList!!flagIndex) (argList!!valueIndex)) mapWithInpFile pairArgs
--- 		where
--- 			mapWithInpFile = addArg DMap.empty filenameFlag (head argList)
--- 			oddArgs = [1,3.. (length argList)-1]
--- 			evenArgs = [2,4.. (length argList)-1]
--- 			pairArgs = zip oddArgs evenArgs
 
 addArg :: DMap.Map String [String] -> String -> String -> DMap.Map String [String]
 addArg argMap flag value = DMap.insert flag newValues argMap
@@ -110,25 +115,25 @@ addArg argMap flag value = DMap.insert flag newValues argMap
 usageError = error "USAGE: <filename> [<flag> <value>]"
 
 --	The top level function that is called against the original parsed AST
-paralleliseProgram :: Program Anno -> Program Anno 
-paralleliseProgram codeSeg = map (everywhere (mkT (paralleliseBlock (accessAnalysis)))) codeSeg
+paralleliseProgram :: String -> Program Anno -> Program Anno 
+paralleliseProgram filename codeSeg = map (everywhere (mkT (paralleliseBlock filename(accessAnalysis)))) codeSeg
 	where
 		accessAnalysis = analyseAllVarAccess codeSeg
 
 --	Called by above to identify actions to take when a Block is encountered. In this case look for loops to parallelise using paralleliseForLoop
-paralleliseBlock :: VarAccessAnalysis -> Block Anno -> Block Anno
-paralleliseBlock accessAnalysis block = gmapT (mkT (paralleliseForLoop accessAnalysis)) block
+paralleliseBlock :: String -> VarAccessAnalysis -> Block Anno -> Block Anno
+paralleliseBlock filename accessAnalysis block = gmapT (mkT (paralleliseForLoop filename accessAnalysis)) block
 
 --	When a for loop is encountered this function attempts to parallelise it.
-paralleliseForLoop :: VarAccessAnalysis -> Fortran Anno -> Fortran Anno
-paralleliseForLoop  accessAnalysis inp = case inp of
-		For _ _ _ _ _ _ _ -> paralleliseLoop [] accessAnalysis $ gmapT (mkT (paralleliseForLoop accessAnalysis )) inp
-		_ -> gmapT (mkT (paralleliseForLoop accessAnalysis)) inp
+paralleliseForLoop :: String -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
+paralleliseForLoop filename accessAnalysis inp = case inp of
+		For _ _ _ _ _ _ _ -> paralleliseLoop filename [] accessAnalysis $ gmapT (mkT (paralleliseForLoop filename accessAnalysis )) inp
+		_ -> gmapT (mkT (paralleliseForLoop filename accessAnalysis)) inp
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
-paralleliseLoop :: [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
-paralleliseLoop loopVars accessAnalysis loop 	= transformedAst
+paralleliseLoop :: String -> [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
+paralleliseLoop filename loopVars accessAnalysis loop 	= transformedAst
 												
 								where
 									newLoopVars = case getLoopVar loop of
@@ -138,15 +143,15 @@ paralleliseLoop loopVars accessAnalysis loop 	= transformedAst
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies loop
 
-									mapAttempt = paralleliseLoop_map loop newLoopVars nonTempVars dependencies accessAnalysis
+									mapAttempt = paralleliseLoop_map filename loop newLoopVars nonTempVars dependencies accessAnalysis
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
-									reduceAttempt = paralleliseLoop_reduce mapAttempt_ast newLoopVars nonTempVars dependencies accessAnalysis
+									reduceAttempt = paralleliseLoop_reduce filename mapAttempt_ast newLoopVars nonTempVars dependencies accessAnalysis
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
 
-									iterativeReduceAttempt = paralleliseLoop_iterativeReduce reduceAttempt_ast nextFor newLoopVars nonTempVars dependencies accessAnalysis
+									iterativeReduceAttempt = paralleliseLoop_iterativeReduce filename reduceAttempt_ast nextFor newLoopVars nonTempVars dependencies accessAnalysis
 									iterativeReduceAttempt_bool = fst iterativeReduceAttempt
 									iterativeReduceAttempt_ast = snd iterativeReduceAttempt
 
@@ -178,8 +183,8 @@ extractWrites _ = []
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
-paralleliseLoop_map :: Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_map loop loopVarNames nonTempVars dependencies accessAnalysis	
+paralleliseLoop_map :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_map filename loop loopVarNames nonTempVars dependencies accessAnalysis	
 									|	errors_map' == nullAnno 	=	(True, appendAnnotation mapCode (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) "")
 									|	otherwise					=	(False, appendAnnotationMap loop errors_map')
 									where
@@ -206,7 +211,7 @@ paralleliseLoop_map loop loopVarNames nonTempVars dependencies accessAnalysis
 
 										varNames_loopVariables = listSubtract (listRemoveDuplications (startVarNames ++ endVarNames ++ stepVarNames)) loopVarNames
 
-										mapCode = OpenCLMap nullAnno (generateSrcSpan (srcSpan loop)) 	-- Node to represent the data needed for an OpenCL map kernel
+										mapCode = OpenCLMap nullAnno (generateSrcSpan filename (srcSpan loop)) 	-- Node to represent the data needed for an OpenCL map kernel
 											(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)) ++ varNames_loopVariables)	-- List of arguments to kernel that are READ
 							 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_map)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop))) 	-- List of arguments to kernel that are WRITTEN
 											(loopVariables)	-- Loop variables of nested maps
@@ -214,8 +219,8 @@ paralleliseLoop_map loop loopVarNames nonTempVars dependencies accessAnalysis
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
-paralleliseLoop_reduce :: Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_reduce loop loopVarNames nonTempVars dependencies accessAnalysis	
+paralleliseLoop_reduce :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_reduce filename loop loopVarNames nonTempVars dependencies accessAnalysis	
 									| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation reductionCode (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) "")
 									|	otherwise					=	(False, appendAnnotationMap loop errors_reduce')
 									where
@@ -248,7 +253,7 @@ paralleliseLoop_reduce loop loopVarNames nonTempVars dependencies accessAnalysis
 
 										varNames_loopVariables = listSubtract (listRemoveDuplications (startVarNames ++ endVarNames ++ stepVarNames)) loopVarNames
 
-										reductionCode = OpenCLReduce nullAnno (generateSrcSpan (srcSpan loop))  
+										reductionCode = OpenCLReduce nullAnno (generateSrcSpan filename (srcSpan loop))  
  											(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop)) ++ varNames_loopVariables) -- List of arguments to kernel that are READ
 							 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query loop))) -- List of arguments to kernel that are WRITTEN
 											(loopVariables) -- Loop variables of nested maps
@@ -257,10 +262,10 @@ paralleliseLoop_reduce loop loopVarNames nonTempVars dependencies accessAnalysis
 
 --	An iterative reduction (name change pending) occurs when a parallel reduction occurs in some nested loops but requires values from some outer, iterative loop. More advanced loop carried dependency
 --	analysis caused this to be necessary.
-paralleliseLoop_iterativeReduce :: Fortran Anno -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_iterativeReduce iteratingLoop parallelLoop loopVarNames nonTempVars dependencies accessAnalysis 
+paralleliseLoop_iterativeReduce :: String -> Fortran Anno -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_iterativeReduce filename iteratingLoop parallelLoop loopVarNames nonTempVars dependencies accessAnalysis 
 				| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation iterativeReductionCode (compilerName ++ ": Iterative Reduction at " ++ errorLocationFormatting (srcSpan iteratingLoop) ++ " with parallal loop at "  ++ errorLocationFormatting (srcSpan parallelLoop)) "")
-				|	nextFor_maybe /= Nothing 	= 	paralleliseLoop_iterativeReduce (appendAnnotationMap iteratingLoop errors_reduce') nextFor loopVarNames nonTempVars dependencies accessAnalysis 
+				|	nextFor_maybe /= Nothing 	= 	paralleliseLoop_iterativeReduce filename (appendAnnotationMap iteratingLoop errors_reduce') nextFor loopVarNames nonTempVars dependencies accessAnalysis 
 				|	otherwise					=	(False, appendAnnotationMap iteratingLoop errors_reduce')
 
 		where
@@ -298,7 +303,7 @@ paralleliseLoop_iterativeReduce iteratingLoop parallelLoop loopVarNames nonTempV
 										For a1 a2 a3 a4 a5 a6 fortran -> For a1 a2 a3 a4 a5 a6 reductionCode
 										_ -> error "paralleliseLoop_iterativeReduce: iterating loop is not FOR"
 
-			reductionCode = OpenCLReduce nullAnno (generateSrcSpan (srcSpan parallelLoop))  
+			reductionCode = OpenCLReduce nullAnno (generateSrcSpan filename (srcSpan parallelLoop))  
 							(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query parallelLoop)) ++ varNames_loopVariables) -- List of arguments to kernel that are READ
 		 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query parallelLoop))) -- List of arguments to kernel that are WRITTEN
 						(loopVariables) -- Loop variables of nested maps
