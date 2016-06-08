@@ -31,11 +31,11 @@ import ConstantFolding
 import LoopAnalysis
 
 
-main :: IO ()
+main :: IO [()]
 main = do
 
 	putStr "Concerns:"
-	putStr "\n\t+\tMinimise the amount of loop iterator values that are necessary\n\t\tto check."
+	putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Minimise the amount of loop iterator values that are necessary to check.")
 	putStr "\n\n"
 
 	args <- getArgs
@@ -59,12 +59,14 @@ main = do
 	parsedPrograms <- mapM (parseFile cppDFlags) filenames
 	parsedProgram <- parseFile cppDFlags (head filenames)
 
-	-- putStr $ show $ parsedProgram
 	let constantsFolded = map (map foldConstants) parsedPrograms
 	-- let constantsFolded = map foldConstants parsedProgram
 
 	let parallelisedPrograms = map (\(ast, f) -> paralleliseProgram f ast) (zip constantsFolded filenames)
 	let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
+
+
+	-- putStr $ show $ head combinedPrograms
 
 	-- let parallelisedProg = paralleliseProgram constantsFolded
 	-- let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
@@ -276,6 +278,8 @@ paralleliseLoop_iterativeReduce filename iteratingLoop parallelLoop loopVarNames
 			reads_reduce = getReads loopAnalysis
 			writes_reduce = getWrites loopAnalysis
 
+			iteratingLoopVars = listSubtract (extractLoopVars iteratingLoop) (extractLoopVars parallelLoop)
+
 			(loopCarriedDeps_bool, evaluated_bool, loopCarriedDeps) = loopCarriedDependencyCheck_iterative iteratingLoop parallelLoop
 			errors_reduce' = case loopCarriedDeps_bool of
 															True -> case evaluated_bool of
@@ -304,7 +308,7 @@ paralleliseLoop_iterativeReduce filename iteratingLoop parallelLoop loopVarNames
 										_ -> error "paralleliseLoop_iterativeReduce: iterating loop is not FOR"
 
 			reductionCode = OpenCLReduce nullAnno (generateSrcSpan filename (srcSpan parallelLoop))  
-							(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query parallelLoop)) ++ varNames_loopVariables) -- List of arguments to kernel that are READ
+						(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames reads_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query parallelLoop)) ++ varNames_loopVariables ++ iteratingLoopVars) -- List of arguments to kernel that are READ
 		 				(listRemoveDuplications $ listSubtract (foldl (++) [] (map extractVarNames writes_reduce)) (map (\(a, _, _, _) -> a) (loopCondtions_query parallelLoop))) -- List of arguments to kernel that are WRITTEN
 						(loopVariables) -- Loop variables of nested maps
 						(listRemoveDuplications (foldl (\accum item -> accum ++ [(item, getValueAtSrcSpan item (srcSpan parallelLoop) accessAnalysis)] ) [] (foldl (\accum item -> accum ++ extractVarNames item) [] reductionVariables))) -- List of variables that are considered 'reduction variables' along with their initial values

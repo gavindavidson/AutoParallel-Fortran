@@ -27,6 +27,7 @@ The optional command line flags are are follows:
 - *-out* defines the directory where the output program will be saved. The name of the kernel file is derived from the original filenames. Not including this argument results in a the output being saved in the current directory.
 - *-lfb* defines a value for the loop fusion bound. That is, the difference in iterator end value that is allowed for two loops to be fused. Not including this argument results in there not being a bound for loop fusion, and therefore all pairs of loops that meet the other conditions are fused.
 - *-D* defines a list of c preprocessor (cpp) macros that are to be defined.
+- *-v* enables verbose mode in which obstacles to parallelisation are reported to the user.
 
 ## Modification
 

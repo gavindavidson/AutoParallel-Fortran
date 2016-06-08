@@ -140,6 +140,12 @@ extractFortran fort = [fort]
 extractDecl :: Decl Anno -> [Decl Anno]
 extractDecl decl = [decl]
 
+extractAssigneeFromDecl :: Decl Anno -> VarName Anno
+extractAssigneeFromDecl (Decl anno src lst typ) = head (extractVarNames assignee)
+			where
+				assignee = (\(x, _, _) -> x) (head lst)
+extractAssigneeFromDecl	_ = error "extractAssigneeFromDecl"
+
 -- extractBaseType :: Decl Anno -> BaseType Anno
 -- extractBaseType (Decl _ _ _ (BaseType _ bt _ _ _)) = bt
 -- extractBaseType (Decl _ _ _ (ArrayT _ _ bt _ _ _)) = bt
@@ -533,3 +539,21 @@ outputTab = "  "
 
 compilerName :: String
 compilerName = "ParallelFortran"
+
+-- commentSeparator :: String
+-- commentSeparator = "!" ++ (take 40 ['-','-'..'-']) ++ "\n"
+
+commentSeparator :: String -> String
+commentSeparator str = prefix ++ (commentSeparator' comment body) ++ suffix
+	where
+		prefix = "! ----"
+		suffix = "\n"
+		body = (take 122 ['-','-'..'-'])
+		comment = case str of 
+					[] -> ""
+					_ -> (" " ++ str ++ " ")
+
+commentSeparator' :: String -> String -> String
+commentSeparator' [] (_:seps) = seps
+commentSeparator' comment [] = comment
+commentSeparator' (x:xs) (sep:seps) = [x] ++ (commentSeparator' xs seps)

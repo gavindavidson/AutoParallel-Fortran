@@ -17,10 +17,11 @@ import Data.List.Split
 import System.IO
 import System.Process
 import Data.Maybe
+import qualified Data.Map as DMap 
 
 import LanguageFortranTools
 
-emit_beta :: String -> [String] -> [(Program Anno, String)] -> IO ()
+emit_beta :: String -> [String] -> [(Program Anno, String)] -> IO [()]
 emit_beta specified cppDFlags programs = do
 				kernels_code <- mapM (extractKernels_beta cppDFlags) programs
 				let allKernels = foldl (++) [] kernels_code
@@ -31,19 +32,11 @@ emit_beta specified cppDFlags programs = do
 				let moduleFileName = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
 				let superKernel_module = synthesiseSuperKernelModule moduleName programs allKernels
 
-				-- let host_code = produceCodeProg kernelModuleName originalLines ast
+				host_code <- mapM (produceCodeProg cppDFlags moduleName) programs
+				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ ".f95") originalFilenames)
 
 				writeFile moduleFileName superKernel_module
-
--- extractKernels_beta :: [String] -> (Program Anno, String) -> IO [(String, String)]
--- extractKernels_beta cppDFlags (ast, filename) = do
--- 				originalLines <- readOriginalFileLines cppDFlags filename
--- 				let originalListing = case originalLines of
--- 										[]	-> ""
--- 										_ -> foldl (\accum item -> accum ++ "\n" ++ item) (head originalLines) (tail originalLines)
--- 				let kernels = everything (++) (mkQ [] (synthesiseKernels originalLines ast)) ast
--- 				let kernels_renamed = map (\(code, kernelname) -> (code, kernelname)) kernels
--- 				return kernels_renamed
+				mapM (\(code, filename) -> writeFile filename code) host_programs
 
 extractKernels_beta :: [String] -> (Program Anno, String) -> IO [(String, String)]
 extractKernels_beta cppDFlags (ast, filename) = do
@@ -51,22 +44,34 @@ extractKernels_beta cppDFlags (ast, filename) = do
 				let originalListing = case originalLines of
 										[]	-> ""
 										_ -> foldl (\accum item -> accum ++ "\n" ++ item) (head originalLines) (tail originalLines)
-				let kernels_code = everything (++) (mkQ [] (synthesiseKernels originalLines ast)) ast
+				let kernels_code = everything (++) (mkQ [] (synthesiseKernels originalLines (ast, filename))) ast
 				let kernels_renamed = map (\(code, kernelname) -> (code, kernelname)) kernels_code
 				return kernels_renamed
 
 synthesiseSuperKernelModule :: String -> [(Program Anno, String)] -> [(String, String)] -> String
-synthesiseSuperKernelModule moduleName programs kernels = stateDefinitions ++ kernelModuleHeader ++ (foldl (++) "" kernelCode) ++ superKernelCode ++ kernelModuleFooter
+synthesiseSuperKernelModule moduleName programs kernels = (stateDefinitions ++ kernelModuleHeader ++ (foldl (++) "" kernelCode) ++ superKernelCode ++ kernelModuleFooter)
 				where
 					kernelCode = map (fst) kernels
+					kernelNames = map (snd) kernels
 					
 					kernelModuleHeader = "module " ++ moduleName ++ "\n\n" ++ tabInc ++ "contains\n\n"
 					kernelModuleFooter = "end module " ++ moduleName
 
-					(stateDefinitions, superKernelCode) = synthesiseSuperKernel outputTab moduleName programs kernels
+					superKernelCode = synthesiseSuperKernel outputTab moduleName programs kernels
 
-synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, String)
-synthesiseSuperKernel tabs name programs kernels = (stateDefs, superKernel)
+					stateNames = map (generateStateName) kernelNames
+					-- states = foldl (\accum item -> accum ++ [(DMap.findWithDefault "" item stateMap)]) [] (DMap.keys stateMap)
+					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
+
+generateStateName :: String -> String
+generateStateName kernelName = "ST_" ++ (map (toUpper) kernelName)
+
+synthesiseStateDefinitions :: [(String, String)] -> Int -> String
+synthesiseStateDefinitions [] currentVal =  "\n"
+synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "! " ++ kernel ++ "\n#define " ++ state ++ " " ++ show currentVal ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
+
+synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String)
+synthesiseSuperKernel tabs name programs kernels = (superKernel)
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
@@ -81,24 +86,20 @@ synthesiseSuperKernel tabs name programs kernels = (stateDefs, superKernel)
 					readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications readDecls)
 					writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications writtenDecls)
 					generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications generalDecls)
+					statePointerDecl = tabs ++ "integer, dimension(256) :: " ++ (varNameStr stateVarName) ++ "_ptr\n"
+					stateAssignment = tabs ++ (varNameStr stateVarName) ++ " = " ++ (varNameStr stateVarName) ++ "_ptr(1)\n"
 
-					superKernel_header = "subroutine " ++ name ++ "(" ++ (foldl (\accum item -> accum ++ "," ++ (varNameStr item)) (varNameStr $ head allKernelArgs) (tail allKernelArgs)) ++ "," ++ (varNameStr stateVarName) ++")\n"
+					superKernel_header = "subroutine " ++ name ++ "(" ++ (foldl (\accum item -> accum ++ "," ++ (varNameStr item)) (varNameStr $ head allKernelArgs) (tail allKernelArgs)) ++ "," ++ (varNameStr stateVarName) ++ "_ptr" ++")\n"
 					superKernel_footer = "end subroutine " ++ name ++ "\n"
 					superKernel_body = "! SUPERKERNEL BODY\n" ++ selectCase
 
 					kernelNames = map (snd) kernels
-					states = map (\a -> "ST_" ++ (map (toUpper) a)) kernelNames
-					-- states = foldl (\accum kernel -> DMap.insert kernel ("ST_" ++ (map (toUpper) kernel)) accum) DMap.empty kernelNames
-					stateDefs = synthesiseStateDefinitions states 0
+					stateNames = map (generateStateName) kernelNames
 
-					caseAlternatives = foldl (\accum (state, name, args) -> accum ++ synthesiseKernelCaseAlternative (tabs ++ outputTab) state name args) "" (zip3 states kernelNames kernelArgs)
+					caseAlternatives = foldl (\accum (state, name, args) -> accum ++ synthesiseKernelCaseAlternative (tabs ++ outputTab) state name args) "" (zip3 stateNames kernelNames kernelArgs)
 					selectCase = outputTab ++ "select case(" ++ (varNameStr stateVarName) ++ ")\n" ++ caseAlternatives ++ outputTab ++ "end select\n"
 
-					superKernel = superKernel_header ++ readDeclStr ++ writtenDeclStr ++ generalDeclStr ++ superKernel_body ++ superKernel_footer
-
-synthesiseStateDefinitions :: [String] -> Int -> String
-synthesiseStateDefinitions [] currentVal =  ""
-synthesiseStateDefinitions (x:xs) currentVal = "#define " ++ x ++ " " ++ show currentVal ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
+					superKernel = superKernel_header ++ readDeclStr ++ writtenDeclStr ++ generalDeclStr ++ "\n" ++ statePointerDecl ++ stateAssignment ++ superKernel_body ++ superKernel_footer
 
 synthesiseKernelCaseAlternative :: String -> String -> String -> [VarName Anno] -> String
 synthesiseKernelCaseAlternative tabs state kernelName args =  tabs ++ "case (" ++ state ++ ")\n" ++ tabs ++ outputTab ++ kernelName ++ "(" ++ argsString ++ ")" ++ "\n" 
@@ -178,7 +179,7 @@ extractKernels' codeSeg = case codeSeg of
 							_ -> []
 
 -- synthesiseKernels :: [String] -> Program Anno -> Fortran Anno -> String
-synthesiseKernels :: [String] -> Program Anno -> Fortran Anno -> [(String, String)]
+synthesiseKernels :: [String] -> (Program Anno, String) -> Fortran Anno -> [(String, String)]
 synthesiseKernels originalLines prog codeSeg = case codeSeg of
 				OpenCLMap _ src _ w _ _ -> [(synthesiseOpenCLMap "" originalLines prog codeSeg, generateKernelName "map" src w)]
 				OpenCLReduce _ src _ _ _ rv _ ->  [(synthesiseOpenCLReduce "" originalLines prog codeSeg, generateKernelName "reduce" src (map (\(v, e) -> v) rv))]
@@ -205,21 +206,24 @@ synthesiseKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, wr
 					writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
 					generalDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
 
-produceCodeProg :: String -> [String] -> Program Anno -> String
-produceCodeProg kernelModuleName originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit kernelModuleName originalLines item) "" prog
+produceCodeProg :: [String] -> String -> (Program Anno, String) -> IO(String)
+produceCodeProg cppDFlags kernelModuleName (prog, filename) = do
+					originalLines <- readOriginalFileLines cppDFlags filename
+					let result = foldl (\accum item -> accum ++ produceCodeProgUnit (prog, filename) kernelModuleName originalLines item) "" prog
+					return result
+-- produceCodeProg :: String -> [String] -> Program Anno -> String
+-- produceCodeProg kernelModuleName originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit kernelModuleName originalLines item) "" prog
 
 --	This function handles producing the code that is not changed from the original source. It also inserts a "use .."
 --	line for the file containing the new kernels and makes a call to the function that produces the body of the new
 --	host code. 
-produceCodeProgUnit :: String -> [String] -> ProgUnit Anno -> String
-produceCodeProgUnit kernelModuleName originalLines progUnit = nonGeneratedHeaderCode 
+produceCodeProgUnit :: (Program Anno, String) -> String -> [String] -> ProgUnit Anno -> String
+produceCodeProgUnit prog kernelModuleName originalLines progUnit = nonGeneratedHeaderCode 
 												 ++ tabInc ++ "use " ++ kernelModuleName ++ "\n" 
 												 ++ nonGeneratedBlockCode 
-												 ++ everything (++) (mkQ "" (produceCodeBlock originalLines)) progUnit
-												 ++ nonGeneratedFooterCode
-												
+												 ++ everything (++) (mkQ "" (produceCodeBlock prog originalLines)) progUnit
+												 ++ nonGeneratedFooterCode			
 							where
-
 								progUnitSrc = srcSpan progUnit
 								firstFortranSrc = head (everything (++) (mkQ [] (getFirstFortranSrc)) progUnit)
 								firstBlockSrc = head (everything (++) (mkQ [] (getFirstBlockSrc)) progUnit)
@@ -244,40 +248,40 @@ getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
 getFirstBlockSrc :: Block Anno -> [SrcSpan]
 getFirstBlockSrc codeSeg = [srcSpan codeSeg]
 
-produceCodeBlock :: [String] -> Block Anno -> String
-produceCodeBlock originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran "" originalLines)) block)
+produceCodeBlock :: (Program Anno, String) -> [String] -> Block Anno -> String
+produceCodeBlock prog originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog "" originalLines)) block)
 
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
 --	is a 'generated' node to determine whether or not code from the original file can be used.
-produceCode_fortran :: String -> [String] -> Fortran Anno -> String
-produceCode_fortran tabs originalLines codeSeg = case codeSeg of
-						If _ _ _ _ _ _ -> synthesiseIf tabs originalLines codeSeg
-						Assg _ _ _ _ -> synthesiseAssg tabs originalLines codeSeg
-						For _ _ _ _ _ _ _ -> synthesiseFor tabs originalLines codeSeg
+produceCode_fortran :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
+produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
+						If _ _ _ _ _ _ -> synthesiseIf prog tabs originalLines codeSeg
+						Assg _ _ _ _ -> synthesiseAssg prog tabs originalLines codeSeg
+						For _ _ _ _ _ _ _ -> synthesiseFor prog tabs originalLines codeSeg
 						NullStmt _ _ -> ""
-						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall codeSeg) 
-						OpenCLReduce _ _ _ _ _ rv f ->  (generateKernelCall codeSeg) ++ "! Replace n with number of work groups\n " 
-																++ (mkQ "" (produceCode_fortran "" originalLines) hostReductionLoop) ++ "\n"
+						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall prog tabs codeSeg) ++ (commentSeparator "END")
+						OpenCLReduce _ _ _ _ _ rv f -> (generateKernelCall prog tabs codeSeg)
+																++ (mkQ "" (produceCode_fortran prog "" originalLines) hostReductionLoop) ++ "\n" ++ (commentSeparator "END")
 								where 
 									reductionVarNames = map (\(varname, expr) -> varname) rv
 									r_iter = generateReductionIterator reductionVarNames
 									hostReduction = generateFinalHostReduction reductionVarNames r_iter f
 									hostReductionLoop = generateLoop r_iter (generateIntConstant 1) nunitsVar hostReduction
 									
-						FSeq _ _ fortran1 fortran2 -> (mkQ "" (produceCode_fortran tabs originalLines) fortran1) ++ (mkQ "" (produceCode_fortran tabs originalLines) fortran2)
+						FSeq _ _ fortran1 fortran2 -> (mkQ "" (produceCode_fortran prog tabs originalLines) fortran1) ++ (mkQ "" (produceCode_fortran prog tabs originalLines) fortran2)
 						_ -> 	case anyChildGenerated codeSeg || isGenerated codeSeg of
-									True -> foldl (++) tabs (gmapQ (mkQ "" (produceCode_fortran "" originalLines)) codeSeg)
+									True -> foldl (++) tabs (gmapQ (mkQ "" (produceCode_fortran prog "" originalLines)) codeSeg)
 									False -> extractOriginalCode tabs originalLines (srcSpan codeSeg)
 
 synthesisUses :: String -> Uses Anno -> String
 synthesisUses tabs (Use _ (str, rename) _ _) = tabs ++ "use " ++ str ++ "\n"
 synthesisUses tabs _ = ""
 
-synthesiseFor :: String -> [String] -> Fortran Anno -> String
-synthesiseFor tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	partialGenerated = tabs ++ "do " ++ (varNameStr varname) ++ "=" ++ outputExprFormatting expr1 
+synthesiseFor :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
+synthesiseFor prog tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	partialGenerated = tabs ++ "do " ++ (varNameStr varname) ++ "=" ++ outputExprFormatting expr1 
 																								++ ", " ++ outputExprFormatting expr2 ++ (if expr3isOne then "" else outputExprFormatting expr3)
-																								++ "\n" ++ (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) fort) ++ tabs ++ "end do\n"
+																								++ "\n" ++ (mkQ "" (produceCode_fortran prog (tabs ++ tabInc) originalLines) fort) ++ tabs ++ "end do\n"
 																				|	otherwise = extractOriginalCode tabs originalLines src
 																	where
 																		expr3isOne = case expr3 of
@@ -286,15 +290,15 @@ synthesiseFor tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	
 																		partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
 																		codeSeg = For anno src varname expr1 expr2 expr3 fort
 
-synthesiseAssg :: String -> [String] -> Fortran Anno -> String
-synthesiseAssg tabs originalLines (Assg anno src expr1 expr2)	|	partialGenerated = tabs ++ outputExprFormatting expr1 ++ " = " ++ outputExprFormatting expr2 ++ "\n"
+synthesiseAssg :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
+synthesiseAssg prog tabs originalLines (Assg anno src expr1 expr2)	|	partialGenerated = tabs ++ outputExprFormatting expr1 ++ " = " ++ outputExprFormatting expr2 ++ "\n"
 															|	otherwise = extractOriginalCode tabs originalLines src
 											where 
 												partialGenerated = isGenerated codeSeg
 												codeSeg = Assg anno src expr1 expr2
 
-synthesiseIf :: String -> [String] -> Fortran Anno -> String
-synthesiseIf tabs originalLines (If anno src expr fortran lst maybeFort) 	|	partialGenerated = tabs ++ "If (" ++ outputExprFormatting expr ++ ") then\n" 
+synthesiseIf :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
+synthesiseIf prog tabs originalLines (If anno src expr fortran lst maybeFort) 	|	partialGenerated = tabs ++ "If (" ++ outputExprFormatting expr ++ ") then\n" 
 																	++ mainFortranStr
 																	++ elseIfFortranStr
 																	++ elseFortranStr
@@ -303,15 +307,15 @@ synthesiseIf tabs originalLines (If anno src expr fortran lst maybeFort) 	|	part
 											where 
 												partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
 												codeSeg = If anno src expr fortran lst maybeFort
-												mainFortranStr = (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) fortran)
-												elseIfFortranStr = foldl (synthesisElses tabs originalLines) "" lst
+												mainFortranStr = (mkQ "" (produceCode_fortran prog (tabs ++ tabInc) originalLines) fortran)
+												elseIfFortranStr = foldl (synthesisElses prog tabs originalLines) "" lst
 												elseFortranStr = case maybeFort of
-																	Just a -> (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) a)
+																	Just a -> (mkQ "" (produceCode_fortran prog (tabs ++ tabInc) originalLines) a)
 																	Nothing -> ""
 
-synthesisElses :: String -> [String] -> String -> (Expr Anno, Fortran Anno) -> String
-synthesisElses tabs originalLines accum (expr, fortran) = accum ++ tabs ++ "else if(" ++ outputExprFormatting expr ++ ") then\n" 
-																++ (mkQ "" (produceCode_fortran (tabs ++ tabInc) originalLines) fortran)
+synthesisElses :: (Program Anno, String) -> String -> [String] -> String -> (Expr Anno, Fortran Anno) -> String
+synthesisElses prog tabs originalLines accum (expr, fortran) = accum ++ tabs ++ "else if(" ++ outputExprFormatting expr ++ ") then\n" 
+																++ (mkQ "" (produceCode_fortran prog (tabs ++ tabInc) originalLines) fortran)
 																++ "\n"
 
 synthesiseDecl :: String -> Decl Anno -> String
@@ -401,8 +405,8 @@ synthesiseDeclList ((expr1, expr2, maybeInt):xs) = outputExprFormatting expr1 ++
 
 --	Function handles the construction of map kernels. The body of the kernel is the original source that appeared in the loop that
 --	has been parallelised. The extra elements are initialising OpenCL related constructs and wrapping subroutine syntax.
-synthesiseOpenCLMap :: String -> [String] -> Program Anno -> Fortran Anno -> String
-synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap anno src r w l fortran) =
+synthesiseOpenCLMap :: String -> [String] -> (Program Anno, String) -> Fortran Anno -> String
+synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l fortran) =
 																	inTabs ++ "subroutine " ++ kernelName
 																	++"(" 
 																					++ allArgsStr ++ ")\n"
@@ -415,10 +419,10 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap anno src r w l fortran)
 																	++ tabs ++ globalIdInitialisation
 																	++ "\n"
 																	++ tabs ++ "! " ++ compilerName ++ ": Synthesised loop variables\n"
-																	++ produceCode_fortran (tabs) originalLines loopInitialiserCode 
+																	++ produceCode_fortran programInfo (tabs) originalLines loopInitialiserCode 
 																	++ "\n\n"
 																	++ tabs ++ "! " ++ compilerName ++ ": Original code\n" 
-																	++ (mkQ "" (produceCode_fortran (tabs) originalLines) fortran) 
+																	++ (mkQ "" (produceCode_fortran programInfo (tabs) originalLines) fortran) 
 																	++ "\n"
 																	++ inTabs ++ "end subroutine " ++ kernelName
 																	++ "\n\n\n"
@@ -426,6 +430,8 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap anno src r w l fortran)
 											where
 												extractedUses = everything (++) (mkQ [] getUses) prog
 												usesString = foldl (\accum item -> accum ++ synthesisUses tabs item) "" extractedUses 
+
+												prog = fst programInfo
 
 												kernelName = generateKernelName "map" src w
 												globalIdVar = generateVar (VarName nullAnno "global_id")
@@ -478,8 +484,8 @@ synthesiseOpenCLMap inTabs originalLines prog (OpenCLMap anno src r w l fortran)
 --		primary reduction operation.
 --	-	Assign values to global result array that host will reduce later
 --	-	End subroutine. 
-synthesiseOpenCLReduce :: String ->  [String] -> Program Anno -> Fortran Anno -> String
-synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce anno src r w l rv fortran)  =
+synthesiseOpenCLReduce :: String ->  [String] -> (Program Anno, String)-> Fortran Anno -> String
+synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r w l rv fortran)  =
 																			inTabs ++ "subroutine " ++ kernelName
 																			++ "(" 				
 																			++ allArgsStr
@@ -516,19 +522,21 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce anno src r w l rv
 																			++ tabs ++ startPosition_str
 																			++ local_reductionVarsInitStr
 																			++ "\n"
-																			++ (mkQ "" (produceCode_fortran (tabs) originalLines) workItem_loop)
+																			++ (mkQ "" (produceCode_fortran programInfo (tabs) originalLines) workItem_loop)
 																			++ "\n"
 																			++ workGroup_reductionArraysInitStr
 																			++ "\n"
 																			++ tabs ++ localMemBarrier
 																			++ "\n"
 																			++ local_reductionVarsInitStr
-																			++ (mkQ "" (produceCode_fortran (tabs) originalLines) workGroup_loop)
+																			++ (mkQ "" (produceCode_fortran programInfo (tabs) originalLines) workGroup_loop)
 																			++ global_reductionArraysAssignmentStr
 																			++ "\n"
 																			++ inTabs ++ "end subroutine " ++ kernelName
 																			++"\n\n\n"
 											where
+												prog = fst programInfo
+
 												kernelName = generateKernelName "reduce" src (map (\(v, e) -> v) rv)
 												tabs = inTabs ++ tabInc
 
@@ -557,9 +565,9 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce anno src r w l rv
 												chunk_sizeDeclaration = "integer :: " ++ outputExprFormatting chunk_size ++ "\n"
 
 												localIdInitialisation = "call " ++ outputExprFormatting (getLocalId localIdVar) ++ "\n"
-												localIdFortranInitialisation = synthesiseAssg inTabs originalLines (generateAssgCode localIdFortranVar (generateAdditionExpr localIdVar (generateIntConstant 1)))
+												localIdFortranInitialisation = synthesiseAssg programInfo inTabs originalLines (generateAssgCode localIdFortranVar (generateAdditionExpr localIdVar (generateIntConstant 1)))
 												groupIdInitialisation = "call " ++ outputExprFormatting (getGroupID groupIdVar) ++ "\n"
-												groupIdFortranInitialisation = synthesiseAssg inTabs originalLines (generateAssgCode groupIdFortranVar (generateAdditionExpr groupIdVar (generateIntConstant 1)))
+												groupIdFortranInitialisation = synthesiseAssg programInfo inTabs originalLines (generateAssgCode groupIdFortranVar (generateAdditionExpr groupIdVar (generateIntConstant 1)))
 												globalIdInitialisation = "call " ++ outputExprFormatting (getGlobalID globalIdVar) ++ "\n"
 												groupSizeInitialisation_calculation = generateGlobalWorkItemsExpr l
 
@@ -593,7 +601,7 @@ synthesiseOpenCLReduce inTabs originalLines prog (OpenCLReduce anno src r w l rv
 																					(generateGlobalWorkItemsExpr l)
 																					nthVar)
 																				nunitsVar)
-												localChunkSize_str = synthesiseAssg inTabs originalLines localChunkSize_assg
+												localChunkSize_str = synthesiseAssg programInfo inTabs originalLines localChunkSize_assg
 
 												startPosition_str = (outputExprFormatting startPosition) ++ " = " ++ (outputExprFormatting localChunkSize) ++
 													" * " ++ (outputExprFormatting globalIdVar) ++ "\n"
@@ -658,24 +666,48 @@ generateKernelName identifier src varnames = (getModuleName filename) ++ "_" ++ 
 				((SrcLoc filename line _), _) = src
 
 --	Function used during host code generation to produce call to OpenCL kernel.
-generateKernelCall :: Fortran Anno -> String
-generateKernelCall (OpenCLMap _ src r w l fortran) = 	"! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n "
-														++ "call " ++ (generateKernelName "map" src w) 
-														++ "(" ++ allArgumentsStr ++ ")"++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n\n"
+generateKernelCall :: (Program Anno, String) -> String -> Fortran Anno -> String
+generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = 	-- "! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n"
+														(commentSeparator ("BEGIN " ++ kernelName))
+														++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting globalWorkItems ++ "\n"
+														++ tabs ++ "state = " ++ stateName ++ "\n"
+														++ tabs ++ bufferWrites ++ "\n"
+														++ tabs ++ "call runOcl(oclGlobalRange,oclLocalRange,exectime)\n"
+														++ tabs ++ "! call " ++ kernelName
+														++ tabs ++ "(" ++ allArgumentsStr ++ ")"++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
+														++ tabs ++ bufferReads ++ "\n\n"
 			where
 				readArgs = map (varNameStr) (listSubtract r w)
 				writtenArgs = map (varNameStr) (listSubtract w r)
 				generalArgs = map (varNameStr) (listIntersection w r)
 
 				allArguments = readArgs ++ writtenArgs ++ generalArgs
-				allArgumentsStr =  (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
+				allArgumentsStr = (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
 
 				globalWorkItems = generateGlobalWorkItemsExpr l
 
-generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"\n! Global work items: " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
-															++ "! Work group size: " ++ outputExprFormatting nthVar ++ "\n"
-															++ "call " ++ (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
-															++ "(" ++ allArgumentsStr ++ ")" ++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
+				kernelName = (generateKernelName "map" src w)
+				stateName = generateStateName kernelName
+
+				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls))
+				bufferReads = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
+
+				(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations progAst (OpenCLMap anno src r w l fortran)
+				
+
+
+generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = 	-- "\n! Global work items: " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
+															(commentSeparator ("BEGIN " ++ kernelName))
+															++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
+															++ tabs ++ "oclLocalRange = " ++ outputExprFormatting nthVar ++ "\n"
+															++ tabs ++ "ngroups = " ++ outputExprFormatting nunitsVar ++ "\n"
+															++ tabs ++ "state = " ++ stateName ++ "\n"
+															++ tabs ++ bufferWrites ++ "\n\n"
+															++ tabs ++ "call runOcl(oclGlobalRange,oclLocalRange,exectime)\n"
+															++ tabs ++ "! call " ++ kernelName
+															++ tabs ++ "(" ++ allArgumentsStr ++ ")" ++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
+															++ tabs ++ bufferReads
+															++ tabs ++ bufferReads_rv ++ "\n\n"
 			where 
 				reductionVarNames = map (\(varname, expr) -> varname) rv
 				workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames
@@ -691,6 +723,39 @@ generateKernelCall (OpenCLReduce _ src r w l rv fortran) = 	"\n! Global work ite
 				allArgumentsStr =  (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
 
 				reductionWorkItemsExpr = generateProductExpr nthVar nunitsVar
+
+				kernelName = (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
+				stateName = generateStateName kernelName
+
+				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls))
+				bufferReads = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
+				bufferReads_rv = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (global_reductionArraysDecls))
+
+				-- bufferReads_rv = bufferReads ++ (foldl (\accum item -> accum ++ "\n" ++ item) "" (map (\x -> "call oclRead2D_type_ArrayBuffer(" ++ varNameStr x ++ ")") global_reductionArrays ))
+
+				(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations progAst (OpenCLReduce anno src r w l rv fortran)
+
+				global_reductionArraysDecls = map (\x -> declareGlobalReductionArray x (nunitsVar) progAst) reductionVarNames
+
+synthesiseBufferAccess :: String -> Decl Anno -> String
+synthesiseBufferAccess method (Decl anno src lst typ) = case baseType of
+														Integer _ -> prefix ++ "Int" ++ suffix
+														Real _ -> prefix ++ "Float" ++ suffix
+														_ -> ""
+			where
+				varStr = varNameStr $ extractAssigneeFromDecl (Decl anno src lst typ)
+				baseType = extractBaseType typ
+				dimensionList = (everything (++) (mkQ [] extractDimensionAttr) (Decl anno src lst typ))
+				dimensions = case dimensionList of
+									[] -> 1
+									_ -> dimensionSize $ head dimensionList
+				prefix = "call ocl" ++ method ++ (show dimensions) ++ "D"
+				suffix = "ArrayBuffer(" ++ varStr ++ "_buf," ++ varStr ++ "_sz," ++ varStr ++ ")"
+synthesiseBufferAccess _ _ = error "synthesiseBufferAccess"
+
+dimensionSize :: Attr Anno -> Int
+dimensionSize (Dimension _ lst) = length lst
+dimensionSize _ = 0
 
 generateLoopIterationsExpr :: (VarName Anno, Expr Anno, Expr Anno, Expr Anno) -> Expr Anno
 generateLoopIterationsExpr (var, (Con _ _ "1"), end, (Con _ _ "1")) = end
@@ -866,7 +931,7 @@ anyChildGenerated :: Fortran Anno -> Bool
 anyChildGenerated ast = everything (||) (mkQ False isGenerated) ast
 
 isGenerated :: Fortran Anno -> Bool
-isGenerated codeSeg = f == "generated"
+isGenerated codeSeg = f /= "<unknown>" || (lineStart == -1 && lineEnd == -1) || f == "generated"
 			where
 				((SrcLoc f lineStart columnStart), (SrcLoc _ lineEnd columnEnd)) = srcSpan codeSeg
 
@@ -911,7 +976,7 @@ generateFinalHostReduction reductionVars redIter codeSeg  = resultantCode
 
 generateFinalHostReduction_assgs :: [VarName Anno] -> VarName Anno -> Fortran Anno -> [Fortran Anno]
 generateFinalHostReduction_assgs reductionVars redIter (Assg _ _ expr1 expr2) 	| isReductionExpr = resultantAssg
-																				| otherwise = resultantAssg -- []
+																				| otherwise = []
 					where 
 						isReductionExpr = usesVarName_list reductionVars expr1
 						resultantAssg = case extractPrimaryReductionOp expr1 expr2 of
