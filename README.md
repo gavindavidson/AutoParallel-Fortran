@@ -14,7 +14,7 @@ make
 
 ## Use
 
-The compiler is a purely command line tool and offers to graphical interface. There are a number of command line arguments that may be provided but only one is necessary: the path to the target file(s). For example, to run the compiler on a file named `target.f95`, located in the same directory as the compiler itself:
+The compiler is a purely command line tool and offers no graphical interface. There are a number of command line arguments that may be provided but only one is necessary: the path to the target file(s). For example, to run the compiler on a file named `target.f95`, located in the same directory as the compiler itself:
 
 ```bash
 cd compiler
