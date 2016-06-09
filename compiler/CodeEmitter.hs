@@ -36,6 +36,7 @@ emit_beta specified cppDFlags programs = do
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
 
 				writeFile moduleFileName superKernel_module
+				-- mapM (\x -> putStr "hello") [1..5]
 				mapM (\(code, filename) -> writeFile filename code) host_programs
 
 extractKernels_beta :: [String] -> (Program Anno, String) -> IO [(String, String)]
@@ -72,7 +73,8 @@ synthesiseStateDefinitions [] currentVal =  ""
 synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "integer, parameter :: " ++ state ++ " = " ++ show currentVal ++ " !  " ++ kernel ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
 
 synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String)
-synthesiseSuperKernel tabs name programs kernels = superKernel -- error $ show allKernelArgs -- superKernel
+synthesiseSuperKernel tabs name programs [] = "" -- error $ show allKernelArgs -- superKernel
+synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else superKernel -- error $ show allKernelArgs -- superKernel
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
@@ -132,6 +134,7 @@ removeDeclWithVarName :: [Decl Anno] -> VarName Anno -> [Decl Anno]
 removeDeclWithVarName decls var = filter (\x -> (extractAssigneeFromDecl x) /= var) decls
 
 synthesiseKernelCaseAlternative :: String -> String -> String -> [VarName Anno] -> String
+synthesiseKernelCaseAlternative tabs state kernelName [] = error "synthesiseKernelCaseAlternative"
 synthesiseKernelCaseAlternative tabs state kernelName args =  tabs ++ "case (" ++ state ++ ")\n" ++ tabs ++ outputTab ++ kernelName ++ "(" ++ argsString ++ ")" ++ "\n" 
 				where
 					argsString = foldl (\accum item -> accum ++ "," ++ (varNameStr item)) (varNameStr $ head args) (tail args)
@@ -405,7 +408,7 @@ synthesiseBaseType typ = "[Incompatible type]"
 synthesiseAttrList :: [Attr Anno] -> String
 synthesiseAttrList [] = ""
 synthesiseAttrList (attr:[]) = if paramCheck_attr attr then "" else synthesiseAttr attr
-synthesiseAttrList attrList = attrStrs
+synthesiseAttrList attrList = if attrStrList == [] then error "synthesiseAttrList" else attrStrs
 				where 
 					attrStrList = map (synthesiseAttr) (filter (\x -> not (paramCheck_attr x)) attrList)
 					attrStrs = foldl (\accum item -> accum ++ ", " ++ item) (head attrStrList) (tail attrStrList)
@@ -728,8 +731,6 @@ generateLocalReductionVar (VarName anno str) = VarName anno ("local_" ++ str)
 
 generateReductionArrayAssignment tabs accessor accum ((VarName _ s1),(VarName _ s2)) = accum++tabs++s1++"("++(outputExprFormatting accessor)++") = "++s2++"\n"
 
--- Decl           p SrcSpan [(Expr p, Expr p, Maybe Int)] (Type p)
--- BaseType p                    (BaseType p) [Attr p] (Expr p) (Expr p)
 generateImplicitDecl :: VarName Anno -> Decl Anno
 generateImplicitDecl var = Decl nullAnno nullSrcSpan [(generateVar var, (NullExpr nullAnno nullSrcSpan), Nothing)] (BaseType nullAnno (Real nullAnno) [] (NullExpr nullAnno nullSrcSpan) (NullExpr nullAnno nullSrcSpan))
 
@@ -742,7 +743,7 @@ generateKernelName identifier src varnames = (getModuleName filename) ++ "_" ++ 
 
 --	Function used during host code generation to produce call to OpenCL kernel.
 generateKernelCall :: (Program Anno, String) -> String -> Fortran Anno -> String
-generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = 	-- "! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n"
+generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = if allArguments == [] then error "generateKernelCall" else 	-- "! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n"
 														(commentSeparator ("BEGIN " ++ kernelName))
 														++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting globalWorkItems ++ "\n"
 														++ tabs ++ (varNameStr statePtrVarName) ++ "(1) = " ++ stateName ++ "\n"
@@ -771,7 +772,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) =
 				
 
 
-generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = 	-- "\n! Global work items: " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
+generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = if allArguments == [] then error "generateKernelCall" else	-- "\n! Global work items: " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
 															(commentSeparator ("BEGIN " ++ kernelName))
 															++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
 															++ tabs ++ "oclLocalRange = " ++ outputExprFormatting nthVar ++ "\n"

@@ -248,7 +248,7 @@ loopCarriedDependency_readExprCheck loopIterTable loopVars writtenIndexExprs old
 
 optimiseLoopIterTable :: TupleTable -> ValueTable -> [VarName Anno] -> [Expr Anno] -> [Expr Anno] -> TupleTable-- (TupleTable, ValueTable, [VarName Anno])
 optimiseLoopIterTable Empty valueTable loopVars readIndexExprs writtenIndexExprs = Empty
-optimiseLoopIterTable (LoopIterRecord iterTable) valueTable loopVars readIndexExprs writtenIndexExprs = newLoopIterTable
+optimiseLoopIterTable (LoopIterRecord iterTable) valueTable loopVars readIndexExprs writtenIndexExprs = if loopVars == []  then error "optimiseLoopIterTable" else newLoopIterTable
 			where
 				chosenVar = head loopVars
 
@@ -322,7 +322,7 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars readIndexExprs writ
 				newWrites = insertIntoTupleTable writes_fromMaybe_int prevWrites
 				depExistsBool = (not identcalExprs) && (readPreviouslyWritten || writePreviouslyRead || (not readsEvaluated) || (not writesEvaluated))
 
-loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVars readIndexExprs writtenIndexExprs previousAnalysis valueTable = analysis
+loopCarriedDependency_evaluatePossibleIndices (LoopIterRecord iterTable) loopVars readIndexExprs writtenIndexExprs previousAnalysis valueTable = if loopVars == []  then error "loopCarriedDependency_evaluatePossibleIndices" else analysis
 			where
 				allowedValues = DMap.keys iterTable
 				valueTableIterations = map (\x -> addToValueTable (chosenVar) (fromIntegral x :: Float) valueTable) allowedValues
@@ -471,7 +471,7 @@ extendLoopIterTable oldTable valueTable loopVars startExpr endExpr stepExpr = fo
 
 extendLoopIterTableWithValues_foldl :: ValueTable -> [VarName Anno] -> Expr Anno -> Expr Anno -> Expr Anno -> Maybe(TupleTable) -> Int -> Maybe(TupleTable)
 extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr Nothing chosenValue = Nothing
-extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr (Just (LoopIterRecord oldRecord)) chosenValue = case newSubTable of
+extendLoopIterTableWithValues_foldl valueTable loopVars startExpr endExpr stepExpr (Just (LoopIterRecord oldRecord)) chosenValue = if loopVars == [] then error "extendLoopIterTableWithValues_foldl" else case newSubTable of
 																																	Just newT -> Just (LoopIterRecord (DMap.insert chosenValue newT oldRecord))
 																																	Nothing -> Nothing
 		where
