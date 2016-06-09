@@ -78,6 +78,10 @@ outputExprFormatting (Unary _ _ unOp expr) = "(" ++ op_str ++ outputExprFormatti
 
 outputExprFormatting codeSeg = show codeSeg
 
+orElem :: Eq a => a -> [[a]] -> Bool
+orElem item [] = False
+orElem item (firstList:lists) = elem item firstList || orElem item lists
+
 listExtractSingleAppearances :: Eq a => [a] -> [a] 
 listExtractSingleAppearances list = listExtractSingleAppearances' list list
 

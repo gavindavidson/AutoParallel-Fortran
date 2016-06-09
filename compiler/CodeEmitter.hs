@@ -72,21 +72,25 @@ synthesiseStateDefinitions [] currentVal =  ""
 synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "integer, parameter :: " ++ state ++ " = " ++ show currentVal ++ " !  " ++ kernel ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
 
 synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String)
-synthesiseSuperKernel tabs name programs kernels = (superKernel)
+synthesiseSuperKernel tabs name programs kernels = superKernel -- error $ show allKernelArgs -- superKernel
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
 					-- kernelAstLists = foldl (\accum item -> accum ++ (extractKernels item)) [] programAsts
 					kernelAsts = foldl (++) [] (map (\(k_asts, p_ast) -> map (\a -> (a, p_ast)) k_asts) (zip kernelAstLists programAsts))
-					kernelArgs = map (\(x, _) -> extractKernelArguments x) kernelAsts
+					kernelArgs = (map (\(x, _) -> listRemoveDuplications (extractKernelArguments x)) kernelAsts)
 					allKernelArgs = listRemoveDuplications (foldl (++) [] kernelArgs)
 
 					kernelDeclarations = map (\(kernel_ast, prog_ast) -> synthesiseKernelDeclarations prog_ast kernel_ast) kernelAsts
-					(readDecls, writtenDecls, generalDecls) = foldl (\(r1,w1,g1) (r2,w2,g2) -> (r1++r2,w1++w2,g1++g2)) ([],[],[]) kernelDeclarations
+					(readDecls, writtenDecls, generalDecls) = foldl (collectSuperKernelDecls) ([],[],[]) kernelDeclarations
+					-- (readDecls, writtenDecls, generalDecls) = foldl (\(r1,w1,g1) (r2,w2,g2) -> (r1++r2,w1++w2,g1++g2)) ([],[],[]) kernelDeclarations
 
-					readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications readDecls)
-					writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications writtenDecls)
-					generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications generalDecls)
+					declarations = listRemoveDuplications (readDecls ++ writtenDecls ++ generalDecls)
+					declarationsStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" declarations
+
+					-- readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications readDecls)
+					-- writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications writtenDecls)
+					-- generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (listRemoveDuplications generalDecls)
 					statePointerDecl = tabs ++ "integer, dimension(256) :: " ++ (varNameStr stateVarName) ++ "_ptr\n"
 					stateAssignment = tabs ++ (varNameStr stateVarName) ++ " = " ++ (varNameStr stateVarName) ++ "_ptr(1)\n"
 
@@ -100,7 +104,32 @@ synthesiseSuperKernel tabs name programs kernels = (superKernel)
 					caseAlternatives = foldl (\accum (state, name, args) -> accum ++ synthesiseKernelCaseAlternative (tabs ++ outputTab) state name args) "" (zip3 stateNames kernelNames kernelArgs)
 					selectCase = outputTab ++ "select case(" ++ (varNameStr stateVarName) ++ ")\n" ++ caseAlternatives ++ outputTab ++ "end select\n"
 
-					superKernel = superKernel_header ++ readDeclStr ++ writtenDeclStr ++ generalDeclStr ++ "\n" ++ statePointerDecl ++ stateAssignment ++ superKernel_body ++ superKernel_footer
+
+					superKernel = superKernel_header ++ declarationsStr ++ "\n" ++ statePointerDecl ++ stateAssignment ++ superKernel_body ++ superKernel_footer
+					-- superKernel = superKernel_header ++ readDeclStr ++ writtenDeclStr ++ generalDeclStr ++ "\n" ++ statePointerDecl ++ stateAssignment ++ superKernel_body ++ superKernel_footer
+
+collectSuperKernelDecls :: ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno]) 
+collectSuperKernelDecls (accumReads, accumWrites, accumGen) (itemReads, itemWrites, itemGen) = (newReads, newWrites, newGen')
+				where
+					(newReads, newGen) = foldl (collectSuperKernelDecls_singleType (writtenVars, genVars)) (accumReads, accumGen) itemReads
+					(newWrites, newGen') = foldl (collectSuperKernelDecls_singleType (writtenVars, newGenVars)) (accumReads, newGen) itemReads
+
+					readsVars = map (extractAssigneeFromDecl) accumReads
+					writtenVars = map (extractAssigneeFromDecl) accumWrites
+					genVars = map (extractAssigneeFromDecl) accumGen
+					newGenVars = map (extractAssigneeFromDecl) newGen
+
+collectSuperKernelDecls_singleType :: ([VarName Anno], [VarName Anno]) -> ([Decl Anno], [Decl Anno]) -> Decl Anno -> ([Decl Anno], [Decl Anno])
+collectSuperKernelDecls_singleType (opTypeVars, genVars) (typeDecls, genDecls) item 	|	itemAppears_gen = (removeDeclWithVarName typeDecls itemVar, genDecls)
+																						|	itemAppears_opType = (removeDeclWithVarName typeDecls itemVar, genDecls ++ [applyIntent (InOut nullAnno) item])
+																						|	otherwise = (typeDecls ++ [item], genDecls)
+				where
+					itemVar = extractAssigneeFromDecl item
+					itemAppears_opType = elem itemVar opTypeVars
+					itemAppears_gen = elem itemVar genVars
+
+removeDeclWithVarName :: [Decl Anno] -> VarName Anno -> [Decl Anno]
+removeDeclWithVarName decls var = filter (\x -> (extractAssigneeFromDecl x) /= var) decls
 
 synthesiseKernelCaseAlternative :: String -> String -> String -> [VarName Anno] -> String
 synthesiseKernelCaseAlternative tabs state kernelName args =  tabs ++ "case (" ++ state ++ ")\n" ++ tabs ++ outputTab ++ kernelName ++ "(" ++ argsString ++ ")" ++ "\n" 
