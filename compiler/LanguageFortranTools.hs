@@ -561,3 +561,7 @@ commentSeparator' :: String -> String -> String
 commentSeparator' [] (_:seps) = seps
 commentSeparator' comment [] = comment
 commentSeparator' (x:xs) (sep:seps) = [x] ++ (commentSeparator' xs seps)
+
+extractIndent :: String -> String
+extractIndent (' ':str) = " " ++ extractIndent str
+extractIndent _ = ""

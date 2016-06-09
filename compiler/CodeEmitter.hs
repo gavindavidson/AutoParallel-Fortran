@@ -251,7 +251,9 @@ produceCodeProgUnit :: (Program Anno, String) -> String -> [String] -> ProgUnit 
 produceCodeProgUnit prog kernelModuleName originalLines progUnit = nonGeneratedHeaderCode 
 												 ++ tabInc ++ "use " ++ kernelModuleName ++ "\n" 
 												 ++ nonGeneratedBlockCode 
-												 ++ everything (++) (mkQ "" (produceCodeBlock prog originalLines)) progUnit
+												 ++ shapeStatements
+												 ++ bufferStatements
+												 ++ everything (++) (mkQ "" (produceCodeBlock prog nonGeneratedBlockCode_indent originalLines)) progUnit
 												 ++ nonGeneratedFooterCode			
 							where
 								progUnitSrc = srcSpan progUnit
@@ -269,6 +271,26 @@ produceCodeProgUnit prog kernelModuleName originalLines progUnit = nonGeneratedH
 								((SrcLoc _ fortran_ls _), (SrcLoc _ _ _)) = firstFortranSrc
 								nonGeneratedBlockCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [block_ls..fortran_ls-1]
 
+								nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
+
+								shapeStatements = synthesiseSizeStatements nonGeneratedBlockCode_indent (fst prog)
+								bufferStatements = synthesiseBufferDeclatations nonGeneratedBlockCode_indent (fst prog)
+
+synthesiseSizeStatements :: String -> Program Anno -> String
+synthesiseSizeStatements tabs ast = foldl (\accum (varName, sizeVarName) -> accum ++ tabs ++ (varNameStr sizeVarName) ++ " = shape(" ++ (varNameStr varName) ++ ")\n") "" kernelSizeVars_pairs
+		where
+			kernels = extractKernels ast
+			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels) -- map (extractKernelArguments) kernels
+			kernelSizeVars_pairs = map (\x -> (x, varSizeVarName x)) kernelArgs
+
+synthesiseBufferDeclatations :: String -> Program Anno -> String
+synthesiseBufferDeclatations tabs ast = foldl (\accum var -> accum ++ tabs ++ "oclBuffers(?) = " ++ (varNameStr var) ++ "\n") "" kernelBufferVars
+		where
+			kernels = extractKernels ast
+			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels) -- map (extractKernelArguments) kernels
+			kernelBufferVars = map (varBufVarName) kernelArgs
+
+
 --	Function is used (along with "getFirstBlockSrc") by "produceCodeProgUnit" to determine which lines of the original
 --	source can be taken as is. It is used to determine where the first Fortran nodes of the AST appear in the source
 --	because the Fortran nodes are the ones that have been transformed.
@@ -278,8 +300,8 @@ getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
 getFirstBlockSrc :: Block Anno -> [SrcSpan]
 getFirstBlockSrc codeSeg = [srcSpan codeSeg]
 
-produceCodeBlock :: (Program Anno, String) -> [String] -> Block Anno -> String
-produceCodeBlock prog originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog "" originalLines)) block)
+produceCodeBlock :: (Program Anno, String) -> String -> [String] -> Block Anno -> String
+produceCodeBlock prog tabs originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog tabs originalLines)) block)
 
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
@@ -685,6 +707,18 @@ statePtrDecl = Decl nullAnno nullSrcSpan
 						(NullExpr nullAnno nullSrcSpan) 
 						(NullExpr nullAnno nullSrcSpan))
 
+varSizeVar :: VarName Anno -> Expr Anno
+varSizeVar varName = generateVar (varSizeVarName varName)
+
+varSizeVarName :: VarName Anno -> VarName Anno
+varSizeVarName (VarName _ str) = VarName nullAnno (str ++ "_sz")
+
+varBufVar :: VarName Anno -> Expr Anno
+varBufVar varName = generateVar (varSizeVarName varName)
+
+varBufVarName :: VarName Anno -> VarName Anno
+varBufVarName (VarName _ str) = VarName nullAnno (str ++ "_buf")
+
 
 generateLocalReductionArray (VarName anno str) = VarName anno ("local_" ++ str ++ "_array")
 generateGlobalReductionArray (VarName anno str) = VarName anno ("global_" ++ str ++ "_array")
@@ -730,8 +764,8 @@ generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) =
 				kernelName = (generateKernelName "map" src w)
 				stateName = generateStateName kernelName
 
-				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls ++ [statePtrDecl]))
-				bufferReads = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
+				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ tabs ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls ++ [statePtrDecl]))
+				bufferReads = foldl (\accum item -> accum ++ "\n" ++ tabs ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
 
 				(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations progAst (OpenCLMap anno src r w l fortran)
 				
@@ -768,9 +802,9 @@ generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fort
 				kernelName = (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
 				stateName = generateStateName kernelName
 
-				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls ++ [statePtrDecl]))
-				bufferReads = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
-				bufferReads_rv = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (global_reductionArraysDecls))
+				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ tabs ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls ++ [statePtrDecl]))
+				bufferReads = foldl (\accum item -> accum ++ "\n" ++ tabs ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
+				bufferReads_rv = foldl (\accum item -> accum ++ "\n" ++ tabs ++ item) "" (map (synthesiseBufferAccess "Read") (global_reductionArraysDecls))
 
 				-- bufferReads_rv = bufferReads ++ (foldl (\accum item -> accum ++ "\n" ++ item) "" (map (\x -> "call oclRead2D_type_ArrayBuffer(" ++ varNameStr x ++ ")") global_reductionArrays ))
 
@@ -784,14 +818,18 @@ synthesiseBufferAccess method (Decl anno src lst typ) = case baseType of
 														Real _ -> prefix ++ "Float" ++ suffix
 														_ -> ""
 			where
-				varStr = varNameStr $ extractAssigneeFromDecl (Decl anno src lst typ)
+				assignee = extractAssigneeFromDecl (Decl anno src lst typ)
+				varStr = varNameStr assignee
+				varSzStr = varNameStr (varSizeVarName assignee)
+				varBufStr = varNameStr (varBufVarName assignee)
+
 				baseType = extractBaseType typ
 				dimensionList = (everything (++) (mkQ [] extractDimensionAttr) (Decl anno src lst typ))
 				dimensions = case dimensionList of
 									[] -> 1
 									_ -> dimensionSize $ head dimensionList
 				prefix = "call ocl" ++ method ++ (show dimensions) ++ "D"
-				suffix = "ArrayBuffer(" ++ varStr ++ "_buf," ++ varStr ++ "_sz," ++ varStr ++ ")"
+				suffix = "ArrayBuffer(" ++ varBufStr ++ "," ++ varSzStr ++ "," ++ varStr ++ ")"
 synthesiseBufferAccess _ _ = error "synthesiseBufferAccess"
 
 dimensionSize :: Attr Anno -> Int
