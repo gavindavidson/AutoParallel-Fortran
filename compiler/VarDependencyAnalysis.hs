@@ -283,9 +283,9 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars readIndexExprs writ
 																																				-- if eq_exprs 
 																																				-- 	then (False, newReads, newWrites)
 																																				-- 	else (prevCheck || depExistsBool, newReads, newWrites)
-																																				-- if 	eq_exprs 
-																																				-- 	&& depExistsBool 
-																																				-- 	&& vt_elems > 2
+																																				-- if 	 
+																																				-- 	depExistsBool 
+																																				-- 	&& vt_elems > 1
 																																				-- 	then error (
 																																				-- 			"\ndepExistsBool: " ++ (show depExistsBool)
 																																				-- 			++ "\nreadPreviouslyWritten: " ++ (show readPreviouslyWritten)
@@ -300,7 +300,7 @@ loopCarriedDependency_evaluatePossibleIndices Empty loopVars readIndexExprs writ
  																																						(prevCheck || depExistsBool, newReads, newWrites)
 			where
 				identcalExprs = map (applyGeneratedSrcSpans) readIndexExprs == map (applyGeneratedSrcSpans) writtenIndexExprs 
-				-- vt_elems = length (DMap.keys valueTable)
+				vt_elems = length (DMap.keys valueTable)
 
 				reads_eval = map (evaluateExpr valueTable) readIndexExprs
 				writes_eval = map (evaluateExpr valueTable) writtenIndexExprs

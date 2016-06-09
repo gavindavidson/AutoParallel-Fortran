@@ -34,7 +34,7 @@ import LoopAnalysis
 main :: IO [()]
 main = do
 
-	putStr "Concerns:"
+	putStr "\nConcerns:"
 	putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Minimise the amount of loop iterator values that are necessary to check.")
 	putStr "\n\n"
 
@@ -62,6 +62,8 @@ main = do
 	let constantsFolded = map (map foldConstants) parsedPrograms
 	-- let constantsFolded = map foldConstants parsedProgram
 
+	-- putStr $ show (head constantsFolded)
+
 	let parallelisedPrograms = map (\(ast, f) -> paralleliseProgram f ast) (zip constantsFolded filenames)
 	let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
 
@@ -73,7 +75,7 @@ main = do
 
 	-- putStr $ compileAnnotationListing parallelisedProg
 	let annotationListings = zip3 filenames (map compileAnnotationListing parallelisedPrograms) (map compileAnnotationListing combinedPrograms)
-	mapM (\(filename, par_anno, comb_anno) -> putStr $ "FILE: " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
+	mapM (\(filename, par_anno, comb_anno) -> putStr $ "Processing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
 	-- putStr $ "\n" ++ (show parallelisedProg)
 

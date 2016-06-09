@@ -33,7 +33,7 @@ emit_beta specified cppDFlags programs = do
 				let superKernel_module = synthesiseSuperKernelModule moduleName programs allKernels
 
 				host_code <- mapM (produceCodeProg cppDFlags moduleName) programs
-				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ ".f95") originalFilenames)
+				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
 
 				writeFile moduleFileName superKernel_module
 				mapM (\(code, filename) -> writeFile filename code) host_programs
@@ -49,12 +49,13 @@ extractKernels_beta cppDFlags (ast, filename) = do
 				return kernels_renamed
 
 synthesiseSuperKernelModule :: String -> [(Program Anno, String)] -> [(String, String)] -> String
-synthesiseSuperKernelModule moduleName programs kernels = (stateDefinitions ++ kernelModuleHeader ++ (foldl (++) "" kernelCode) ++ superKernelCode ++ kernelModuleFooter)
+synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader ++ stateDefinitions ++ contains ++ (foldl (++) "" kernelCode) ++ superKernelCode ++ kernelModuleFooter)
 				where
 					kernelCode = map (fst) kernels
 					kernelNames = map (snd) kernels
 					
-					kernelModuleHeader = "module " ++ moduleName ++ "\n\n" ++ tabInc ++ "contains\n\n"
+					kernelModuleHeader = "module " ++ moduleName ++ "\n\n"
+					contains = "\n" ++ tabInc ++ "contains\n\n"
 					kernelModuleFooter = "end module " ++ moduleName
 
 					superKernelCode = synthesiseSuperKernel outputTab moduleName programs kernels
@@ -67,8 +68,8 @@ generateStateName :: String -> String
 generateStateName kernelName = "ST_" ++ (map (toUpper) kernelName)
 
 synthesiseStateDefinitions :: [(String, String)] -> Int -> String
-synthesiseStateDefinitions [] currentVal =  "\n"
-synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "! " ++ kernel ++ "\n#define " ++ state ++ " " ++ show currentVal ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
+synthesiseStateDefinitions [] currentVal =  ""
+synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "integer, parameter :: " ++ state ++ " = " ++ show currentVal ++ " !  " ++ kernel ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
 
 synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String)
 synthesiseSuperKernel tabs name programs kernels = (superKernel)
@@ -642,7 +643,18 @@ nunitsVar = generateVar (VarName nullAnno "NUNITS")
 numGroupsVarName = VarName nullAnno "num_groups"
 numGroupsVar = generateVar numGroupsVarName
 stateVarName = VarName nullAnno "state"
+statePtrVarName = VarName nullAnno "state_ptr"
 stateVar = generateVar stateVarName
+statePtrVar = generateVar statePtrVarName
+statePtrDecl = Decl nullAnno nullSrcSpan 
+					[(statePtrVar, NullExpr nullAnno nullSrcSpan, Nothing)] 
+					(BaseType nullAnno 
+						(Integer nullAnno) 
+						[(Dimension 
+							nullAnno
+							[(generateIntConstant 1, generateIntConstant 256)])]
+						(NullExpr nullAnno nullSrcSpan) 
+						(NullExpr nullAnno nullSrcSpan))
 
 
 generateLocalReductionArray (VarName anno str) = VarName anno ("local_" ++ str ++ "_array")
@@ -670,7 +682,7 @@ generateKernelCall :: (Program Anno, String) -> String -> Fortran Anno -> String
 generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = 	-- "! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n"
 														(commentSeparator ("BEGIN " ++ kernelName))
 														++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting globalWorkItems ++ "\n"
-														++ tabs ++ "state = " ++ stateName ++ "\n"
+														++ tabs ++ (varNameStr statePtrVarName) ++ "(1) = " ++ stateName ++ "\n"
 														++ tabs ++ bufferWrites ++ "\n"
 														++ tabs ++ "call runOcl(oclGlobalRange,oclLocalRange,exectime)\n"
 														++ tabs ++ "! call " ++ kernelName
@@ -689,7 +701,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) =
 				kernelName = (generateKernelName "map" src w)
 				stateName = generateStateName kernelName
 
-				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls))
+				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls ++ [statePtrDecl]))
 				bufferReads = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
 
 				(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations progAst (OpenCLMap anno src r w l fortran)
@@ -701,7 +713,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fort
 															++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
 															++ tabs ++ "oclLocalRange = " ++ outputExprFormatting nthVar ++ "\n"
 															++ tabs ++ "ngroups = " ++ outputExprFormatting nunitsVar ++ "\n"
-															++ tabs ++ "state = " ++ stateName ++ "\n"
+															++ tabs ++ (varNameStr statePtrVarName) ++ "(1) = " ++ stateName ++ "\n"
 															++ tabs ++ bufferWrites ++ "\n\n"
 															++ tabs ++ "call runOcl(oclGlobalRange,oclLocalRange,exectime)\n"
 															++ tabs ++ "! call " ++ kernelName
@@ -727,7 +739,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fort
 				kernelName = (generateKernelName "reduce" src (map (\(v, e) -> v) rv)) 
 				stateName = generateStateName kernelName
 
-				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls))
+				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls ++ generalDecls ++ [statePtrDecl]))
 				bufferReads = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
 				bufferReads_rv = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess "Read") (global_reductionArraysDecls))
 

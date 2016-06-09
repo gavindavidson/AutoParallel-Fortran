@@ -109,7 +109,7 @@ replaceVarsWithConstants codeSeg constants = everywhere (mkT (replaceVarsWithCon
 --	All appearences of a variable that appears in the constant table are replaced with a 'Con _ _ _' node OTHER THAN when those variables
 --	appear on the left side of an assignment operations
 replaceVarsWithConstants_fortran :: ValueTable -> Fortran Anno -> Fortran Anno
-replaceVarsWithConstants_fortran constants (Assg src anno expr1 expr2) = Assg src anno expr1 (replaceVarsWithConstants_expr constants expr2)
+replaceVarsWithConstants_fortran constants (Assg src anno expr1 expr2) = Assg src anno (replaceArrayAccessesWithConstants_expr constants expr1) (replaceVarsWithConstants_expr constants expr2)
 replaceVarsWithConstants_fortran constants codeSeg = gmapT (mkT (replaceVarsWithConstants_expr constants)) codeSeg
 
 replaceVarsWithConstants_expr :: ValueTable -> Expr Anno ->  Expr Anno
@@ -120,5 +120,11 @@ replaceVarsWithConstants_expr constants expr = case expr of
 			varName_str = varNameStr $ head $ extractVarNames expr
 			lookup = lookupValueTable varName_str constants
 			transformed = case lookup of
-							Nothing -> expr
+							Nothing -> replaceArrayAccessesWithConstants_expr constants expr
 							Just val -> generateFloatConstant val
+
+replaceArrayAccessesWithConstants_expr :: ValueTable -> Expr Anno -> Expr Anno
+replaceArrayAccessesWithConstants_expr constants (Var anno src lst) = Var anno src (map (replaceArrayAccessesWithConstants_varExprList constants) lst)
+
+replaceArrayAccessesWithConstants_varExprList :: ValueTable -> (VarName Anno, [Expr Anno]) -> (VarName Anno, [Expr Anno])
+replaceArrayAccessesWithConstants_varExprList constants (var, exprList) = (var, map (replaceVarsWithConstants_expr constants) exprList)
