@@ -5,9 +5,10 @@ module Main where
 
 --	STEPS
 --	-	Process command line arguments
---	-	Parse input file
---	-	Identify parallelism and transform AST
---	-	Combine kernels in the AST
+--	-	Parse input files
+--	-	Perform constant folding
+--	-	Identify parallelism and transform ASTs
+--	-	Combine kernels in the ASTs
 --	-	Output parallelisation errors and information about kernel fusion
 --	-	Emit final code listings.
 
@@ -35,7 +36,8 @@ main :: IO [()]
 main = do
 
 	putStr "\nConcerns:"
-	putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Minimise the amount of loop iterator values that are necessary to check.")
+	putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
+	-- putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Think we're okay atm..")
 	putStr "\n\n"
 
 	args <- getArgs
@@ -60,7 +62,6 @@ main = do
 	parsedProgram <- parseFile cppDFlags (head filenames)
 
 	let constantsFolded = map (map foldConstants) parsedPrograms
-	-- let constantsFolded = map foldConstants parsedProgram
 
 	-- putStr $ show (head constantsFolded)
 
@@ -70,20 +71,11 @@ main = do
 
 	-- putStr $ show $ head combinedPrograms
 
-	-- let parallelisedProg = paralleliseProgram constantsFolded
-	-- let combinedProg = combineKernels loopFusionBound (removeAllAnnotations parallelisedProg)
-
-	-- putStr $ compileAnnotationListing parallelisedProg
 	let annotationListings = zip3 filenames (map compileAnnotationListing parallelisedPrograms) (map compileAnnotationListing combinedPrograms)
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ "Processing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
-	-- putStr $ "\n" ++ (show parallelisedProg)
 
-	-- putStr $ compileAnnotationListing combinedProg
-	-- putStr $ show $ parallelisedProg
 	emit_beta outDirectory cppDFlags (zip combinedPrograms filenames)
-	-- emit cppDFlags (head filenames) newFilename combinedProg
-	-- emit cppDFlags filename newFilename combinedProg
 
 
 filenameFlag = "filename"
@@ -172,11 +164,6 @@ paralleliseLoop filename loopVars accessAnalysis loop 	= transformedAst
 																Nothing -> reduceAttempt_ast
 																Just codeSeg -> iterativeReduceAttempt_ast
 									
-									-- transformedAst_lcd = if (mapAttempt_bool || reduceAttempt_bool) && (loopCarriedDeps_bool)
-									-- 							then appendAnnotationList loop (outputTab ++ "Cannot map or reduce: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) else transformedAst
-									-- transformedAst_lcd = if loopCarriedDeps_bool
-									-- 							 then appendAnnotationList transformedAst (outputTab ++ "Cannot map or reduce: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) else transformedAst
-
 --	These functions are used to extract a list of varnames that are written to in a particular chunk of code. Used to asses
 extractWrites_query :: (Typeable p, Data p) => Fortran p -> [VarName p]
 extractWrites_query = everything (++) (mkQ [] extractWrites)
@@ -237,11 +224,7 @@ paralleliseLoop_reduce filename loop loopVarNames nonTempVars dependencies acces
 										writes_reduce = getWrites loopAnalysis
 
 										(loopCarriedDeps_bool, evaluated_bool, loopCarriedDeps) = loopCarriedDependencyCheck loop
-										-- loopCarriedDeps = loopCarriedDependencyCheck loop
-										-- loopCarriedDeps_bool = loopCarriedDeps /= []
-										-- errors_reduce' = if loopCarriedDeps_bool 
-										-- 				then DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
-										-- 				else errors_reduce
+
 										errors_reduce' = case loopCarriedDeps_bool of
 															True -> case evaluated_bool of
 																	True -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency detected:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
@@ -288,9 +271,6 @@ paralleliseLoop_iterativeReduce filename iteratingLoop parallelLoop loopVarNames
 																	True -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency detected:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
 																	False -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency possible (not evaluated):\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
 															False -> errors_reduce
-			-- errors_reduce' = if loopCarriedDeps_bool 
-			-- 					then DMap.insert (outputTab ++ iterativeReduceComment ++ " Loop carried dependency:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
-			-- 					else errors_reduce
 
 			loopVariables = loopCondtions_query parallelLoop
 

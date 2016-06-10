@@ -58,17 +58,8 @@ analyseLoop_map comment loopVars loopWrites nonTempVars accessAnalysis dependenc
 							expr2Analysis = (analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis expr2)
 							expr2Operands = extractOperands expr2
 
-							-- loopCarriedDependencyList = loopCarriedDependencyCheck loopVars loopIterTable dependencies expr1
-							-- loopCarriedDependencyBool = loopCarriedDependencyList /= []
-							-- loopCarriedDependencyErrorMap = if loopCarriedDependencyBool then
-							-- 				DMap.insert (outputTab ++ "Cannot map: Loop carried dependency on " ++ outputExprFormatting expr1 ++ ":\n")
-							-- 					(map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) loopCarriedDependencyList)
-							-- 					DMap.empty
-							-- 				else DMap.empty
-
 		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis -- ++ [(DMap.insert ("LOOPITERTABLE:\n") [ show (loopVars ++ [var]) ++ "\n" ++ (show newLoopIterTable) ++ "\n"] DMap.empty, [],[],[])])
 						where
-							-- newLoopIterTable = extendLoopIterTable loopIterTable DMap.empty loopVars e1 e2 e3
 							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map comment   (loopVars ++ [var]) loopWrites nonTempVars accessAnalysis dependencies)) codeSeg)
 		Call _ srcspan expr arglist -> (errorMap_call, [], [], argExprs)
 						where
@@ -98,7 +89,7 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars dependencie
 								-- newLoopIterTable = extendLoopIterTable loopIterTable DMap.empty loopVars e1 e2 e3
 								childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce comment condExprs (loopVars ++ [var]) loopWrites nonTempVars dependencies accessAnalysis)) codeSeg)
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo
-											(errorMap3 --errorMap4
+											(errorMap3
 											,
 											if potentialReductionVar then [expr1] else [],
 											extractOperands expr2,
@@ -111,7 +102,6 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars dependencie
 				readOperands = extractOperands expr2
 				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 
-				-- dependsOnSelfOnce = (length (filter (\item -> item == writtenVarname) readVarnames)) == 1
 				dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) readOperands) == 1
 
 				writtenVarname = head $ foldl (\accum item -> accum ++ extractVarNames item) [] writtenExprs
@@ -132,9 +122,6 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars dependencie
 
 				potentialReductionVar = isNonTempAssignment && (dependsOnSelf) && doesNotUseFullLoopVar
 
-				-- loopCarriedDependencyList = loopCarriedDependencyCheck loopVars loopIterTable dependencies expr1
-				-- loopCarriedDependencyBool = loopCarriedDependencyList /= []
-
 				errorMap1 = DMap.empty
 				errorMap2 = if potentialReductionVar && (not dependsOnSelfOnce) then
 											DMap.insert (outputTab ++ comment ++ "Possible reduction variables must only appear once on the right hand side of an assignment:\n")
@@ -146,8 +133,7 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars dependencie
 												[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr2]
 												errorMap2
 											else errorMap2
-				errorMapDebug = -- if dependsOnSelfOnce && potentialReductionVar && (not associative) then
-											DMap.insert (outputTab ++ comment ++ "Debug:\n")
+				errorMapDebug = DMap.insert (outputTab ++ comment ++ "Debug:\n")
 												["potentialReductionVar: " ++ show potentialReductionVar,
 												"isNonTempAssignment: " ++ show isNonTempAssignment,
 												"dependsOnSelf: " ++ show dependsOnSelf,
@@ -155,12 +141,6 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars dependencie
 												"doesNotUseFullLoopVar: " ++ show doesNotUseFullLoopVar
 												] 
 												errorMap3
-											-- else errorMap3
-				-- errorMap4 = if loopCarriedDependencyBool then
-				-- 							DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency on " ++ outputExprFormatting expr1 ++ ":\n")
-				-- 								(map (\item -> errorLocationFormatting (srcSpan item) ++ outputTab ++ outputExprFormatting item) loopCarriedDependencyList)
-				-- 								errorMap3
-				-- 							else errorMap3
 
 		Call _ srcspan expr arglist -> (errorMap_call, [], [], argExprs)
 			where

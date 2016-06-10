@@ -55,12 +55,6 @@ insertIfNotRepresented key newItem (LoopIterRecord table) = if not (elem newItem
 			where
 				representedItems = map (\x -> DMap.findWithDefault Empty x table) (DMap.keys table)
 
--- collapseIterTable :: TupleTable -> TupleTable
--- collapseIterTable (LoopIterRecord iterTable) = foldl (\accum item -> joinTupleTable accum item) Empty subTables
--- 			where
--- 				allowedValues = DMap.keys iterTable
--- 				subTables = map (\x -> DMap.findWithDefault Empty x iterTable) allowedValues
-
 joinTupleTable :: TupleTable -> TupleTable -> TupleTable
 joinTupleTable Empty Empty = Empty
 joinTupleTable table1 table2 = foldl (joinTupleTable_foldl table1 table2) newTable allowedValues
