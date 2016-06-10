@@ -379,6 +379,9 @@ getSrcSpanNonIntersection src1 src2 = (firstSrc, secondSrc)
 						firstSrc = (src1_s, src2_s)
 						secondSrc = (src2_e, src1_e)
 
+listCartesianProduct :: [a] -> [a] -> [(a,a)]
+listCartesianProduct xs ys = [(x,y) | x <- xs, y <- ys]
+
 --	Generic function that takes two lists a and b and returns a +list c that is all of the elements of a that do not appear in b.
 listSubtract :: Eq a => [a] -> [a] -> [a]
 listSubtract a b = filter (\x -> notElem x b) a
