@@ -23,6 +23,7 @@ import System.Process
 import System.Directory
 import qualified Data.Map as DMap 
 
+import BufferTransferAnalysis
 import CombineKernels
 import VarAccessAnalysis
 import VarDependencyAnalysis
@@ -64,10 +65,10 @@ main = do
 	let constantsFolded = map (map foldConstants) parsedPrograms
 
 	-- putStr $ show (head constantsFolded)
-
-	let parallelisedPrograms = map (\(ast, f) -> paralleliseProgram f ast) (zip constantsFolded filenames)
+	let accessAnalyses = map (analyseAllVarAccess) constantsFolded
+	let parallelisedPrograms = map (\(f, vaa, ast) -> paralleliseProgram f vaa ast) (zip3 filenames accessAnalyses constantsFolded)
 	let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
-
+	let bufferOptimisedPrograms = map (\(vaa, prog) -> optimseBufferTransfers vaa prog) (zip accessAnalyses combinedPrograms)
 
 	-- putStr $ show $ head combinedPrograms
 
@@ -75,7 +76,7 @@ main = do
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ "Processing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
 
-	emit_beta outDirectory cppDFlags (zip combinedPrograms filenames)
+	emit_beta outDirectory cppDFlags (zip combinedPrograms filenames) (zip bufferOptimisedPrograms filenames)
 
 
 filenameFlag = "filename"
@@ -111,10 +112,8 @@ addArg argMap flag value = DMap.insert flag newValues argMap
 usageError = error "USAGE: <filename> [<flag> <value>]"
 
 --	The top level function that is called against the original parsed AST
-paralleliseProgram :: String -> Program Anno -> Program Anno 
-paralleliseProgram filename codeSeg = map (everywhere (mkT (paralleliseBlock filename(accessAnalysis)))) codeSeg
-	where
-		accessAnalysis = analyseAllVarAccess codeSeg
+paralleliseProgram :: String -> VarAccessAnalysis -> Program Anno -> Program Anno 
+paralleliseProgram filename accessAnalysis codeSeg = map (everywhere (mkT (paralleliseBlock filename(accessAnalysis)))) codeSeg
 
 --	Called by above to identify actions to take when a Block is encountered. In this case look for loops to parallelise using paralleliseForLoop
 paralleliseBlock :: String -> VarAccessAnalysis -> Block Anno -> Block Anno

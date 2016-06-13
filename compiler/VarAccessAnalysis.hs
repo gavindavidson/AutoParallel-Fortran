@@ -77,6 +77,50 @@ isNullExpr :: Expr Anno -> Bool
 isNullExpr (NullExpr _ _) = True
 isNullExpr _ = False
 
+getAccessesBetweenSrcSpansIgnore :: VarAccessAnalysis -> SrcSpan -> SrcSpan -> [SrcSpan] -> ([VarName Anno], [VarName Anno])
+getAccessesBetweenSrcSpansIgnore accessAnalysis (_,startLoc) (endLoc,_) skipSrcs = getAccessesBetweenManySrcSpans accessAnalysis allowedSrcSpans -- ([], [])
+		where
+			sortedSkipSrcs = sortBy srcSpanCompare skipSrcs
+			allowedSrcSpans = getAccessesBetweenSrcSpansIgnoreBuildSrcSpans startLoc endLoc skipSrcs
+
+getAccessesBetweenSrcSpansIgnoreBuildSrcSpans :: SrcLoc -> SrcLoc -> [SrcSpan] -> [(SrcLoc, SrcLoc)]
+getAccessesBetweenSrcSpansIgnoreBuildSrcSpans prevEndLoc finalEndLoc [] = [(prevEndLoc, finalEndLoc)]
+getAccessesBetweenSrcSpansIgnoreBuildSrcSpans prevEndLoc finalEndLoc ((startLoc, endLoc):skipSrcs) = [(prevEndLoc, startLoc)] ++ getAccessesBetweenSrcSpansIgnoreBuildSrcSpans endLoc finalEndLoc skipSrcs
+
+srcSpanCompare :: SrcSpan -> SrcSpan -> Ordering
+srcSpanCompare ((SrcLoc f1 l1 c1), _) ((SrcLoc f2 l2 c2), _) 	|	l1 < l2 || (l1 == l2 && c1 < c2) 	= LT
+																|	l1 > l2 || (l1 == l2 && c1 > c2) 	= GT
+																|	l1 == l2 && c1 == c2 				= EQ
+
+getAccessesBetweenManySrcSpans ::  VarAccessAnalysis -> [(SrcLoc, SrcLoc)] -> ([VarName Anno], [VarName Anno])
+getAccessesBetweenManySrcSpans accessAnalysis [] = ([],[])
+getAccessesBetweenManySrcSpans accessAnalysis ((startLoc, endLoc):srcs) = ((listConcatUnique currentReads followingReads), (listConcatUnique currentWrites followingWrites))
+		where
+			(currentReads, currentWrites) = getAccessesBetweenSrcSpans accessAnalysis startLoc endLoc
+			(followingReads, followingWrites) = getAccessesBetweenManySrcSpans accessAnalysis srcs
+
+getAccessesBetweenSrcSpans :: VarAccessAnalysis -> SrcLoc -> SrcLoc -> ([VarName Anno], [VarName Anno])
+getAccessesBetweenSrcSpans accessAnalysis startLoc endLoc = (reads, writes)
+		where
+			localVarAccesses = (\(x,_,_,_) -> x) accessAnalysis
+			allVars = DMap.keys localVarAccesses
+			reads = filter (varReadInRange localVarAccesses startLoc endLoc) allVars
+			writes = filter (varWrittenInRange localVarAccesses startLoc endLoc) allVars
+
+varReadInRange :: LocalVarAccessAnalysis -> SrcLoc -> SrcLoc -> VarName Anno -> Bool
+varReadInRange localVarAccesses startLoc endLoc var = appearance
+		where
+			reads = map (fst) (fst (DMap.findWithDefault ([],[]) var localVarAccesses)) 
+			appearance = foldl (\accum item -> accum || ((checkSrcLocBefore startLoc item) && (checkSrcLocBefore item endLoc))) False reads
+
+varWrittenInRange :: LocalVarAccessAnalysis -> SrcLoc -> SrcLoc -> VarName Anno -> Bool
+varWrittenInRange localVarAccesses startLoc endLoc var = appearance
+		where
+			writes = map (fst) (snd (DMap.findWithDefault ([],[]) var localVarAccesses) )
+			appearance = foldl (\accum item -> accum || ((checkSrcLocBefore startLoc item) && (checkSrcLocBefore item endLoc))) False writes
+
+-- checkSrcLocBefore
+
 getArguments :: Program Anno -> [VarName Anno]
 getArguments prog = argNames
 		where
@@ -270,3 +314,17 @@ checkHangingReads analysis varname = case earliestRead of
 									(readSpans, writeSpans) = DMap.findWithDefault ([], []) varname analysis
 									earliestRead = getEarliestSrcSpan readSpans
 									earliestWrite = getEarliestSrcSpan writeSpans
+
+getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
+getEarliestSrcSpan [] = Nothing
+getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
+
+checkSrcLocBefore :: SrcLoc -> SrcLoc -> Bool
+checkSrcLocBefore (SrcLoc file_before line_before column_before) (SrcLoc file_after line_after column_after) =  (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
+
+checkSrcSpanBefore :: SrcSpan -> SrcSpan -> Bool
+-- checkSrcSpanBefore (beforeStart, (SrcLoc file_before line_before column_before)) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
+checkSrcSpanBefore ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
+
+checkSrcSpanBefore_line :: SrcSpan -> SrcSpan -> Bool
+checkSrcSpanBefore_line ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after)

@@ -20,25 +20,26 @@ import qualified Data.Map as DMap
 
 import LanguageFortranTools
 
-emit_beta :: String -> [String] -> [(Program Anno, String)] -> IO [()]
-emit_beta specified cppDFlags programs = do
-				kernels_code <- mapM (extractKernels_beta cppDFlags) programs
+emit_beta :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> IO [()]
+emit_beta specified cppDFlags programs_verboseArgs programs_optimisedBuffers = do
+				kernels_code <- mapM (emitKernels cppDFlags) programs_verboseArgs
 				let allKernels = foldl (++) [] kernels_code
 				let kernelNames = map (snd) allKernels
 
-				let originalFilenames = map (\x -> getModuleName (snd x)) programs
+				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
 				let moduleName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
 				let moduleFileName = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
-				let superKernel_module = synthesiseSuperKernelModule moduleName programs allKernels
+				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
 
-				host_code <- mapM (produceCodeProg cppDFlags moduleName) programs
+				host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_optimisedBuffers
+				-- host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
 
 				writeFile moduleFileName superKernel_module
 				mapM (\(code, filename) -> writeFile filename code) host_programs
 
-extractKernels_beta :: [String] -> (Program Anno, String) -> IO [(String, String)]
-extractKernels_beta cppDFlags (ast, filename) = do
+emitKernels :: [String] -> (Program Anno, String) -> IO [(String, String)]
+emitKernels cppDFlags (ast, filename) = do
 				originalLines <- readOriginalFileLines cppDFlags filename
 				let originalListing = case originalLines of
 										[]	-> ""
@@ -47,8 +48,10 @@ extractKernels_beta cppDFlags (ast, filename) = do
 				let kernels_renamed = map (\(code, kernelname) -> (code, kernelname)) kernels_code
 				return kernels_renamed
 
-synthesiseSuperKernelModule :: String -> [(Program Anno, String)] -> [(String, String)] -> String
-synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader ++ stateDefinitions ++ contains ++ (foldl (++) "" kernelCode) ++ superKernelCode ++ kernelModuleFooter)
+synthesiseSuperKernelModule :: String -> [(Program Anno, String)] -> [(String, String)] -> (String, DMap.Map (VarName Anno) Int)
+synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader ++ stateDefinitions ++ contains 
+																++ (foldl (++) "" kernelCode) ++ superKernelCode ++ kernelModuleFooter,
+															allKernelArgsMap)
 				where
 					kernelCode = map (fst) kernels
 					kernelNames = map (snd) kernels
@@ -57,7 +60,7 @@ synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader +
 					contains = "\n" ++ tabInc ++ "contains\n\n"
 					kernelModuleFooter = "end module " ++ moduleName
 
-					superKernelCode = synthesiseSuperKernel outputTab moduleName programs kernels
+					(superKernelCode, allKernelArgsMap) = synthesiseSuperKernel outputTab moduleName programs kernels
 
 					stateNames = map (generateStateName) kernelNames
 					-- states = foldl (\accum item -> accum ++ [(DMap.findWithDefault "" item stateMap)]) [] (DMap.keys stateMap)
@@ -70,9 +73,9 @@ synthesiseStateDefinitions :: [(String, String)] -> Int -> String
 synthesiseStateDefinitions [] currentVal =  ""
 synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "integer, parameter :: " ++ state ++ " = " ++ show currentVal ++ " !  " ++ kernel ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
 
-synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String)
-synthesiseSuperKernel tabs name programs [] = "" -- error $ show allKernelArgs -- superKernel
-synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else superKernel -- error $ show allKernelArgs -- superKernel
+synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, DMap.Map (VarName Anno) Int)
+synthesiseSuperKernel tabs name programs [] = ("", DMap.empty) -- error $ show allKernelArgs -- superKernel
+synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else (superKernel, allKernelArgsMap) -- error $ show allKernelArgs -- superKernel
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
@@ -80,6 +83,8 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 					kernelAsts = foldl (++) [] (map (\(k_asts, p_ast) -> map (\a -> (a, p_ast)) k_asts) (zip kernelAstLists programAsts))
 					kernelArgs = (map (\(x, _) -> listRemoveDuplications (extractKernelArguments x)) kernelAsts)
 					allKernelArgs = listRemoveDuplications (foldl (++) [] kernelArgs)
+
+					allKernelArgsMap = foldl (\dmap (arg, index) -> DMap.insert arg index dmap) DMap.empty (zip allKernelArgs ([1..(length allKernelArgs)]))
 
 					kernelDeclarations = map (\(kernel_ast, prog_ast) -> synthesiseKernelDeclarations prog_ast kernel_ast) kernelAsts
 					(readDecls, writtenDecls, generalDecls) = foldl (collectSuperKernelDecls) ([],[],[]) kernelDeclarations
@@ -142,10 +147,6 @@ extractKernelArguments (OpenCLMap _ _ r w _ _) = r ++ w
 extractKernelArguments (OpenCLReduce _ _ r w _ rv _) = r ++ w ++ (map (fst) rv)
 extractKernelArguments _ = []
 
---	The following functions are used to define names for output files from the input files' names.
-getModuleName :: String -> String
-getModuleName filename = head (splitOn "." (last (splitOn "/" filename)))
-
 defaultFilename :: [String] -> String
 defaultFilename (x:[]) = "par_" ++ x
 defaultFilename (x:xs) = x ++ "/" ++ defaultFilename xs
@@ -173,15 +174,6 @@ readOriginalFileLines cppDFlags filename = do
 -- extractKernels :: [String] -> Program Anno -> [(String, String)]
 -- -- extractKernels :: [String] -> Program Anno -> String
 -- extractKernels originalLines prog  = everything (++) (mkQ [] (synthesiseKernels originalLines prog)) prog
-
-extractKernels :: Program Anno -> [Fortran Anno]
-extractKernels ast = everything (++) (mkQ [] (extractKernels')) ast
-
-extractKernels' :: Fortran Anno -> [Fortran Anno]
-extractKernels' codeSeg = case codeSeg of
-							OpenCLMap _ _ _ _ _ _ -> [codeSeg]
-							OpenCLReduce _ _ _ _ _ _ _ -> [codeSeg]
-							_ -> []
 
 -- synthesiseKernels :: [String] -> Program Anno -> Fortran Anno -> String
 synthesiseKernels :: [String] -> (Program Anno, String) -> Fortran Anno -> [(String, String)]
@@ -211,10 +203,10 @@ synthesiseKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, wr
 					writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
 					generalDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
 
-produceCodeProg :: [String] -> String -> (Program Anno, String) -> IO(String)
-produceCodeProg cppDFlags kernelModuleName (prog, filename) = do
+produceCodeProg :: DMap.Map (VarName Anno) Int -> [String] -> String -> (Program Anno, String) -> IO(String)
+produceCodeProg allKernelArgsMap cppDFlags kernelModuleName (prog, filename) = do
 					originalLines <- readOriginalFileLines cppDFlags filename
-					let result = foldl (\accum item -> accum ++ produceCodeProgUnit (prog, filename) kernelModuleName originalLines item) "" prog
+					let result = foldl (\accum item -> accum ++ produceCodeProgUnit allKernelArgsMap (prog, filename) kernelModuleName originalLines item) "" prog
 					return result
 -- produceCodeProg :: String -> [String] -> Program Anno -> String
 -- produceCodeProg kernelModuleName originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit kernelModuleName originalLines item) "" prog
@@ -222,12 +214,13 @@ produceCodeProg cppDFlags kernelModuleName (prog, filename) = do
 --	This function handles producing the code that is not changed from the original source. It also inserts a "use .."
 --	line for the file containing the new kernels and makes a call to the function that produces the body of the new
 --	host code. 
-produceCodeProgUnit :: (Program Anno, String) -> String -> [String] -> ProgUnit Anno -> String
-produceCodeProgUnit prog kernelModuleName originalLines progUnit = nonGeneratedHeaderCode 
-												 ++ tabInc ++ "use " ++ kernelModuleName ++ "\n" 
+produceCodeProgUnit :: DMap.Map (VarName Anno) Int -> (Program Anno, String) -> String -> [String] -> ProgUnit Anno -> String
+produceCodeProgUnit allKernelArgsMap prog kernelModuleName originalLines progUnit = nonGeneratedHeaderCode 
+												 ++ nonGeneratedBlockCode_indent ++ "use " ++ kernelModuleName ++ "\n" 
+												 ++	nonGeneratedBlockCode_indent ++ "real (kind=4) :: exectime\n"
 												 ++ nonGeneratedBlockCode 
-												 ++ shapeStatements
-												 ++ bufferStatements
+												 ++ shapeStatements ++ "\n"
+												 ++ bufferStatements ++ "\n"
 												 ++ everything (++) (mkQ "" (produceCodeBlock prog nonGeneratedBlockCode_indent originalLines)) progUnit
 												 ++ nonGeneratedFooterCode			
 							where
@@ -249,7 +242,7 @@ produceCodeProgUnit prog kernelModuleName originalLines progUnit = nonGeneratedH
 								nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
 
 								shapeStatements = synthesiseSizeStatements nonGeneratedBlockCode_indent (fst prog)
-								bufferStatements = synthesiseBufferDeclatations nonGeneratedBlockCode_indent (fst prog)
+								bufferStatements = synthesiseBufferDeclatations nonGeneratedBlockCode_indent allKernelArgsMap (fst prog)
 
 synthesiseSizeStatements :: String -> Program Anno -> String
 synthesiseSizeStatements tabs ast = foldl (\accum (varName, sizeVarName) -> accum ++ tabs ++ (varNameStr sizeVarName) ++ " = shape(" ++ (varNameStr varName) ++ ")\n") "" kernelSizeVars_pairs
@@ -258,12 +251,13 @@ synthesiseSizeStatements tabs ast = foldl (\accum (varName, sizeVarName) -> accu
 			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels) -- map (extractKernelArguments) kernels
 			kernelSizeVars_pairs = map (\x -> (x, varSizeVarName x)) kernelArgs
 
-synthesiseBufferDeclatations :: String -> Program Anno -> String
-synthesiseBufferDeclatations tabs ast = foldl (\accum var -> accum ++ tabs ++ "oclBuffers(?) = " ++ (varNameStr var) ++ "\n") "" kernelBufferVars
+synthesiseBufferDeclatations :: String -> DMap.Map (VarName Anno) Int -> Program Anno -> String
+synthesiseBufferDeclatations tabs allKernelArgsMap ast = foldl (\accum (var, index) -> accum ++ tabs ++ (varNameStr var) ++ " = oclBuffers(" ++ (show index) ++ ")" ++  "\n") "" kernelBufferIndices
 		where
 			kernels = extractKernels ast
 			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels) -- map (extractKernelArguments) kernels
-			kernelBufferVars = map (varBufVarName) kernelArgs
+			-- kernelBufferVars = map (varBufVarName) kernelArgs
+			kernelBufferIndices = map (\x -> (varBufVarName x, DMap.findWithDefault (-1) x allKernelArgsMap)) kernelArgs
 
 
 --	Function is used (along with "getFirstBlockSrc") by "produceCodeProgUnit" to determine which lines of the original
@@ -690,9 +684,13 @@ generateReductionArrayAssignment tabs accessor accum ((VarName _ s1),(VarName _ 
 generateImplicitDecl :: VarName Anno -> Decl Anno
 generateImplicitDecl var = Decl nullAnno nullSrcSpan [(generateVar var, (NullExpr nullAnno nullSrcSpan), Nothing)] (BaseType nullAnno (Real nullAnno) [] (NullExpr nullAnno nullSrcSpan) (NullExpr nullAnno nullSrcSpan))
 
+--	The following functions are used to define names for output files from the input files' names.
+getModuleName :: String -> String
+getModuleName filename = head (splitOn "." (last (splitOn "/" filename)))
+
 generateKernelName :: String -> SrcSpan -> [VarName Anno] -> String
 generateKernelName identifier src varnames = (getModuleName filename) ++ "_" ++ identifier
-											++ (foldl (\accum item -> accum ++ "_" ++ (varNameStr item)) "" varnames) 
+											-- ++ (foldl (\accum item -> accum ++ "_" ++ (varNameStr item)) "" varnames) 
 											++ "_" ++ show line
 			where
 				((SrcLoc filename line _), _) = src

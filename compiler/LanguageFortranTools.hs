@@ -113,6 +113,15 @@ extractExpr expr = expr
 extractExpr_list :: Expr Anno -> [Expr Anno] 
 extractExpr_list expr = [expr]
 
+extractKernels :: Program Anno -> [Fortran Anno]
+extractKernels ast = everything (++) (mkQ [] (extractKernels')) ast
+
+extractKernels' :: Fortran Anno -> [Fortran Anno]
+extractKernels' codeSeg = case codeSeg of
+							OpenCLMap _ _ _ _ _ _ -> [codeSeg]
+							OpenCLReduce _ _ _ _ _ _ _ -> [codeSeg]
+							_ -> []
+
 --	Used to break down a tree of expressions that might form a calculation into a list of expressions for analysis.
 extractOperands :: (Typeable p, Data p) => Expr p -> [Expr p]
 extractOperands (Bin _ _ _ expr1 expr2) = extractOperands expr1 ++ extractOperands expr2
@@ -354,16 +363,6 @@ extractFor codeSeg = case codeSeg of
 extractLineNumber :: SrcSpan -> Int
 extractLineNumber ((SrcLoc _ line _), _) = line
 
-getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
-getEarliestSrcSpan [] = Nothing
-getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
-
-checkSrcSpanBefore :: SrcSpan -> SrcSpan -> Bool
-checkSrcSpanBefore ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
-
-checkSrcSpanBefore_line :: SrcSpan -> SrcSpan -> Bool
-checkSrcSpanBefore_line ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after)
-
 generateSrcSpanMerge :: SrcSpan -> SrcSpan -> SrcSpan
 generateSrcSpanMerge src1 src2 = (src1_s, src2_e)
 					where
@@ -385,6 +384,9 @@ listCartesianProduct xs ys = [(x,y) | x <- xs, y <- ys]
 --	Generic function that takes two lists a and b and returns a +list c that is all of the elements of a that do not appear in b.
 listSubtract :: Eq a => [a] -> [a] -> [a]
 listSubtract a b = filter (\x -> notElem x b) a
+
+listSubtractWithExemption :: Eq a => [a] -> [a] -> [a] -> [a]
+listSubtractWithExemption exempt a b = filter (\x -> (elem x exempt) || (notElem x b)) a
 
 listIntersection :: Eq a => [a] -> [a] -> [a]
 listIntersection a b = filter (\x -> elem x b) a
