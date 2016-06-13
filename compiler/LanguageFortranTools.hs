@@ -481,7 +481,8 @@ evaluateExpr_type vt (Var p src lst)   	| varString == "mod" = maybeBinOp_integr
 				headExprList = snd (head lst)
 				expr1 = head headExprList
 				expr2 = head $ tail headExprList
-evaluateExpr_type _ (Con _ _ str)	|	last str == '.' = Just ((read $ take (length str - 1) str) :: Float, Real nullAnno)
+evaluateExpr_type _ (Con _ _ str)	|	head str == '.' = Just ((read $ tail str) :: Float, Real nullAnno)
+									|	last str == '.' = Just ((read $ take (length str - 1) str) :: Float, Real nullAnno)
 									|	elem '.' str = Just(read str :: Float, Real nullAnno)
 									|	otherwise = Just(read str :: Float, Integer nullAnno)
 evaluateExpr_type _ _ = Nothing

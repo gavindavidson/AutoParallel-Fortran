@@ -52,7 +52,8 @@ analyseLoop_map comment loopVars loopWrites nonTempVars accessAnalysis dependenc
 							elseAnalysis = case maybeElse of
 												Just else_fortran ->  analyseLoop_map comment   (loopVars) loopWrites nonTempVars accessAnalysis dependencies else_fortran
 												Nothing -> analysisInfoBaseCase
-		Assg _ srcspan expr1 expr2 -> foldl (combineAnalysisInfo) analysisInfoBaseCase [expr1Analysis, expr2Analysis, (DMap.empty,[],expr2Operands,[expr1])] -- combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) (nullAnno,[],expr2Operands,[expr1])
+		Assg _ srcspan expr1 expr2 -> foldl (combineAnalysisInfo) analysisInfoBaseCase [expr1Analysis, --expr2Analysis, 
+																								(DMap.empty,[],expr2Operands,[expr1])] -- combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) (nullAnno,[],expr2Operands,[expr1])
 						where 																						-- loopCarriedDependencyErrorMap
 							expr1Analysis = (analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis expr1)
 							expr2Analysis = (analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis expr2)
@@ -102,7 +103,8 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars dependencie
 				readOperands = extractOperands expr2
 				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 
-				dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) readOperands) == 1
+				dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) readExprs) == 1
+				-- dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) readOperands) == 1
 
 				writtenVarname = head $ foldl (\accum item -> accum ++ extractVarNames item) [] writtenExprs
 				readVarnames 	= foldl (\accum item -> accum ++ extractVarNames item) [] readExprs

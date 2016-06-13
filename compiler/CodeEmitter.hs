@@ -6,7 +6,6 @@ module CodeEmitter where
 --	of parallel hardware.
 
 import Control.Monad
--- import qualified Data.Foldable as Mfold
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
 import Language.Fortran.Parser
@@ -36,7 +35,6 @@ emit_beta specified cppDFlags programs = do
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
 
 				writeFile moduleFileName superKernel_module
-				-- mapM (\x -> putStr "hello") [1..5]
 				mapM (\(code, filename) -> writeFile filename code) host_programs
 
 extractKernels_beta :: [String] -> (Program Anno, String) -> IO [(String, String)]
@@ -974,7 +972,7 @@ generateLoop r_iter start end fortran = For nullAnno nullSrcSpan r_iter start en
 						step = Con nullAnno nullSrcSpan "1"
 
 generateWorkGroupReduction :: [VarName Anno] -> VarName Anno -> Fortran Anno -> Fortran Anno
-generateWorkGroupReduction reductionVars redIter codeSeg  = resultantCode
+generateWorkGroupReduction reductionVars redIter codeSeg  = if assignments == [] then error ("generateWorkGroupReduction: assignments == []\nrv: " ++ (show reductionVars) ++ "\ncodeseg: " ++ (show codeSeg)) else resultantCode
 					where
 						assignments = everything (++) (mkQ [] (generateWorkGroupReduction_assgs reductionVars redIter)) codeSeg
 						resultantCode = foldl1 (\accum item -> appendFortran_recursive item accum) assignments

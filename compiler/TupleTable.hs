@@ -18,6 +18,8 @@ data TupleTable = LoopIterRecord (DMap.Map Int TupleTable)
 tupleTableElementGreaterThan :: [Int] -> [Int] -> Bool
 tupleTableElementGreaterThan [] [] 			=	False
 tupleTableElementGreaterThan (x:[]) (y:[])	=	x > y
+tupleTableElementGreaterThan [] y 			=	False
+tupleTableElementGreaterThan x [] 			=	True
 tupleTableElementGreaterThan (x:xs) (y:ys) 	|	x > y = True
 											|	x == y = tupleTableElementGreaterThan xs ys
 											|	x < y = False
