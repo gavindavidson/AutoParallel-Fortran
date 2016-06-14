@@ -32,20 +32,26 @@ import CodeEmitter
 import ConstantFolding
 import LoopAnalysis
 
+type SubroutineTable = DMap.Map String (ProgUnit Anno)
 
 main :: IO [()]
 main = do
 
 	putStr "\nConcerns:"
-	putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
-	-- putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Think we're okay atm..")
+	-- putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
+	putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Should original reduction variables be included as args, considering they\n" ++ outputTab ++ outputTab ++ " aren't actually used?")
+	putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Kernel arguments seem to be all over the place..")
 	putStr "\n\n"
 
 	args <- getArgs
 	let argMap = processArgs args
 
 	let filenames = case DMap.lookup filenameFlag argMap of
-						Just filename -> filename
+						Just filenames -> filenames
+						Nothing -> usageError
+
+	let mainFilename = case DMap.lookup filenameFlag argMap of
+						Just filenames -> head filenames
 						Nothing -> usageError
 
 	let outDirectory = case DMap.lookup outDirectoryFlag argMap of
@@ -61,14 +67,18 @@ main = do
 
 	parsedPrograms <- mapM (parseFile cppDFlags) filenames
 	parsedProgram <- parseFile cppDFlags (head filenames)
+	parsedSubroutines <- parseProgUnits cppDFlags filenames
 
-	let constantsFolded = map (map foldConstants) parsedPrograms
+	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (DMap.keys parsedSubroutines)
+
+	let constantsFolded = map (map foldConstants) subroutineList
+	-- let constantsFolded = map (map foldConstants) parsedPrograms
 
 	-- putStr $ show (head constantsFolded)
 	let accessAnalyses = map (analyseAllVarAccess) constantsFolded
 	let parallelisedPrograms = map (\(f, vaa, ast) -> paralleliseProgram f vaa ast) (zip3 filenames accessAnalyses constantsFolded)
 	let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
-	let bufferOptimisedPrograms = map (\(vaa, prog) -> optimseBufferTransfers vaa prog) (zip accessAnalyses combinedPrograms)
+	let bufferOptimisedPrograms = map (\(vaa, prog) -> optimseBufferTransfers_subroutine vaa prog) (zip accessAnalyses combinedPrograms)
 
 	-- putStr $ show $ head combinedPrograms
 
@@ -79,13 +89,14 @@ main = do
 	emit_beta outDirectory cppDFlags (zip combinedPrograms filenames) (zip bufferOptimisedPrograms filenames)
 
 
-filenameFlag = "filename"
+filenameFlag = "-modules"
 outDirectoryFlag = "-out"
 loopFusionBoundFlag = "-lfb"
 verboseFlag = "-v"
+mainFileFlag = "-main"
 cppDefineFlag = "-D"
 
-flags = [filenameFlag, outDirectoryFlag, loopFusionBoundFlag, cppDefineFlag, verboseFlag]
+flags = [filenameFlag, outDirectoryFlag, loopFusionBoundFlag, cppDefineFlag, verboseFlag, mainFileFlag]
 
 processArgs :: [String] -> DMap.Map String [String]
 processArgs [] = usageError
@@ -109,7 +120,28 @@ addArg argMap flag value = DMap.insert flag newValues argMap
 			oldValues = DMap.findWithDefault [] flag argMap
 			newValues = oldValues ++ [value]
 
-usageError = error "USAGE: <filename> [<flag> <value>]"
+usageError = error "USAGE: [<filename>] -main <filename> [<flag> <value>]"
+
+parseProgUnits :: [String] -> [String] -> IO(SubroutineTable)
+parseProgUnits cppDFlags filenames = do
+			parsedPrograms <- mapM (parseFile cppDFlags) filenames
+			let parsedPrograms' = foldl (++) [] parsedPrograms
+			let subTable = foldl (\accum item -> DMap.insert (extractProgUnitName item) item accum) DMap.empty parsedPrograms'
+			return subTable
+
+extractProgUnitName :: ProgUnit Anno -> String
+extractProgUnitName ast 	|	subNames == [] = error "extractProgUnitName: no subNames"
+							|	otherwise = extractStringFromSubName (head subNames)
+		where
+			subNames = everything (++) (mkQ [] getSubNames) ast
+
+extractCalledSubroutines :: ProgUnit Anno -> [String]
+extractCalledSubroutines ast = map (extractStringFromSubName) subs
+		where
+			subs = everything (++) (mkQ [] getSubNames) ast
+
+extractStringFromSubName :: SubName Anno -> String
+extractStringFromSubName (SubName _ str) = str
 
 --	The top level function that is called against the original parsed AST
 paralleliseProgram :: String -> VarAccessAnalysis -> Program Anno -> Program Anno 

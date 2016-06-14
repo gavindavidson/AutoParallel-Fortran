@@ -231,6 +231,11 @@ getUses uses = case uses of
 					(Use _ _ _ _) -> [uses]
 					_ -> []
 
+getSubNames :: SubName Anno -> [SubName Anno]
+getSubNames sub = case sub of
+					SubName _ _ -> [sub]
+					_ -> []
+
 getUnitName :: ProgUnit Anno -> String
 getUnitName progunit = foldl (++) [] (gmapQ (mkQ [] getUnitName') progunit)
 

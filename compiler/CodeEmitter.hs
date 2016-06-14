@@ -195,6 +195,9 @@ synthesiseKernelDeclarations prog (OpenCLMap _ _ r w _ _) = (readDecls, writtenD
 synthesiseKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, writtenDecls, generalDecls)
 				where
 					reductionVarNames = map (\(varname, expr) -> varname) rv
+					-- readArgs = r
+					-- writtenArgs = w
+					-- generalArgs = reductionVarNames
 					readArgs = listSubtract (listSubtract r w) reductionVarNames
 					writtenArgs = listSubtract (listSubtract w r) reductionVarNames
 					generalArgs = listSubtract (listIntersection w r) reductionVarNames

@@ -5,8 +5,28 @@ import VarAccessAnalysis
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 
-optimseBufferTransfers :: VarAccessAnalysis -> Program Anno -> Program Anno
-optimseBufferTransfers varAccessAnalysis ast = compareKernelsInOrder varAccessAnalysis kernels ast
+optimseBufferTransfers_program :: VarAccessAnalysis -> Program Anno -> [Program Anno] -> [Program Anno]
+optimseBufferTransfers_program varAccessAnalysis ast subroutines = []
+		where
+			bufferInitWrites = map extractSubroutineInitBufferWrites subroutines
+			bufferFinalReads = map extractSubroutineFinalBufferReads subroutines
+
+extractSubroutineInitBufferWrites :: Program Anno -> [VarName Anno]
+extractSubroutineInitBufferWrites ast = fst (foldl (\(accum_r, accum_w) (item_r, item_w) -> (accum_r ++ (listSubtract item_r accum_w), accum_w ++ item_w)) ([], []) (zip reads writes))
+		where
+			kernels = extractKernels ast
+			reads = map extractKernelReads kernels
+			writes = map extractKernelWrites kernels
+
+extractSubroutineFinalBufferReads :: Program Anno -> [VarName Anno]
+extractSubroutineFinalBufferReads ast = snd (foldl (\(accum_r, accum_w) (item_r, item_w) -> (accum_r ++ item_r, accum_w ++ (listSubtract item_w accum_r))) ([], []) (zip reads writes))
+		where
+			kernels = extractKernels ast
+			reads = reverse $ map extractKernelReads kernels
+			writes = reverse $ map extractKernelWrites kernels
+
+optimseBufferTransfers_subroutine :: VarAccessAnalysis -> Program Anno -> Program Anno
+optimseBufferTransfers_subroutine varAccessAnalysis ast = compareKernelsInOrder varAccessAnalysis kernels ast
 		where
 			kernels = extractKernels ast
 
@@ -48,7 +68,7 @@ eliminateBufferPairs varAccessAnalysis ignoredSpans firstKernel secondKernel = (
 			newSecondBufferWrites = listSubtractWithExemption (readsBetweem ++ writesBetween) secondBufferWrites firstBufferReads 
 
 			newFirstKernel = replaceKernelWrites firstKernel newFirstBufferReads
-			newsecondKernel = replaceKernelReads secondKernel secondBufferWrites
+			newsecondKernel = replaceKernelReads secondKernel newSecondBufferWrites
 
 replaceFortran :: Program Anno -> Fortran Anno -> Fortran Anno -> Program Anno
 replaceFortran progAst oldFortran newFortran = everywhere (mkT (replaceFortran' oldFortran newFortran)) progAst
