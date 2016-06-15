@@ -113,7 +113,7 @@ extractExpr expr = expr
 extractExpr_list :: Expr Anno -> [Expr Anno] 
 extractExpr_list expr = [expr]
 
-extractKernels :: Program Anno -> [Fortran Anno]
+-- extractKernels :: Program Anno -> [Fortran Anno]
 extractKernels ast = everything (++) (mkQ [] (extractKernels')) ast
 
 extractKernels' :: Fortran Anno -> [Fortran Anno]

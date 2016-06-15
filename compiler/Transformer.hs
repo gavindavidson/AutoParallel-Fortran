@@ -32,8 +32,6 @@ import CodeEmitter
 import ConstantFolding
 import LoopAnalysis
 
-type SubroutineTable = DMap.Map String (ProgUnit Anno)
-
 main :: IO [()]
 main = do
 
@@ -50,7 +48,7 @@ main = do
 						Just filenames -> filenames
 						Nothing -> usageError
 
-	let mainFilename = case DMap.lookup filenameFlag argMap of
+	let mainFilename = case DMap.lookup mainFileFlag argMap of
 						Just filenames -> head filenames
 						Nothing -> usageError
 
@@ -67,9 +65,12 @@ main = do
 
 	parsedPrograms <- mapM (parseFile cppDFlags) filenames
 	parsedProgram <- parseFile cppDFlags (head filenames)
+
+	parsedMain <- parseFile cppDFlags mainFilename
 	parsedSubroutines <- parseProgUnits cppDFlags filenames
 
-	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (DMap.keys parsedSubroutines)
+	let subroutineNames = DMap.keys parsedSubroutines
+	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (subroutineNames)
 
 	let constantsFolded = map (map foldConstants) subroutineList
 	-- let constantsFolded = map (map foldConstants) parsedPrograms
@@ -78,15 +79,29 @@ main = do
 	let accessAnalyses = map (analyseAllVarAccess) constantsFolded
 	let parallelisedPrograms = map (\(f, vaa, ast) -> paralleliseProgram f vaa ast) (zip3 filenames accessAnalyses constantsFolded)
 	let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
-	let bufferOptimisedPrograms = map (\(vaa, prog) -> optimseBufferTransfers_subroutine vaa prog) (zip accessAnalyses combinedPrograms)
+	let bufferOptimisedPrograms_kernel = map (\(vaa, prog) -> optimseBufferTransfers_kernel vaa prog) (zip accessAnalyses combinedPrograms)
 
-	-- putStr $ show $ head combinedPrograms
+	let bufferOptimisedPrograms_kernel_map = foldl (\dmap (name, subroutine) -> DMap.insert name (head subroutine) dmap) DMap.empty (zip subroutineNames bufferOptimisedPrograms_kernel)
+	
+	let accessAnalysis_main = analyseAllVarAccess parsedMain
+
+	let bufferOptimisedPrograms_subroutine_map = optimseBufferTransfers_subroutine accessAnalysis_main parsedMain bufferOptimisedPrograms_kernel_map
+	-- putStr ("bufferOptimisedPrograms_kernel_map:\n" ++ (show bufferOptimisedPrograms_kernel_map) ++ "\n\nbufferOptimisedPrograms_subroutine_map" ++ (show bufferOptimisedPrograms_subroutine_map))
+
+	let bufferOptimisedPrograms_subroutine = replaceSubroutineAppearences bufferOptimisedPrograms_subroutine_map bufferOptimisedPrograms_kernel
+	putStr ("bufferOptimisedPrograms_subroutine == bufferOptimisedPrograms_kernel: " ++ show (bufferOptimisedPrograms_subroutine == bufferOptimisedPrograms_kernel) ++ "\n")
+
+	putStr ("\n\nbufferOptimisedPrograms_subroutine: " ++ (show bufferOptimisedPrograms_subroutine))
+	putStr ("\n\nbufferOptimisedPrograms_kernel: " ++ (show bufferOptimisedPrograms_kernel))
+
+	-- putStr $ show $ parsedMain
 
 	let annotationListings = zip3 filenames (map compileAnnotationListing parallelisedPrograms) (map compileAnnotationListing combinedPrograms)
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ "Processing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
 
-	emit_beta outDirectory cppDFlags (zip combinedPrograms filenames) (zip bufferOptimisedPrograms filenames)
+	emit_beta outDirectory cppDFlags (zip combinedPrograms filenames) (zip bufferOptimisedPrograms_subroutine filenames)
+	-- emit_beta outDirectory cppDFlags (zip combinedPrograms filenames) (zip bufferOptimisedPrograms_kernel filenames)
 
 
 filenameFlag = "-modules"
@@ -121,27 +136,6 @@ addArg argMap flag value = DMap.insert flag newValues argMap
 			newValues = oldValues ++ [value]
 
 usageError = error "USAGE: [<filename>] -main <filename> [<flag> <value>]"
-
-parseProgUnits :: [String] -> [String] -> IO(SubroutineTable)
-parseProgUnits cppDFlags filenames = do
-			parsedPrograms <- mapM (parseFile cppDFlags) filenames
-			let parsedPrograms' = foldl (++) [] parsedPrograms
-			let subTable = foldl (\accum item -> DMap.insert (extractProgUnitName item) item accum) DMap.empty parsedPrograms'
-			return subTable
-
-extractProgUnitName :: ProgUnit Anno -> String
-extractProgUnitName ast 	|	subNames == [] = error "extractProgUnitName: no subNames"
-							|	otherwise = extractStringFromSubName (head subNames)
-		where
-			subNames = everything (++) (mkQ [] getSubNames) ast
-
-extractCalledSubroutines :: ProgUnit Anno -> [String]
-extractCalledSubroutines ast = map (extractStringFromSubName) subs
-		where
-			subs = everything (++) (mkQ [] getSubNames) ast
-
-extractStringFromSubName :: SubName Anno -> String
-extractStringFromSubName (SubName _ str) = str
 
 --	The top level function that is called against the original parsed AST
 paralleliseProgram :: String -> VarAccessAnalysis -> Program Anno -> Program Anno 

@@ -707,6 +707,8 @@ generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) =
 														++ tabs ++ bufferWrites ++ "\n"
 														++ tabs ++ "call runOcl(oclGlobalRange,oclLocalRange,exectime)\n"
 														++ tabs ++ "! call " ++ kernelName
+														++ tabs ++ (show r) ++ "\n"
+														++ tabs ++ (show w) ++ "\n"
 														++ tabs ++ "(" ++ allArgumentsStr ++ ")"++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
 														++ tabs ++ bufferReads ++ "\n\n"
 			where
