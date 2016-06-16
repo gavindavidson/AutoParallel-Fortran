@@ -20,8 +20,8 @@ import qualified Data.Map as DMap
 
 import LanguageFortranTools
 
-emit_beta :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> IO [()]
-emit_beta specified cppDFlags programs_verboseArgs programs_optimisedBuffers = do
+emit :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> IO [()]
+emit specified cppDFlags programs_verboseArgs programs_optimisedBuffers = do
 				kernels_code <- mapM (emitKernels cppDFlags) programs_verboseArgs
 				let allKernels = foldl (++) [] kernels_code
 				let kernelNames = map (snd) allKernels
@@ -34,6 +34,24 @@ emit_beta specified cppDFlags programs_verboseArgs programs_optimisedBuffers = d
 				host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_optimisedBuffers
 				-- host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
+
+				writeFile moduleFileName superKernel_module
+				mapM (\(code, filename) -> writeFile filename code) host_programs
+
+emit_alpha :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> IO [()]
+emit_alpha specified cppDFlags programs_verboseArgs programs_optimisedBuffers = do
+				kernels_code <- mapM (emitKernels cppDFlags) programs_verboseArgs
+				let allKernels = foldl (++) [] kernels_code
+				let kernelNames = map (snd) allKernels
+
+				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
+				let moduleName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
+				let moduleFileName = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
+				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
+
+				host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_optimisedBuffers
+				-- host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
+				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_alpha_host.f95") originalFilenames)
 
 				writeFile moduleFileName superKernel_module
 				mapM (\(code, filename) -> writeFile filename code) host_programs
@@ -700,15 +718,13 @@ generateKernelName identifier src varnames = (getModuleName filename) ++ "_" ++ 
 
 --	Function used during host code generation to produce call to OpenCL kernel.
 generateKernelCall :: (Program Anno, String) -> String -> Fortran Anno -> String
-generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = if allArguments == [] then error "generateKernelCall" else 	-- "! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n"
+generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = -- if allArguments == [] then error "generateKernelCall" else 	-- "! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n"
 														(commentSeparator ("BEGIN " ++ kernelName))
 														++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting globalWorkItems ++ "\n"
 														++ tabs ++ (varNameStr statePtrVarName) ++ "(1) = " ++ stateName ++ "\n"
 														++ tabs ++ bufferWrites ++ "\n"
 														++ tabs ++ "call runOcl(oclGlobalRange,oclLocalRange,exectime)\n"
 														++ tabs ++ "! call " ++ kernelName
-														++ tabs ++ (show r) ++ "\n"
-														++ tabs ++ (show w) ++ "\n"
 														++ tabs ++ "(" ++ allArgumentsStr ++ ")"++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
 														++ tabs ++ bufferReads ++ "\n\n"
 			where
@@ -717,7 +733,9 @@ generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) =
 				generalArgs = map (varNameStr) (listIntersection w r)
 
 				allArguments = readArgs ++ writtenArgs ++ generalArgs
-				allArgumentsStr = (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
+				allArgumentsStr = case allArguments of
+									[] -> "NO ARGS"
+									_ -> (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
 
 				globalWorkItems = generateGlobalWorkItemsExpr l
 
@@ -731,7 +749,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) =
 				
 
 
-generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = if allArguments == [] then error "generateKernelCall" else	-- "\n! Global work items: " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
+generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = -- if allArguments == [] then error "generateKernelCall" else	-- "\n! Global work items: " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
 															(commentSeparator ("BEGIN " ++ kernelName))
 															++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
 															++ tabs ++ "oclLocalRange = " ++ outputExprFormatting nthVar ++ "\n"
@@ -742,7 +760,8 @@ generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fort
 															++ tabs ++ "! call " ++ kernelName
 															++ tabs ++ "(" ++ allArgumentsStr ++ ")" ++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
 															++ tabs ++ bufferReads
-															++ tabs ++ bufferReads_rv ++ "\n\n"
+															++ tabs ++ bufferReads_rv 
+															++ "\n\n"
 			where 
 				reductionVarNames = map (\(varname, expr) -> varname) rv
 				workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames
@@ -755,7 +774,9 @@ generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fort
 									(listSubtract 
 										(readArgs ++ writtenArgs ++ generalArgs ++ global_reductionArrays) 
 										reductionVarNames)) 
-				allArgumentsStr =  (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
+				allArgumentsStr = case allArguments of
+									[] -> "NO ARGS"
+									_ -> (head allArguments) ++ foldl (\accum item -> accum ++ "," ++ item) "" (tail allArguments)
 
 				reductionWorkItemsExpr = generateProductExpr nthVar nunitsVar
 

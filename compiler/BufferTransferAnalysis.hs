@@ -6,7 +6,7 @@ import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everyw
 import Language.Fortran
 import qualified Data.Map as DMap
 
-type SubroutineTable = DMap.Map String (ProgUnit Anno)
+type SubroutineTable = DMap.Map String (ProgUnit Anno, String)
 
 replaceSubroutineAppearences :: SubroutineTable -> [Program Anno] -> [Program Anno]
 replaceSubroutineAppearences subTable [] = []
@@ -14,25 +14,64 @@ replaceSubroutineAppearences subTable (firstProgram:programs) = updated:replaceS
 		where 
 			updated = everywhere (mkT (replaceSubroutine subTable)) firstProgram
 
+flattenSubroutineAppearences :: SubroutineTable -> Program Anno -> Program Anno
+flattenSubroutineAppearences subTable mainAst = updated
+		where
+			subroutines = DMap.keys subTable
+			updated = everywhere (mkT (flattenSubroutineCall subTable)) mainAst
+
+flattenSubroutineCall :: SubroutineTable -> Fortran Anno -> Fortran Anno
+flattenSubroutineCall subTable codeSeg 	|	isCall = case subroutineReplacement of
+																		Nothing -> codeSeg
+																		Just flattened -> flattened
+										|	otherwise = codeSeg
+		where 
+			(isCall, callExpr) = case codeSeg of
+							(Call _ _ expr _) -> (True, expr)
+							_ -> (False, error "flattenSubroutineCall")
+			subroutineName = if extractVarNames callExpr == [] then (error "flattenSubroutineCall:callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
+			subroutineReplacement = case DMap.lookup subroutineName subTable of
+										Nothing -> Nothing
+										Just (subroutineBody, _) -> Just (substituteArguments codeSeg subroutineBody)
+
+substituteArguments :: Fortran Anno -> ProgUnit Anno -> Fortran Anno
+substituteArguments (Call _ _ _ arglist) (Sub _ _ _ _ arg (Block _ _ _ _ _ for)) = newFortran
+		where
+			callArgs = everything (++) (mkQ [] extractExpr_list) arglist
+			bodyArgs = everything (++) (mkQ [] extractArgName) arg
+
+			callArgs_varNames = map (\x -> if extractVarNames x == [] then error ("substituteArguments: " ++ (show x)) else  head (extractVarNames x)) callArgs
+			bodyArgs_varNames = map (\(ArgName _ str) -> VarName nullAnno str) bodyArgs
+
+			varNameReplacements = foldl (\dmap (old, new) -> DMap.insert old new dmap) DMap.empty (zip bodyArgs_varNames callArgs_varNames)
+
+			newFortran = everywhere (mkT (replaceArgs varNameReplacements)) for
+
+replaceArgs :: DMap.Map (VarName Anno) (VarName Anno) -> VarName Anno -> VarName Anno
+replaceArgs varNameReplacements varname = DMap.findWithDefault varname varname varNameReplacements
+
 replaceSubroutine :: SubroutineTable -> ProgUnit Anno -> ProgUnit Anno
 replaceSubroutine subTable codeSeg = case codeSeg of
-								(Sub _ _ _ (SubName _ str) _ _) -> DMap.findWithDefault codeSeg str subTable
+								(Sub _ _ _ (SubName _ str) _ _) -> fst (DMap.findWithDefault (codeSeg, "") str subTable)
 								_ -> codeSeg
 
 -- optimseBufferTransfers_subroutine :: VarAccessAnalysis -> Program Anno -> SubroutineTable -> [Program Anno]
 -- optimseBufferTransfers_subroutine varAccessAnalysis ast subroutineTable = []
-optimseBufferTransfers_subroutine :: VarAccessAnalysis -> Program Anno -> SubroutineTable -> SubroutineTable
-optimseBufferTransfers_subroutine varAccessAnalysis mainAst subroutineTable = if newSubroutineTable == subroutineTable then error "optimseBufferTransfers_subroutine: newSubroutineTable == subroutineTable" else newSubroutineTable
-		where
-			subCalls_names = extractCalledSubroutines mainAst
-			subCalls = foldl (\accum (subName, src) -> accum ++ [(DMap.findWithDefault (NullProg nullAnno nullSrcSpan) subName subroutineTable, src)]) [] subCalls_names
-			subCalls_handled = filter (\x -> (NullProg nullAnno nullSrcSpan) /= fst x) subCalls
+-- optimseBufferTransfers_subroutine :: VarAccessAnalysis -> Program Anno -> SubroutineTable -> SubroutineTable
+-- optimseBufferTransfers_subroutine varAccessAnalysis mainAst subroutineTable = -- if newSubroutineTable == subroutineTable then 
+-- 																				-- error ("subCalls_names: " ++ (show subCalls_names))
+-- 																				-- else 
+-- 																				newSubroutineTable
+-- 		where
+-- 			subCalls_names = extractCalledSubroutines mainAst
+-- 			subCalls = foldl (\accum (subName, src) -> accum ++ [(DMap.findWithDefault (NullProg nullAnno nullSrcSpan, "") subName subroutineTable, src)]) [] subCalls_names
+-- 			subCalls_handled = filter (\x -> (NullProg nullAnno nullSrcSpan, "") /= fst x) subCalls
 			
-			newSubCalls = map (fst) (compareSubroutinesInOrder varAccessAnalysis subCalls_handled)
+-- 			newSubCalls = map (fst) (compareSubroutinesInOrder varAccessAnalysis subCalls_handled)
 
-			newSubroutineTable = foldl (\accum item -> if (DMap.lookup (extractProgUnitName item) accum) == Nothing 
-															then DMap.insert (extractProgUnitName item) item accum 
-															else error "optimseBufferTransfers_subroutine: Multiple calls to same subroutine are not supported") DMap.empty  newSubCalls
+-- 			newSubroutineTable = foldl (\accum item -> if (DMap.lookup (extractProgUnitName item) accum) == Nothing 
+-- 															then DMap.insert (extractProgUnitName item) item accum 
+-- 															else error "optimseBufferTransfers_subroutine: Multiple calls to same subroutine are not supported") DMap.empty  newSubCalls
 
 extractSubroutineInitBufferWrites :: ProgUnit Anno -> [VarName Anno]
 extractSubroutineInitBufferWrites ast = fst (foldl (\(accum_r, accum_w) (item_r, item_w) -> (accum_r ++ (listSubtract item_r accum_w), accum_w ++ item_w)) ([], []) (zip reads writes))
@@ -99,7 +138,7 @@ eliminateReads eliminateList kernelList = newKernel:(eliminateReads newEliminate
 			newKernel = replaceKernelWrites curerentKernel newReads
 
 eliminateWrites :: [VarName Anno] -> [Fortran Anno] -> [Fortran Anno]
-eliminateWrites eliminateList kernelList = eliminateWrites' eliminateList (reverse kernelList)
+eliminateWrites eliminateList kernelList = reverse (eliminateWrites' eliminateList (reverse kernelList))
 
 eliminateWrites' :: [VarName Anno] -> [Fortran Anno] -> [Fortran Anno]
 eliminateWrites' [] kernelList = kernelList
@@ -111,6 +150,29 @@ eliminateWrites' eliminateList kernelList = newKernel:(eliminateWrites' newElimi
 			newWrites = listSubtract bufferWrites eliminateList
 			newEliminateList = listSubtract eliminateList bufferWrites
 			newKernel = replaceKernelReads curerentKernel newWrites
+
+optimiseBufferTransfers :: SubroutineTable -> Program Anno -> SubroutineTable
+optimiseBufferTransfers subTable mainAst = newSubTable
+		where
+			flattenedAst = flattenSubroutineAppearences subTable mainAst
+			varAccessAnalysis = analyseAllVarAccess flattenedAst
+			optimisedFlattenedAst = optimseBufferTransfers_kernel varAccessAnalysis flattenedAst
+
+			oldKernels = extractKernels flattenedAst
+			optimisedKernels = extractKernels optimisedFlattenedAst
+			kernelPairs = zip oldKernels optimisedKernels
+
+			newSubTable = foldl (replaceKernels_foldl kernelPairs) subTable (DMap.keys subTable)
+			-- newSubTable = foldl (\dmap subName -> DMap.insert subName (replaceKernels kernelPairs (DMap.findWithDefault (error "optimiseBufferTransfers") subName subTable)) dmap) DMap.empty (DMap.keys subTable)
+
+replaceKernels_foldl :: [(Fortran Anno, Fortran Anno)] -> SubroutineTable -> String -> SubroutineTable
+replaceKernels_foldl kernelPairs subTable subName = DMap.insert subName (newAst, filename) subTable
+		where
+			(ast, filename) = DMap.findWithDefault (error "replaceKernels_foldl") subName subTable
+			newAst = replaceKernels kernelPairs ast
+
+replaceKernels :: [(Fortran Anno, Fortran Anno)] -> ProgUnit Anno -> ProgUnit Anno
+replaceKernels kernelPairs subroutine = foldl (\accumSub (old, optim) -> replaceFortran accumSub old optim) subroutine kernelPairs
 
 optimseBufferTransfers_kernel :: VarAccessAnalysis -> Program Anno -> Program Anno
 optimseBufferTransfers_kernel varAccessAnalysis ast = compareKernelsInOrder varAccessAnalysis kernels ast
@@ -191,9 +253,12 @@ replaceKernelWrites codeSeg newWrites = case codeSeg of
 parseProgUnits :: [String] -> [String] -> IO(SubroutineTable)
 parseProgUnits cppDFlags filenames = do
 			parsedPrograms <- mapM (parseFile cppDFlags) filenames
-			let parsedPrograms' = foldl (\accum item -> accum ++ extractSubroutines item) [] parsedPrograms
+			let parsedPrograms' = foldl (\accum (ast, filename) -> accum ++ (map (\x -> (x, filename)) (extractSubroutines ast))) [] (zip parsedPrograms filenames)
 			-- mapM (\x -> putStr ((show x) ++ "\n\n")) parsedPrograms'
-			let subTable = foldl (\accum item -> DMap.insert (extractProgUnitName item) item accum) DMap.empty parsedPrograms'
+			let subTable = foldl (\accum (ast, filename) -> DMap.insert (extractProgUnitName ast) (ast, filename) accum) DMap.empty parsedPrograms'
+
+			-- let subroutineNamePairs = foldl (\accum (ast, fn) -> accum ++ (map (\x -> (extractProgUnitName x, fn)) (extractSubroutines ast))) [] (zip parsedPrograms filenames)
+
 			return subTable
 
 extractProgUnitName :: ProgUnit Anno -> String

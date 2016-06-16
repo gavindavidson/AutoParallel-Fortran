@@ -111,7 +111,13 @@ extractExpr :: Expr Anno -> Expr Anno
 extractExpr expr = expr
 
 extractExpr_list :: Expr Anno -> [Expr Anno] 
+extractExpr_list (ESeq _ _ _ _) = []
 extractExpr_list expr = [expr]
+
+extractArgName :: ArgName Anno -> [ArgName Anno]
+extractArgName codeSeg = case codeSeg of
+							ArgName _ _ -> [codeSeg]
+							_ -> []
 
 -- extractKernels :: Program Anno -> [Fortran Anno]
 extractKernels ast = everything (++) (mkQ [] (extractKernels')) ast
@@ -333,7 +339,6 @@ replaceAllOccurences_varname codeSeg original replacement = everywhere (mkT (rep
 replaceVarname :: VarName Anno -> VarName Anno -> VarName Anno -> VarName Anno
 replaceVarname original replacement inp 	| 	original == inp = replacement
 											|	otherwise = inp
-
 
 varNameStr :: VarName Anno -> String
 varNameStr (VarName _ str) = str

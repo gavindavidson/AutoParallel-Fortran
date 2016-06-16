@@ -25,6 +25,9 @@ type LocalVarValueAnalysis = DMap.Map (VarName Anno) [(SrcSpan, Expr Anno)]
 --																			Subroutine arguments 	Declared var names
 type VarAccessAnalysis = (LocalVarAccessAnalysis,	LocalVarValueAnalysis, [VarName Anno], 	[VarName Anno])
 
+analyseAllVarAccess_progUnit :: ProgUnit Anno -> VarAccessAnalysis
+analyseAllVarAccess_progUnit progUnit = analyseAllVarAccess [progUnit]
+
 analyseAllVarAccess :: Program Anno -> VarAccessAnalysis
 analyseAllVarAccess prog = (localVarAccesses, localVarValues, arguments, declarations)
 						where

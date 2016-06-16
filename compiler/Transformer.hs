@@ -72,36 +72,62 @@ main = do
 	let subroutineNames = DMap.keys parsedSubroutines
 	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (subroutineNames)
 
-	let constantsFolded = map (map foldConstants) subroutineList
-	-- let constantsFolded = map (map foldConstants) parsedPrograms
+	-- let constantsFolded = map (map foldConstants) subroutineList
 
-	-- putStr $ show (head constantsFolded)
-	let accessAnalyses = map (analyseAllVarAccess) constantsFolded
-	let parallelisedPrograms = map (\(f, vaa, ast) -> paralleliseProgram f vaa ast) (zip3 filenames accessAnalyses constantsFolded)
-	let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
-	let bufferOptimisedPrograms_kernel = map (\(vaa, prog) -> optimseBufferTransfers_kernel vaa prog) (zip accessAnalyses combinedPrograms)
+	-- let accessAnalyses = map (analyseAllVarAccess) constantsFolded
+	-- let parallelisedPrograms = map (\(f, vaa, ast) -> paralleliseProgram f vaa ast) (zip3 filenames accessAnalyses constantsFolded)
+	-- let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
 
-	let bufferOptimisedPrograms_kernel_map = foldl (\dmap (name, subroutine) -> DMap.insert name (head subroutine) dmap) DMap.empty (zip subroutineNames bufferOptimisedPrograms_kernel)
+	let (parallelisedSubroutines, annotationListings) = foldl (transformProgUnit_foldl loopFusionBound) (parsedSubroutines, []) subroutineNames
 	
-	let accessAnalysis_main = analyseAllVarAccess parsedMain
+	let parallelisedSubroutineList = map (\x -> DMap.findWithDefault (error "parallelisedSubroutineList") x parallelisedSubroutines) subroutineNames
+	let fileCoordinated_parallelisedMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty parallelisedSubroutineList
+	let fileCoordinated_parallelisedList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_parallelisedMap") x fileCoordinated_parallelisedMap, x)) filenames
 
-	let bufferOptimisedPrograms_subroutine_map = optimseBufferTransfers_subroutine accessAnalysis_main parsedMain bufferOptimisedPrograms_kernel_map
+	let optimisedBufferTransfersSubroutines = optimiseBufferTransfers parallelisedSubroutines parsedMain 
+	let optimisedBufferTransfersSubroutineList = map (\x -> DMap.findWithDefault (error "optimisedBufferTransfersSubroutineList") x optimisedBufferTransfersSubroutines) subroutineNames
+	let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
+	let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
+	-- let optimisedTransfers_map = optimiseBufferTransfers parallelisedSubroutines parsedMain 
+
+	-- let bufferOptimisedPrograms_subroutine_map = optimseBufferTransfers_subroutine accessAnalysis_main parsedMain bufferOptimisedPrograms_kernel_map
 	-- putStr ("bufferOptimisedPrograms_kernel_map:\n" ++ (show bufferOptimisedPrograms_kernel_map) ++ "\n\nbufferOptimisedPrograms_subroutine_map" ++ (show bufferOptimisedPrograms_subroutine_map))
 
-	let bufferOptimisedPrograms_subroutine = replaceSubroutineAppearences bufferOptimisedPrograms_subroutine_map bufferOptimisedPrograms_kernel
-	putStr ("bufferOptimisedPrograms_subroutine == bufferOptimisedPrograms_kernel: " ++ show (bufferOptimisedPrograms_subroutine == bufferOptimisedPrograms_kernel) ++ "\n")
+	-- let bufferOptimisedPrograms_subroutine = replaceSubroutineAppearences bufferOptimisedPrograms_subroutine_map bufferOptimisedPrograms_kernel
+	-- putStr ("bufferOptimisedPrograms_subroutine == bufferOptimisedPrograms_kernel: " ++ show (bufferOptimisedPrograms_subroutine == bufferOptimisedPrograms_kernel) ++ "\n")
 
-	putStr ("\n\nbufferOptimisedPrograms_subroutine: " ++ (show bufferOptimisedPrograms_subroutine))
-	putStr ("\n\nbufferOptimisedPrograms_kernel: " ++ (show bufferOptimisedPrograms_kernel))
+	-- putStr ("\n\nbufferOptimisedPrograms_subroutine: " ++ (show bufferOptimisedPrograms_subroutine))
+	-- putStr ("\n\nbufferOptimisedPrograms_kernel: " ++ (show bufferOptimisedPrograms_kernel))
 
 	-- putStr $ show $ parsedMain
 
-	let annotationListings = zip3 filenames (map compileAnnotationListing parallelisedPrograms) (map compileAnnotationListing combinedPrograms)
+	-- let annotationListings = zip3 filenames (map compileAnnotationListing parallelisedPrograms) (map compileAnnotationListing combinedPrograms)
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ "Processing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
 
-	emit_beta outDirectory cppDFlags (zip combinedPrograms filenames) (zip bufferOptimisedPrograms_subroutine filenames)
-	-- emit_beta outDirectory cppDFlags (zip combinedPrograms filenames) (zip bufferOptimisedPrograms_kernel filenames)
+	let flattenedMain = flattenSubroutineAppearences parsedSubroutines parsedMain
+
+	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_optimisedBufferList
+	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
+	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
+	-- emit_alpha outDirectory cppDFlags (zip combinedPrograms filenames) (zip combinedPrograms filenames)
+
+transformProgUnit_foldl :: Maybe(Float) -> (SubroutineTable, [(String, String, String)]) -> String -> (SubroutineTable, [(String, String, String)])
+transformProgUnit_foldl loopFusionBound (subTable, annoListing) subName = (newSubTable, annoListing ++ [anno])
+		where
+			(progUnit, filename) = DMap.findWithDefault (error "transformProgUnit_foldl") subName subTable
+			(transformedProgUnit, anno) = transformProgUnit progUnit filename loopFusionBound
+			newSubTable = DMap.insert subName (transformedProgUnit, filename) subTable
+
+transformProgUnit :: ProgUnit Anno -> String -> Maybe(Float) -> (ProgUnit Anno, (String, String, String))
+transformProgUnit progUnit filename loopFusionBound = (combined, (filename, parAnno, combAnno))
+		where
+			foldedConstants = foldConstants progUnit
+			parallelised =  paralleliseProgUnit filename (analyseAllVarAccess_progUnit progUnit) progUnit
+			parAnno = compileAnnotationListing parallelised
+
+			combined = combineKernelsProgUnit loopFusionBound (removeAllAnnotations parallelised)
+			combAnno = compileAnnotationListing combined
 
 
 filenameFlag = "-modules"
@@ -140,6 +166,10 @@ usageError = error "USAGE: [<filename>] -main <filename> [<flag> <value>]"
 --	The top level function that is called against the original parsed AST
 paralleliseProgram :: String -> VarAccessAnalysis -> Program Anno -> Program Anno 
 paralleliseProgram filename accessAnalysis codeSeg = map (everywhere (mkT (paralleliseBlock filename(accessAnalysis)))) codeSeg
+
+paralleliseProgUnit :: String -> VarAccessAnalysis -> ProgUnit Anno -> ProgUnit Anno 
+paralleliseProgUnit filename accessAnalysis codeSeg = everywhere (mkT (paralleliseBlock filename(accessAnalysis))) codeSeg
+
 
 --	Called by above to identify actions to take when a Block is encountered. In this case look for loops to parallelise using paralleliseForLoop
 paralleliseBlock :: String -> VarAccessAnalysis -> Block Anno -> Block Anno
@@ -337,7 +367,7 @@ getLoopConditions codeSeg = case codeSeg of
 --	Traverses the AST and prooduces a single string that contains all of the parallelising errors for this particular run of the compiler.
 --	compileAnnotationListing traverses the AST and applies getAnnotations to Fortran nodes (as currently they are the only nodes that have
 --	ever have annotations applied. The resulting string is then output to the user.
-compileAnnotationListing :: Program Anno -> String
+-- compileAnnotationListing :: Program Anno -> String
 compileAnnotationListing codeSeg = everything (++) (mkQ [] getAnnotations) codeSeg
 
 getAnnotations :: Fortran Anno -> String

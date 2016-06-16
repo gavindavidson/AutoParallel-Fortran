@@ -12,8 +12,10 @@ import LanguageFortranTools
 import VarDependencyAnalysis
 
 
+combineKernelsProgUnit bound codeSeg = everywhere (mkT (combineKernelsBlock bound)) codeSeg
+
 combineKernels :: Maybe(Float) -> Program Anno -> Program Anno
-combineKernels bound codeSeg = map (everywhere (mkT (combineKernelsBlock bound))) codeSeg
+combineKernels bound codeSeg = map (combineKernelsProgUnit bound) codeSeg
 
 combineKernelsBlock :: Maybe(Float) -> Block Anno -> Block Anno
 combineKernelsBlock bound block = combinedAdjacentNested
