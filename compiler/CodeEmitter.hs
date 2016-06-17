@@ -761,7 +761,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fort
 															++ tabs ++ "(" ++ allArgumentsStr ++ ")" ++ "" ++ tabInc ++ "! Call to synthesised, external kernel\n"
 															++ tabs ++ bufferReads
 															++ tabs ++ bufferReads_rv 
-															++ "\n\n"
+																++ "\n\n"
 			where 
 				reductionVarNames = map (\(varname, expr) -> varname) rv
 				workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames

@@ -32,7 +32,7 @@ import CodeEmitter
 import ConstantFolding
 import LoopAnalysis
 
-main :: IO [()]
+-- main :: IO [()]
 main = do
 
 	putStr "\nConcerns:"
@@ -102,15 +102,24 @@ main = do
 	-- putStr $ show $ parsedMain
 
 	-- let annotationListings = zip3 filenames (map compileAnnotationListing parallelisedPrograms) (map compileAnnotationListing combinedPrograms)
+	
+
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ "Processing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
+	-- putStr (show parsedMain)
 
-	let flattenedMain = flattenSubroutineAppearences parsedSubroutines parsedMain
+	-- let flattenedMain = flattenSubroutineAppearences parallelisedSubroutines parsedMain
+	-- let kernels = extractKernels flattenedMain
+	-- putStr (show parallelisedSubroutines)
+	-- putStr "\n\n"
+	-- let optimisedMain = flattenSubroutineAppearences optimisedBufferTransfersSubroutines parsedMain
+	-- let optimisedKernels = extractKernels optimisedMain
+	-- putStr (show optimisedBufferTransfersSubroutines)
 
 	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_optimisedBufferList
 	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
 	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
-	-- emit_alpha outDirectory cppDFlags (zip combinedPrograms filenames) (zip combinedPrograms filenames)
+	emit_alpha outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_parallelisedList
 
 transformProgUnit_foldl :: Maybe(Float) -> (SubroutineTable, [(String, String, String)]) -> String -> (SubroutineTable, [(String, String, String)])
 transformProgUnit_foldl loopFusionBound (subTable, annoListing) subName = (newSubTable, annoListing ++ [anno])
@@ -123,7 +132,7 @@ transformProgUnit :: ProgUnit Anno -> String -> Maybe(Float) -> (ProgUnit Anno, 
 transformProgUnit progUnit filename loopFusionBound = (combined, (filename, parAnno, combAnno))
 		where
 			foldedConstants = foldConstants progUnit
-			parallelised =  paralleliseProgUnit filename (analyseAllVarAccess_progUnit progUnit) progUnit
+			parallelised =  paralleliseProgUnit filename (analyseAllVarAccess_progUnit progUnit) foldedConstants
 			parAnno = compileAnnotationListing parallelised
 
 			combined = combineKernelsProgUnit loopFusionBound (removeAllAnnotations parallelised)
