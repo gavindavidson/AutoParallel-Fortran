@@ -138,12 +138,12 @@ eliminateBufferPairsSubroutine varAccessAnalysis ignoredSpans (firstAst, firstSr
 																											-- 											"\n\nnewFirstAst:\n" ++ (show newFirstAst) ) else 
 																											((newFirstAst, firstSrc), (newSecondAst, secondSrc))
 		where
-			(readsBetweem, writesBetween) = getAccessesBetweenSrcSpansIgnore varAccessAnalysis firstSrc secondSrc ignoredSpans
+			(readsBetween, writesBetween) = getAccessesBetweenSrcSpansIgnore varAccessAnalysis firstSrc secondSrc ignoredSpans
 
 			firstSubroutineReads = extractSubroutineFinalBufferReads firstAst
 			secondSubroutineWrites = extractSubroutineInitBufferWrites secondAst
 
-			elminateBuffers = listSubtract (listIntersection firstSubroutineReads secondSubroutineWrites) (readsBetweem ++ writesBetween)
+			elminateBuffers = listSubtract (listIntersection firstSubroutineReads secondSubroutineWrites) (readsBetween ++ writesBetween)
 
 			firstKernels = extractKernels firstAst
 			secondKernels = extractKernels secondAst
@@ -221,38 +221,74 @@ replaceKernels kernelPairs subroutine = foldl (\accumSub (old, optim) ->
 																				replaceFortran accumSub old optim) subroutine kernelPairs
 
 optimseBufferTransfers_kernel :: VarAccessAnalysis -> Program Anno -> Program Anno
-optimseBufferTransfers_kernel varAccessAnalysis ast = if newAst == ast 
-														then
-															error ("newAst == ast, debugStr: " ++ debugStr) 
-														else
-															newAst
+optimseBufferTransfers_kernel varAccessAnalysis ast = 
+														-- if newAst == ast 
+														-- then
+															error ("\ndebugStr: " ++ debugStr ++ "\n\nKERNELS:\n" ++ show kernels) 
+														-- else
+															-- newAst
 		where
 			(newAst, debugStr) = compareKernelsInOrder varAccessAnalysis kernels (ast, "")
 			kernels = extractKernels ast
+			debugKernels = extractKernels newAst
 
 compareKernelsInOrder :: VarAccessAnalysis -> [Fortran Anno] -> (Program Anno, String) -> (Program Anno, String)
 -- compareKernelsInOrder :: VarAccessAnalysis -> [Fortran Anno] -> Program Anno -> Program Anno
 compareKernelsInOrder varAccessAnalysis [] ast = ast
-compareKernelsInOrder varAccessAnalysis kernels (ast, s) = compareKernelsInOrder varAccessAnalysis (tail kernels) (newAst, s ++ debugStr)
+compareKernelsInOrder varAccessAnalysis kernels (ast, s) = 
+															-- if newFirstKernel == currentKernel
+																-- then
+																	-- error ("compareKernelsInOrder: newFirstKernel == currentKernel\nnewFirstKernel:\n" ++ (show newFirstKernel))
+															-- if newAst == ast 
+															-- 	then
+															-- 		error ("compareKernelsInOrder: newAst == ast:\nMatchCheck: " ++ (show matchCheck)) 
+																-- else
+															-- if currentKernel /= newFirstKernel && (tail kernels) == newKernels && (tail kernels) /= []
+															-- 	then
+															-- 		error ("compareKernelsInOrder: currentKernel /= newFirstKernel && (tail kernels) == newKernels \ncurrentKernel:\n" 
+															-- 			++ (show currentKernel) ++ "\n\nnewFirstKernel:\n" ++ (show newFirstKernel)
+															-- 			++ "\n\nnewKernels:\n" ++ (show newKernels)
+															-- 			)
+															-- 	else
+																-- if length (tail kernels) /= length newKernels
+																-- 	then
+																-- 		error "compareKernelsInOrder: length (tail kernels) /= length newKernels"
+																-- 	else
+																	compareKernelsInOrder varAccessAnalysis (newKernels) (newAst, s ++ debugStr)
 		where
 			currentKernel = head kernels
-			(_, newAst, _, debugStr) = foldl (eliminateBufferPairsKernel_foldl varAccessAnalysis) (currentKernel, ast, [], "") (tail kernels)
+			-- (_, newAst, _, debugStr) = foldl (eliminateBufferPairsKernel_foldl varAccessAnalysis) (currentKernel, ast, [], "") (tail kernels)
+			(newFirstKernel, newKernels, debugStr) = eliminateBufferPairsKernel_recurse varAccessAnalysis currentKernel (tail kernels) [] ""
+			newAst = foldl (\accumAst (oldFortran, newFortran) -> replaceFortran accumAst oldFortran newFortran) ast (zip kernels (newFirstKernel:newKernels))
 
-eliminateBufferPairsKernel_foldl :: VarAccessAnalysis -> (Fortran Anno, Program Anno, [SrcSpan], String) -> Fortran Anno -> (Fortran Anno, Program Anno, [SrcSpan], String)
-eliminateBufferPairsKernel_foldl varAccessAnalysis (firstKernel, ast, ignoredSpans, debug) secondKernel = 	
-																												(newFirstKernel, astWithNewSecondKernel, ignoredSpans ++ [srcSpan secondKernel], debug ++ debugStr)
+			matchCheck = map (\(x, y) -> x == y) (zip kernels (newFirstKernel:newKernels))
+
+eliminateBufferPairsKernel_recurse :: VarAccessAnalysis -> Fortran Anno -> [Fortran Anno] -> [SrcSpan] -> String -> (Fortran Anno, [Fortran Anno], String)
+eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel [] ignoredSpans debug =  (firstKernel, [], "")
+eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel kernels ignoredSpans debug =
+																								-- if firstKernel /= newFirstKernel && newSecondKernel == secondKernel
+																								-- 	then
+																								-- 		error "eliminateBufferPairsKernel_recurse: currfirstKernelentKernel /= newSecondKernel == secondKernel"
+																								-- 	else
+																								-- (newFirstKernel, [newSecondKernel] ++ (tail kernels), debugStr)
+																								(resursiveCall_firstKernel, newSecondKernel:resursiveCall_kernels, debugStr ++ resursiveCall_debugStr)
 		where
+			secondKernel = head kernels
 			(newFirstKernel, newSecondKernel, debugStr) = eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel
-			astWithNewFirstKernel = replaceFortran ast firstKernel newFirstKernel
-			astWithNewSecondKernel = replaceFortran astWithNewFirstKernel secondKernel newSecondKernel
+			(resursiveCall_firstKernel, resursiveCall_kernels, resursiveCall_debugStr) = eliminateBufferPairsKernel_recurse varAccessAnalysis newFirstKernel (tail kernels) ((srcSpan secondKernel):ignoredSpans) debugStr
+			-- astWithNewFirstKernel = replaceFortran ast firstKernel newFirstKernel
+			-- astWithNewSecondKernel = replaceFortran astWithNewFirstKernel secondKernel newSecondKernel
+
+-- eliminateBufferPairsKernel_foldl :: VarAccessAnalysis -> (Fortran Anno, Program Anno, [SrcSpan], String) -> Fortran Anno -> (Fortran Anno, Program Anno, [SrcSpan], String)
+-- eliminateBufferPairsKernel_foldl varAccessAnalysis (firstKernel, ast, ignoredSpans, debug) secondKernel = 		
 
 eliminateBufferPairsKernel :: VarAccessAnalysis -> [SrcSpan] -> Fortran Anno -> Fortran Anno -> (Fortran Anno, Fortran Anno, String)
-eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel = (newFirstKernel, newsecondKernel, debugStr)
+eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel = (newFirstKernel, newSecondKernel, debugStr)
 		where
 			firstKernel_src = srcSpan firstKernel
 			secondKernel_src = srcSpan secondKernel
 
-			(readsBetweem, writesBetween) = getAccessesBetweenSrcSpansIgnore varAccessAnalysis firstKernel_src secondKernel_src ignoredSpans
+			(readsBetween, writesBetween) = getAccessesBetweenSrcSpansIgnore varAccessAnalysis firstKernel_src secondKernel_src ignoredSpans
 
 			-- 	Rather confusingly, the reads I am refering to here are the buffer reads that must occur 
 			--	AFTER the kernel call and NOT the arguments that are 'read' by the kernel. As it turns out,
@@ -260,23 +296,33 @@ eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKern
 			--	The equivalent is true for the secondBufferWrites variable. Not the written arguments but 
 			-- 	the buffers that must be written to before the start of the kernel.
 			firstBufferReads = extractKernelWrites firstKernel
+			firstBufferWrites = extractKernelReads firstKernel
+			secondBufferReads = extractKernelWrites secondKernel
 			secondBufferWrites = extractKernelReads secondKernel
 			--	SIMPLE CASE wihtout any analysis between kernels
 			--		newFirstBufferReads = listSubtract firstBufferReads secondBufferWrites
 			--		newsecondBufferWrites = listSubtract secondBufferWrites firstBufferReads
 
 			--	More complex analysis would differentiate between reads and writes between kernels.
-			newFirstBufferReads = listSubtractWithExemption (readsBetweem ++ writesBetween) firstBufferReads secondBufferWrites
-			newSecondBufferWrites = listSubtractWithExemption (readsBetweem ++ writesBetween) secondBufferWrites firstBufferReads 
+			-- newFirstBufferReads = listSubtractWithExemption (readsBetween ++ writesBetween) firstBufferReads secondBufferWrites
+			-- newSecondBufferWrites = listSubtractWithExemption (readsBetween ++ writesBetween) secondBufferWrites firstBufferReads 
+
+			newSecondBufferWrites_preCrossOver = listSubtractWithExemption (writesBetween) secondBufferWrites firstBufferWrites 
+			newSecondBufferWrites = listSubtractWithExemption (writesBetween) newSecondBufferWrites_preCrossOver firstBufferReads
+			newFirstBufferReads_crossOver = listSubtractWithExemption (readsBetween) firstBufferReads newSecondBufferWrites
+			newFirstBufferReads = listSubtractWithExemption (readsBetween) newFirstBufferReads_crossOver secondBufferReads
 
 			-- newFirstBufferReads = listSubtractWithExemption ([]) firstBufferReads secondBufferWrites
 			-- newSecondBufferWrites = listSubtractWithExemption ([]) secondBufferWrites firstBufferReads 
 
-			debugStr = "firstBufferReads: " ++ (show firstBufferReads) ++ "\nsecondBufferWrites: " ++ (show secondBufferWrites) 
-							++ "\n\nnewFirstBufferReads: " ++ (show newFirstBufferReads) ++ "\nnewSecondBufferWrites: " ++ (show newSecondBufferWrites) ++ "\n\n"
+			k1src = errorLocationFormatting (srcSpan firstKernel)
+			k2src = errorLocationFormatting (srcSpan secondKernel)
+
+			debugStr = k1src ++ " firstBufferReads: " ++ (show firstBufferReads) ++ "\n" ++ k2src ++ " secondBufferWrites: " ++ (show secondBufferWrites) 
+						++ "\n" ++ k1src ++ " newFirstBufferReads: " ++ (show newFirstBufferReads) ++ "\n" ++ k2src ++ " newSecondBufferWrites: " ++ (show newSecondBufferWrites) ++ "\n\n"
 
 			newFirstKernel = replaceKernelWrites firstKernel newFirstBufferReads
-			newsecondKernel = replaceKernelReads secondKernel newSecondBufferWrites
+			newSecondKernel = replaceKernelReads secondKernel newSecondBufferWrites
 
 -- replaceFortran :: Program Anno -> Fortran Anno -> Fortran Anno -> Program Anno
 replaceFortran progAst oldFortran newFortran = 
