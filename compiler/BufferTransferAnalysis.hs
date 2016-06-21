@@ -20,33 +20,79 @@ flattenSubroutineAppearences :: SubroutineTable -> Program Anno -> Program Anno
 flattenSubroutineAppearences subTable mainAst = updated
 		where
 			subroutines = DMap.keys subTable
-			updated = everywhere (mkT (flattenSubroutineCall subTable)) mainAst
+			updated = everywhere (mkT (flattenSubroutineCall_container subTable)) mainAst
+			-- updated = everywhere (mkT (flattenSubroutineCall subTable)) mainAst
+
+flattenSubroutineCall_container :: SubroutineTable -> Fortran Anno -> Fortran Anno
+flattenSubroutineCall_container subTable containerSeg 	| 	containedCalls /= [] = containerWithFlattenedSub
+													|	otherwise = containerSeg
+		where
+			containedCalls = foldl (++) [] (gmapQ (mkQ [] extractCalls) containerSeg)
+			(Call _ _ callExpr _) = if (length containedCalls > 1) then error "flattenSubroutineCall_container: multiple contained calls unsupported" else head containedCalls
+
+			subroutineSrc = case DMap.lookup subroutineName subTable of
+										Nothing -> nullSrcSpan
+										Just (subroutineBody, _) -> srcSpan subroutineBody
+			subroutineLineSize = srcSpanLineCount subroutineSrc
+			containerWithScrShifts = gmapT (mkT (ignoreCall_T (shiftSrcSpanLineGlobal subroutineLineSize))) containerSeg
+
+			subroutineName = if extractVarNames callExpr == [] then (error "flattenSubroutineCall:callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
+			containerWithFlattenedSub = gmapT (mkT (flattenSubroutineCall subTable)) containerWithScrShifts
 
 flattenSubroutineCall :: SubroutineTable -> Fortran Anno -> Fortran Anno
-flattenSubroutineCall subTable (FSeq anno src callFortran otherFortran) 	
-										|	isCall = case subroutineReplacement of
-																		Nothing -> (FSeq anno src callFortran otherFortran)
-																		Just flattened -> -- error ("bodyOffset: " ++ (show bodyOffset) ++ "\nsrc: " ++ (show src))
-																						-- stretchSrcSpanLine subroutineLineSize 
-																						(FSeq anno nullSrcSpan 
-																							(shiftSrcSpanLineGlobal bodyOffset flattened) 
-																							(shiftSrcSpanLineGlobal subroutineLineSize otherFortran))
-										|	otherwise = (FSeq anno src callFortran otherFortran)
-		where 
-			(isCall, cSrc, callExpr) = case callFortran of
-							(Call _ cSrc expr _) -> (True, cSrc, expr)
-							_ -> (False, error "flattenSubroutineCall", error "flattenSubroutineCall")
-			((SrcLoc _ callLineStart _), _) =  cSrc
-			((SrcLoc _ bodyLineStart _), _) =  subroutineSrc
-			bodyOffset = (callLineStart -  bodyLineStart) + 1
-
-			subroutineLineSize = srcSpanLineCount subroutineSrc
+flattenSubroutineCall subTable (Call anno cSrc callExpr args) = fromMaybe callFortran shiftedSubroutineReplacement
+		where
+			callFortran = (Call anno cSrc callExpr args)
 			subroutineName = if extractVarNames callExpr == [] then (error "flattenSubroutineCall:callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
 			subroutineReplacement = case DMap.lookup subroutineName subTable of
 										Nothing -> Nothing
 										Just (subroutineBody, _) -> Just (substituteArguments callFortran subroutineBody)
+
 			subroutineSrc = srcSpan (fromMaybe (error "flattenSubroutineCall: subroutineSrc") subroutineReplacement)
+			((SrcLoc _ callLineStart _), _) =  cSrc
+			((SrcLoc _ bodyLineStart _), _) =  subroutineSrc
+			bodyOffset = (callLineStart -  bodyLineStart) + 1
+
+			shiftedSubroutineReplacement = case subroutineReplacement of
+												Nothing -> Nothing
+												Just rep -> Just (shiftSrcSpanLineGlobal bodyOffset rep) 
 flattenSubroutineCall subTable codeSeg = codeSeg
+
+ignoreCall_T :: (Fortran Anno -> Fortran Anno) -> Fortran Anno -> Fortran Anno
+ignoreCall_T func codeSeg = case codeSeg of
+								Call _ _ _ _ -> codeSeg
+								_ -> func codeSeg
+
+extractCalls :: Fortran Anno -> [Fortran Anno]
+extractCalls codeSeg = case codeSeg of
+							Call _ _ _ _ -> [codeSeg]
+							_ -> []
+
+-- flattenSubroutineCall :: SubroutineTable -> Fortran Anno -> Fortran Anno
+-- flattenSubroutineCall subTable (FSeq anno src callFortran otherFortran) 	
+-- 										|	isCall = case subroutineReplacement of
+-- 																		Nothing -> (FSeq anno src callFortran otherFortran)
+-- 																		Just flattened -> -- error ("bodyOffset: " ++ (show bodyOffset) ++ "\nsrc: " ++ (show src))
+-- 																						-- stretchSrcSpanLine subroutineLineSize 
+-- 																						(FSeq anno nullSrcSpan 
+-- 																							(shiftSrcSpanLineGlobal bodyOffset flattened) 
+-- 																							(shiftSrcSpanLineGlobal subroutineLineSize otherFortran))
+-- 										|	otherwise = (FSeq anno src callFortran otherFortran)
+-- 		where 
+-- 			(isCall, cSrc, callExpr) = case callFortran of
+-- 							(Call _ cSrc expr _) -> (True, cSrc, expr)
+-- 							_ -> (False, error "flattenSubroutineCall", error "flattenSubroutineCall")
+-- 			((SrcLoc _ callLineStart _), _) =  cSrc
+-- 			((SrcLoc _ bodyLineStart _), _) =  subroutineSrc
+-- 			bodyOffset = (callLineStart -  bodyLineStart) + 1
+
+-- 			subroutineLineSize = srcSpanLineCount subroutineSrc
+-- 			subroutineName = if extractVarNames callExpr == [] then (error "flattenSubroutineCall:callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
+-- 			subroutineReplacement = case DMap.lookup subroutineName subTable of
+-- 										Nothing -> Nothing
+-- 										Just (subroutineBody, _) -> Just (substituteArguments callFortran subroutineBody)
+-- 			subroutineSrc = srcSpan (fromMaybe (error "flattenSubroutineCall: subroutineSrc") subroutineReplacement)
+-- flattenSubroutineCall subTable codeSeg = codeSeg
 -- flattenSubroutineCall :: SubroutineTable -> Fortran Anno -> Fortran Anno
 -- flattenSubroutineCall subTable codeSeg 	|	isCall = case subroutineReplacement of
 -- 																		Nothing -> codeSeg
@@ -224,9 +270,9 @@ optimseBufferTransfers_kernel :: VarAccessAnalysis -> Program Anno -> Program An
 optimseBufferTransfers_kernel varAccessAnalysis ast = 
 														-- if newAst == ast 
 														-- then
-															error ("\ndebugStr: " ++ debugStr ++ "\n\nKERNELS:\n" ++ show kernels) 
+															-- error ("\ndebugStr: " ++ debugStr ++ "\n\nKERNELS:\n" ++ show kernels) 
 														-- else
-															-- newAst
+															newAst
 		where
 			(newAst, debugStr) = compareKernelsInOrder varAccessAnalysis kernels (ast, "")
 			kernels = extractKernels ast

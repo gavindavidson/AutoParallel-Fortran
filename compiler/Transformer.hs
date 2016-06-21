@@ -108,9 +108,9 @@ main = do
 
 	-- putStr (show parsedMain)
 
-	-- let flattenedMain = flattenSubroutineAppearences parallelisedSubroutines parsedMain
+	let flattenedMain = flattenSubroutineAppearences parallelisedSubroutines parsedMain
 	-- let kernels = extractKernels flattenedMain
-	-- putStr (show parallelisedSubroutines)
+	-- putStr (show flattenedMain)
 	-- putStr "\n\n"
 	-- let optimisedMain = flattenSubroutineAppearences optimisedBufferTransfersSubroutines parsedMain
 	-- let optimisedKernels = extractKernels optimisedMain
@@ -119,7 +119,7 @@ main = do
 	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_optimisedBufferList
 	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
 	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
-	emit_alpha outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_parallelisedList
+	-- emit_alpha outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_parallelisedList
 
 transformProgUnit_foldl :: Maybe(Float) -> (SubroutineTable, [(String, String, String)]) -> String -> (SubroutineTable, [(String, String, String)])
 transformProgUnit_foldl loopFusionBound (subTable, annoListing) subName = (newSubTable, annoListing ++ [anno])
