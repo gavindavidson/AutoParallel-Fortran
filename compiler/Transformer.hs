@@ -110,7 +110,7 @@ main = do
 
 	let flattenedMain = flattenSubroutineAppearences parallelisedSubroutines parsedMain
 	-- let kernels = extractKernels flattenedMain
-	putStr (show flattenedMain)
+	-- putStr (show flattenedMain)
 	-- putStr "\n\n"
 	-- let optimisedMain = flattenSubroutineAppearences optimisedBufferTransfersSubroutines parsedMain
 	-- let optimisedKernels = extractKernels optimisedMain

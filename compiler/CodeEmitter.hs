@@ -162,7 +162,9 @@ synthesiseKernelCaseAlternative tabs state kernelName args =  tabs ++ "case (" +
 
 extractKernelArguments :: Fortran Anno -> [VarName Anno]
 extractKernelArguments (OpenCLMap _ _ r w _ _) = r ++ w
-extractKernelArguments (OpenCLReduce _ _ r w _ rv _) = r ++ w ++ (map (fst) rv)
+-- extractKernelArguments (OpenCLReduce _ _ r w _ rv _) = r ++ w ++ (map (fst) rv)
+extractKernelArguments (OpenCLReduce _ _ r w _ rv _) = r ++ w ++ (map (\x -> generateGlobalReductionArray (fst x)) rv)
+-- generateGlobalReductionArray
 extractKernelArguments _ = []
 
 defaultFilename :: [String] -> String

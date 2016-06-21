@@ -102,6 +102,29 @@ getAccessesBetweenManySrcSpans accessAnalysis ((startLoc, endLoc):srcs) = ((list
 			(currentReads, currentWrites) = getAccessesBetweenSrcSpans accessAnalysis startLoc endLoc
 			(followingReads, followingWrites) = getAccessesBetweenManySrcSpans accessAnalysis srcs
 
+getAccessesAfterSrcSpan :: VarAccessAnalysis -> SrcLoc -> ([VarName Anno], [VarName Anno])
+getAccessesAfterSrcSpan accessAnalysis startLoc = (reads, writes)
+		where
+			localVarAccesses = (\(x,_,_,_) -> x) accessAnalysis
+			allVars = DMap.keys localVarAccesses
+			reads = filter (varReadAfterSrcLoc localVarAccesses startLoc) allVars
+			writes = filter (varWrittenAfterSrcLoc localVarAccesses startLoc) allVars
+
+varWrittenAfterSrcLoc :: LocalVarAccessAnalysis -> SrcLoc -> VarName Anno -> Bool
+varWrittenAfterSrcLoc localVarAccesses loc var = appearance
+		where
+			writes = map (fst) (snd (DMap.findWithDefault ([],[]) var localVarAccesses) )
+			appearance = foldl (\accum item -> accum || ((checkSrcLocBefore loc item) )) False writes
+
+varReadAfterSrcLoc :: LocalVarAccessAnalysis -> SrcLoc -> VarName Anno -> Bool
+varReadAfterSrcLoc localVarAccesses loc var = appearance
+		where
+			reads = map (fst) (fst (DMap.findWithDefault ([],[]) var localVarAccesses)) 
+			appearance = foldl (\accum item -> accum || ((checkSrcLocBefore loc item) )) False reads
+
+getAccessesBeforeSrcSpan :: VarAccessAnalysis -> SrcLoc -> ([VarName Anno], [VarName Anno])
+getAccessesBeforeSrcSpan accessAnalysis endLoc = getAccessesBetweenSrcSpans accessAnalysis (SrcLoc "" 0 0) endLoc
+
 getAccessesBetweenSrcSpans :: VarAccessAnalysis -> SrcLoc -> SrcLoc -> ([VarName Anno], [VarName Anno])
 getAccessesBetweenSrcSpans accessAnalysis startLoc endLoc = (reads, writes)
 		where
@@ -321,6 +344,10 @@ checkHangingReads analysis varname = case earliestRead of
 getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
 getEarliestSrcSpan [] = Nothing
 getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
+
+getLatestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
+getLatestSrcSpan [] = Nothing
+getLatestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then accum else item) (spans!!0) spans)
 
 checkSrcLocBefore :: SrcLoc -> SrcLoc -> Bool
 checkSrcLocBefore (SrcLoc file_before line_before column_before) (SrcLoc file_after line_after column_after) =  (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
