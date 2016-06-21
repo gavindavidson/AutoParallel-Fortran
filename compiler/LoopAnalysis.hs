@@ -53,11 +53,13 @@ analyseLoop_map comment loopVars loopWrites nonTempVars accessAnalysis dependenc
 												Just else_fortran ->  analyseLoop_map comment   (loopVars) loopWrites nonTempVars accessAnalysis dependencies else_fortran
 												Nothing -> analysisInfoBaseCase
 		Assg _ srcspan expr1 expr2 -> foldl (combineAnalysisInfo) analysisInfoBaseCase [expr1Analysis, --expr2Analysis, 
-																								(DMap.empty,[],expr2Operands,[expr1])] -- combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) (nullAnno,[],expr2Operands,[expr1])
+																								(DMap.empty,[],readExprs,[expr1])] -- combineAnalysisInfo (combineAnalysisInfo expr1Analysis expr2Analysis) (nullAnno,[],expr2Operands,[expr1])
 						where 																						-- loopCarriedDependencyErrorMap
 							expr1Analysis = (analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis expr1)
 							expr2Analysis = (analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis expr2)
-							expr2Operands = extractOperands expr2
+							readOperands = extractOperands expr2
+							readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
+
 
 		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis -- ++ [(DMap.insert ("LOOPITERTABLE:\n") [ show (loopVars ++ [var]) ++ "\n" ++ (show newLoopIterTable) ++ "\n"] DMap.empty, [],[],[])])
 						where
@@ -93,7 +95,7 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars dependencie
 											(errorMap3
 											,
 											if potentialReductionVar then [expr1] else [],
-											extractOperands expr2,
+											readExprs, --extractOperands expr2,
 											[expr1])
 											(if not potentialReductionVar then
 												expr1Analysis
