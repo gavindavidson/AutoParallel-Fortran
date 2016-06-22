@@ -67,7 +67,8 @@ main = do
 	parsedProgram <- parseFile cppDFlags (head filenames)
 
 	parsedMain <- parseFile cppDFlags mainFilename
-	parsedSubroutines <- parseProgUnits cppDFlags filenames
+	-- parsedSubroutines <- parseProgUnits cppDFlags filenames
+	let parsedSubroutines = constructSubroutineTable (zip parsedPrograms filenames)
 
 	let subroutineNames = DMap.keys parsedSubroutines
 	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (subroutineNames)
@@ -84,12 +85,20 @@ main = do
 	let fileCoordinated_parallelisedMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty parallelisedSubroutineList
 	let fileCoordinated_parallelisedList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_parallelisedMap") x fileCoordinated_parallelisedMap, x)) filenames
 
-	let optimisedBufferTransfersSubroutines = optimiseBufferTransfers parallelisedSubroutines parsedMain 
+	let (optimisedBufferTransfersSubroutines, initTearDownInfo) = optimiseBufferTransfers parallelisedSubroutines parsedMain 
 	let optimisedBufferTransfersSubroutineList = map (\x -> DMap.findWithDefault (error "optimisedBufferTransfersSubroutineList") x optimisedBufferTransfersSubroutines) subroutineNames
 	let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
 	let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
 	-- let optimisedTransfers_map = optimiseBufferTransfers parallelisedSubroutines parsedMain 
 
+	-- let updatedPrograms = updateProgramSubroutines parsedPrograms parsedSubroutines optimisedBufferTransfersSubroutines
+	let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences optimisedBufferTransfersSubroutines parsedPrograms) filenames
+	let ((initWrites, initSrc), (tearDownReads, tearDownSrc)) = initTearDownInfo
+	let initArgList = generateArgList initWrites
+	let tearDownArgList = generateArgList tearDownReads
+	
+	let mainAstInit = insertCallAtSrcSpan parsedMain initSrc "initialiseOpenCLBuffers" initArgList
+	let newMainAst = insertCallAtSrcSpan mainAstInit tearDownSrc "readOpenCLBuffers" initArgList
 	-- let bufferOptimisedPrograms_subroutine_map = optimseBufferTransfers_subroutine accessAnalysis_main parsedMain bufferOptimisedPrograms_kernel_map
 	-- putStr ("bufferOptimisedPrograms_kernel_map:\n" ++ (show bufferOptimisedPrograms_kernel_map) ++ "\n\nbufferOptimisedPrograms_subroutine_map" ++ (show bufferOptimisedPrograms_subroutine_map))
 
@@ -110,16 +119,43 @@ main = do
 
 	let flattenedMain = flattenSubroutineAppearences parallelisedSubroutines parsedMain
 	-- let kernels = extractKernels flattenedMain
-	-- putStr (show flattenedMain)
+	-- putStr ("initSrc: " ++ (show initSrc) ++ "\ntearDownSrc: " ++ (show tearDownSrc))
+	-- putStr (show newMainAst)
 	-- putStr "\n\n"
+	-- putStr (show parsedMain)
 	-- let optimisedMain = flattenSubroutineAppearences optimisedBufferTransfersSubroutines parsedMain
 	-- let optimisedKernels = extractKernels optimisedMain
 	-- putStr (show optimisedBufferTransfersSubroutines)
 
-	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_optimisedBufferList
+	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms (newMainAst, mainFilename) initTearDownInfo
+	-- emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_optimisedBufferList initTearDownInfo
 	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
 	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
 	-- emit_alpha outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_parallelisedList
+
+-- insertCallAtSrcSpan :: ProgUnit Anno -> SrcSpan -> String -> ArgList Anno -> ProgUnit Anno
+insertCallAtSrcSpan ast src callName args = everywhere (mkT (insertCallAtSrcSpan_transformation src callName args)) ast
+
+insertCallAtSrcSpan_transformation ::  SrcSpan -> String -> ArgList Anno -> Fortran Anno -> Fortran Anno
+insertCallAtSrcSpan_transformation targetSrc callName args (FSeq anno src fortran1 fortran2) 	|	sameSrcSpan || betweenSrcSpans = newFSeq
+																								|	otherwise = (FSeq anno src fortran1 fortran2)
+		where
+			newFSeq = FSeq anno src fortran1 (FSeq nullAnno nullSrcSpan newCall fortran2)
+			-- newFSeq = FSeq nullAnno nullSrcSpan newCall (FSeq anno src fortran1 fortran2)
+			newCall = Call nullAnno targetSrc (generateVar (VarName nullAnno callName)) args
+
+			sameSrcSpan = (fst (srcSpan fortran1)) == (fst targetSrc)
+			betweenSrcSpans = checkSrcSpanBefore (srcSpan fortran1) (targetSrc) && checkSrcSpanAfter (srcSpan fortran2) (targetSrc)
+insertCallAtSrcSpan_transformation _ _ _ codeSeg = codeSeg
+
+
+generateArgList :: [VarName Anno] -> ArgList Anno
+generateArgList [] = ArgList nullAnno (NullExpr nullAnno nullSrcSpan)
+generateArgList vars = ArgList nullAnno (generateESeq vars)
+
+generateESeq :: [VarName Anno] -> Expr Anno
+generateESeq (var:[]) = generateVar var
+generateESeq (var:vars) = ESeq nullAnno nullSrcSpan (generateESeq vars) (generateVar var)
 
 transformProgUnit_foldl :: Maybe(Float) -> (SubroutineTable, [(String, String, String)]) -> String -> (SubroutineTable, [(String, String, String)])
 transformProgUnit_foldl loopFusionBound (subTable, annoListing) subName = (newSubTable, annoListing ++ [anno])

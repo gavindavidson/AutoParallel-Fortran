@@ -20,41 +20,46 @@ import qualified Data.Map as DMap
 
 import LanguageFortranTools
 
-emit :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> IO [()]
-emit specified cppDFlags programs_verboseArgs programs_optimisedBuffers = do
+emit :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> (Program Anno, String) -> (([VarName Anno], SrcSpan), ([VarName Anno], SrcSpan)) -> IO [()]
+emit specified cppDFlags programs_verboseArgs programs_optimisedBuffers (mainAst, mainFilename) initTearDownInfo = do
 				kernels_code <- mapM (emitKernels cppDFlags) programs_verboseArgs
 				let allKernels = foldl (++) [] kernels_code
 				let kernelNames = map (snd) allKernels
 
 				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
 				let moduleName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
-				let moduleFileName = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
+				let moduleFilename = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
+				let newMainFilename = specified ++ "/" ++ (getModuleName mainFilename) ++ "_host.f95"
 				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
 
+				let ((initWrites, initSrc), (tearDownReads, tearDownSrc)) = initTearDownInfo
+
 				host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_optimisedBuffers
+				main_code <- produceCodeProg allKernelArgsMap cppDFlags "moduleName" (mainAst, mainFilename)
 				-- host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
 
-				writeFile moduleFileName superKernel_module
+				writeFile moduleFilename superKernel_module
+				writeFile newMainFilename main_code
 				mapM (\(code, filename) -> writeFile filename code) host_programs
 
-emit_alpha :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> IO [()]
-emit_alpha specified cppDFlags programs_verboseArgs programs_optimisedBuffers = do
-				kernels_code <- mapM (emitKernels cppDFlags) programs_verboseArgs
-				let allKernels = foldl (++) [] kernels_code
-				let kernelNames = map (snd) allKernels
+-- emit_alpha :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> IO [()]
+-- emit_alpha specified cppDFlags programs_verboseArgs programs_optimisedBuffers = do
+-- 				kernels_code <- mapM (emitKernels cppDFlags) programs_verboseArgs
+-- 				let allKernels = foldl (++) [] kernels_code
+-- 				let kernelNames = map (snd) allKernels
 
-				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
-				let moduleName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
-				let moduleFileName = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
-				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
+-- 				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
+-- 				let moduleName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
+-- 				let moduleFilename = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
+-- 				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
 
-				host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_optimisedBuffers
-				-- host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
-				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_alpha_host.f95") originalFilenames)
+-- 				host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_optimisedBuffers
+-- 				-- host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
+-- 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_alpha_host.f95") originalFilenames)
 
-				writeFile moduleFileName superKernel_module
-				mapM (\(code, filename) -> writeFile filename code) host_programs
+-- 				writeFile moduleFilename superKernel_module
+-- 				mapM (\(code, filename) -> writeFile filename code) host_programs
 
 emitKernels :: [String] -> (Program Anno, String) -> IO [(String, String)]
 emitKernels cppDFlags (ast, filename) = do
@@ -86,6 +91,8 @@ synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader +
 
 generateStateName :: String -> String
 generateStateName kernelName = "ST_" ++ (map (toUpper) kernelName)
+
+-- synthesiseInitialisationSubroutine :: 
 
 synthesiseStateDefinitions :: [(String, String)] -> Int -> String
 synthesiseStateDefinitions [] currentVal =  ""
@@ -162,22 +169,12 @@ synthesiseKernelCaseAlternative tabs state kernelName args =  tabs ++ "case (" +
 
 extractKernelArguments :: Fortran Anno -> [VarName Anno]
 extractKernelArguments (OpenCLMap _ _ r w _ _) = r ++ w
--- extractKernelArguments (OpenCLReduce _ _ r w _ rv _) = r ++ w ++ (map (fst) rv)
 extractKernelArguments (OpenCLReduce _ _ r w _ rv _) = r ++ w ++ (map (\x -> generateGlobalReductionArray (fst x)) rv)
--- generateGlobalReductionArray
 extractKernelArguments _ = []
 
 defaultFilename :: [String] -> String
 defaultFilename (x:[]) = "par_" ++ x
 defaultFilename (x:xs) = x ++ "/" ++ defaultFilename xs
-
--- generateKernelModuleName :: String -> [String] -> String
--- generateKernelModuleName kernelName (x:[]) = kernelName
--- generateKernelModuleName _ (x:xs) = x ++ "/" ++ generateKernelModuleName xs
-
--- generateKernelModuleName :: [String] -> String
--- generateKernelModuleName (x:[]) = "module_kernels_" ++ x
--- generateKernelModuleName (x:xs) = x ++ "/" ++ generateKernelModuleName xs
 
 generateOriginalFileName :: [String] -> String
 generateOriginalFileName (x:[]) = "original_" ++ x
@@ -190,10 +187,6 @@ readOriginalFileLines cppDFlags filename = do
 				content <- cpp cppDFlags filename
 				let contentLines = lines content
 				return contentLines
-
--- extractKernels :: [String] -> Program Anno -> [(String, String)]
--- -- extractKernels :: [String] -> Program Anno -> String
--- extractKernels originalLines prog  = everything (++) (mkQ [] (synthesiseKernels originalLines prog)) prog
 
 -- synthesiseKernels :: [String] -> Program Anno -> Fortran Anno -> String
 synthesiseKernels :: [String] -> (Program Anno, String) -> Fortran Anno -> [(String, String)]
@@ -231,8 +224,6 @@ produceCodeProg allKernelArgsMap cppDFlags kernelModuleName (prog, filename) = d
 					originalLines <- readOriginalFileLines cppDFlags filename
 					let result = foldl (\accum item -> accum ++ produceCodeProgUnit allKernelArgsMap (prog, filename) kernelModuleName originalLines item) "" prog
 					return result
--- produceCodeProg :: String -> [String] -> Program Anno -> String
--- produceCodeProg kernelModuleName originalLines prog = foldl (\accum item -> accum ++ produceCodeProgUnit kernelModuleName originalLines item) "" prog
 
 --	This function handles producing the code that is not changed from the original source. It also inserts a "use .."
 --	line for the file containing the new kernels and makes a call to the function that produces the body of the new
@@ -279,7 +270,6 @@ synthesiseBufferDeclatations tabs allKernelArgsMap ast = foldl (\accum (var, ind
 		where
 			kernels = extractKernels ast
 			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels) -- map (extractKernelArguments) kernels
-			-- kernelBufferVars = map (varBufVarName) kernelArgs
 			kernelBufferIndices = map (\x -> (varBufVarName x, DMap.findWithDefault (-1) x allKernelArgsMap)) kernelArgs
 
 
@@ -312,11 +302,18 @@ produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
 									r_iter = generateReductionIterator reductionVarNames
 									hostReduction = generateFinalHostReduction reductionVarNames r_iter f
 									hostReductionLoop = generateLoop r_iter (generateIntConstant 1) nunitsVar hostReduction
-									
+						Call _ _ _ _ -> synthesiseCall prog tabs originalLines codeSeg
 						FSeq _ _ fortran1 fortran2 -> (mkQ "" (produceCode_fortran prog tabs originalLines) fortran1) ++ (mkQ "" (produceCode_fortran prog tabs originalLines) fortran2)
 						_ -> 	case anyChildGenerated codeSeg || isGenerated codeSeg of
 									True -> foldl (++) tabs (gmapQ (mkQ "" (produceCode_fortran prog "" originalLines)) codeSeg)
 									False -> extractOriginalCode tabs originalLines (srcSpan codeSeg)
+
+synthesiseCall :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
+synthesiseCall prog tabs originalLines (Call anno src expr args) 	|	partialGenerated = tabs ++ "generated call: " ++ outputExprFormatting expr
+																	|	otherwise = extractOriginalCode tabs originalLines src
+		where
+			partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
+			codeSeg = (Call anno src expr args)
 
 synthesisUses :: String -> Uses Anno -> String
 synthesisUses tabs (Use _ (str, rename) _ _) = tabs ++ "use " ++ str ++ "\n"

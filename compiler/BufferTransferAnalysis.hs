@@ -230,7 +230,7 @@ eliminateWrites' eliminateList kernelList = newKernel:(eliminateWrites' newElimi
 			newEliminateList = listSubtract eliminateList bufferWrites
 			newKernel = replaceKernelReads curerentKernel newWrites
 
-optimiseBufferTransfers :: SubroutineTable -> Program Anno -> SubroutineTable
+optimiseBufferTransfers :: SubroutineTable -> Program Anno -> (SubroutineTable, (([VarName Anno], SrcSpan), ([VarName Anno], SrcSpan)))
 optimiseBufferTransfers subTable mainAst = 
 											-- if newSubTable == subTable 
 											-- then
@@ -238,7 +238,7 @@ optimiseBufferTransfers subTable mainAst =
 											-- 			++ "\n\n(DMap.keys subTable): " ++ (show (DMap.keys subTable))
 											-- 			)
 											-- else
-												newSubTable
+												(newSubTable,((initWrites, earliestInitSrc), (tearDownReads, latestTearDownSrc)))
 		where
 			flattenedAst = flattenSubroutineAppearences subTable mainAst
 			flattenedVarAccessAnalysis = analyseAllVarAccess flattenedAst
@@ -247,9 +247,12 @@ optimiseBufferTransfers subTable mainAst =
 			varAccessAnalysis = analyseAllVarAccess mainAst
 			kernels_optimisedBetween = extractKernels optimisedFlattenedAst
 			
-			kernelRangeSrc = constructKernelCallSrcRange subTable mainAst
+			kernelRangeSrc = generateKernelCallSrcRange subTable mainAst
 			-- kernelRangeSrc = (fst (srcSpan (head kernels_optimisedBetween)), snd (srcSpan (last kernels_optimisedBetween)))
 			(kernels_withoutInitOrTearDown, initWrites, tearDownReads) = stripInitAndTearDown varAccessAnalysis kernelRangeSrc kernels_optimisedBetween
+
+			earliestInitSrc = shiftSrcSpan 1 (generateSrcSpan "" (findEarliestInitialisationSrcSpan varAccessAnalysis kernelRangeSrc initWrites))
+			latestTearDownSrc = shiftSrcSpan (-1) (generateSrcSpan "" (findLatestTearDownSrcSpan varAccessAnalysis kernelRangeSrc tearDownReads))
 
 			-- ast_withoutInitOrTearDown = foldl (\accumAst (oldFortran, newFortran) -> replaceFortran accumAst oldFortran newFortran) ast_optimisedBetweenKernels (zip kernels_optimisedBetween kernels_withoutInitOrTearDown)
 
@@ -263,13 +266,13 @@ optimiseBufferTransfers subTable mainAst =
 			newSubTable = foldl (replaceKernels_foldl kernelPairs) subTable (DMap.keys subTable)
 			-- newSubTable = foldl (\dmap subName -> DMap.insert subName (replaceKernels kernelPairs (DMap.findWithDefault (error "optimiseBufferTransfers") subName subTable)) dmap) DMap.empty (DMap.keys subTable)
 
-constructKernelCallSrcRange :: SubroutineTable -> Program Anno -> SrcSpan
-constructKernelCallSrcRange subTable ast = (kernelsStart, kernelsEnd)
+generateKernelCallSrcRange :: SubroutineTable -> Program Anno -> SrcSpan
+generateKernelCallSrcRange subTable ast = (kernelsStart, kernelsEnd)
 		where
 			callsAndStrings = everything (++) (mkQ [] extractCallsWithStrings) ast
 			callSrcs = map (\(callCode, callString) -> srcSpan callCode) (filter (\(callCode, callString) -> elem callString (DMap.keys subTable)) callsAndStrings)
-			kernelsStart = fst (fromMaybe (error "constructKernelCallSrcRange") (getEarliestSrcSpan callSrcs))
-			kernelsEnd = snd (fromMaybe (error "constructKernelCallSrcRange") (getLatestSrcSpan callSrcs))
+			kernelsStart = fst (fromMaybe (error "generateKernelCallSrcRange") (getEarliestSrcSpan callSrcs))
+			kernelsEnd = snd (fromMaybe (error "generateKernelCallSrcRange") (getLatestSrcSpan callSrcs))
 
 -- varNameStr (head (extractVarNames callExpr))
 -- calls = everything (++) (mkQ [] extractCalls) mainAst
@@ -282,16 +285,7 @@ replaceKernels_foldl kernelPairs subTable subName = DMap.insert subName (newAst,
 			newAst = replaceKernels kernelPairs ast
 
 replaceKernels :: [(Fortran Anno, Fortran Anno)] -> ProgUnit Anno -> ProgUnit Anno
-replaceKernels kernelPairs subroutine = foldl (\accumSub (old, optim) -> 
-																		-- if old /= optim && ((replaceFortran accumSub old optim) /= accumSub)
-																		-- 	then
-																		-- 		error ("old /= optim && (replaceFortran accumSub old optim /= accumSub)" ++
-																		-- 				"old:\n" ++ (show old) ++
-																		-- 				"\n\noptim:\n" ++ (show optim) ++
-																		-- 				"\n\nreplaceFortran accumSub old optim):\n" ++ (show (replaceFortran accumSub old optim))
-																		-- 				)
-																		-- 	else 
-																				replaceFortran accumSub old optim) subroutine kernelPairs
+replaceKernels kernelPairs subroutine = foldl (\accumSub (old, optim) -> replaceFortran accumSub old optim) subroutine kernelPairs
 
 optimseBufferTransfers_kernel :: VarAccessAnalysis -> Program Anno -> Program Anno
 optimseBufferTransfers_kernel varAccessAnalysis ast = 
@@ -313,16 +307,16 @@ optimseBufferTransfers_kernel varAccessAnalysis ast =
 			-- ast_withoutInitOrTearDown = foldl (\accumAst (oldFortran, newFortran) -> replaceFortran accumAst oldFortran newFortran) ast_optimisedBetweenKernels (zip kernels_optimisedBetween kernels_withoutInitOrTearDown)
 
 findEarliestInitialisationSrcSpan :: VarAccessAnalysis -> SrcSpan -> [VarName Anno] -> SrcSpan
-findEarliestInitialisationSrcSpan varAccessAnalysis kernelStart initWrites = nullSrcSpan -- lastWrite
+findEarliestInitialisationSrcSpan varAccessAnalysis kernelsRange initWrites = lastWrite
 		where
-			-- previousWriteSrcs = foldl (\accum item -> accum ++ (fst  (getAccessesBeforeSrcSpan varAccessAnalysis (fst kernelStart) item))) initWrites
-			-- lastWrite = fromMaybe (error "findEarliestInitialisationSrcSpan") getLatestSrcSpan previousWriteSrcs
+			writesBefore = foldl (\accum item -> accum ++ snd (getAccessLocationsBeforeSrcSpan varAccessAnalysis item kernelsRange)) [] initWrites
+			lastWrite = fromMaybe nullSrcSpan (getLatestSrcSpan writesBefore)
 
 findLatestTearDownSrcSpan :: VarAccessAnalysis -> SrcSpan -> [VarName Anno] -> SrcSpan
-findLatestTearDownSrcSpan varAccessAnalysis kernelStart tearDownReads =  nullSrcSpan -- firstRead
+findLatestTearDownSrcSpan varAccessAnalysis kernelsRange tearDownReads = firstRead
 		where
-			-- followingReadSrcs = foldl (\accum item -> accum ++ (fst getAccessesAfterSrcSpan varAccessAnalysis (fst kernelStart) item)) tearDownReads
-			-- firstRead = fromMaybe (error "findLatestTearDownSrcSpan") getEarliestSrcSpan followingReadSrcs
+			readsAfter = foldl (\accum item -> accum ++ fst (getAccessLocationsAfterSrcSpan varAccessAnalysis item kernelsRange)) [] tearDownReads
+			firstRead = fromMaybe nullSrcSpan (getEarliestSrcSpan readsAfter)
 
 
 stripInitAndTearDown :: VarAccessAnalysis -> SrcSpan -> [Fortran Anno] -> ([Fortran Anno], [VarName Anno], [VarName Anno])
@@ -439,16 +433,17 @@ eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKern
 			newSecondKernel = replaceKernelReads secondKernel newSecondBufferWrites
 
 -- replaceFortran :: Program Anno -> Fortran Anno -> Fortran Anno -> Program Anno
-replaceFortran progAst oldFortran newFortran = 
-												-- if oldFortran == newFortran 
-												-- then 
-												-- 	error ("replaceFortran: oldFortran == newFortran")
-												-- else
-												everywhere (mkT (replaceFortran' oldFortran newFortran)) progAst
+replaceFortran progAst oldFortran newFortran = everywhere (mkT (replaceFortran' oldFortran newFortran)) progAst
 
 replaceFortran' :: Fortran Anno -> Fortran Anno -> Fortran Anno -> Fortran Anno
 replaceFortran' oldFortran newFortran currentFortran 	|	(applyGeneratedSrcSpans oldFortran) == (applyGeneratedSrcSpans currentFortran) = normaliseSrcSpan currentFortran newFortran
 														|	otherwise = currentFortran
+
+replaceProgUnit ast oldProgUnit newProgUnit = everywhere (mkT (replaceProgUnit' oldProgUnit newProgUnit)) ast 
+
+replaceProgUnit' :: ProgUnit Anno -> ProgUnit Anno -> ProgUnit Anno -> ProgUnit Anno
+replaceProgUnit' oldProgUnit newProgUnit currentProgUnit 	| 	(applyGeneratedSrcSpans oldProgUnit) == (applyGeneratedSrcSpans currentProgUnit) = normaliseSrcSpan currentProgUnit newProgUnit
+															|	otherwise = currentProgUnit
 
 extractKernelReads :: Fortran Anno -> [VarName Anno]
 extractKernelReads codeSeg = case codeSeg of
@@ -474,16 +469,21 @@ replaceKernelWrites codeSeg newWrites = case codeSeg of
 				OpenCLReduce anno src reads writes loopV redV fortran -> OpenCLReduce anno src reads newWrites loopV redV fortran
 				_ -> error "replaceKernelWrites: not a kernel"
 
-parseProgUnits :: [String] -> [String] -> IO(SubroutineTable)
-parseProgUnits cppDFlags filenames = do
-			parsedPrograms <- mapM (parseFile cppDFlags) filenames
-			let parsedPrograms' = foldl (\accum (ast, filename) -> accum ++ (map (\x -> (x, filename)) (extractSubroutines ast))) [] (zip parsedPrograms filenames)
-			-- mapM (\x -> putStr ((show x) ++ "\n\n")) parsedPrograms'
-			let subTable = foldl (\accum (ast, filename) -> DMap.insert (extractProgUnitName ast) (ast, filename) accum) DMap.empty parsedPrograms'
+-- parseProgUnits :: [String] -> [String] -> IO(SubroutineTable)
+-- parseProgUnits cppDFlags filenames = do
+-- 			parsedPrograms <- mapM (parseFile cppDFlags) filenames
+-- 			let parsedPrograms' = foldl (\accum (ast, filename) -> accum ++ (map (\x -> (x, filename)) (extractSubroutines ast))) [] (zip parsedPrograms filenames)
+-- 			-- mapM (\x -> putStr ((show x) ++ "\n\n")) parsedPrograms'
+-- 			let subTable = foldl (\accum (ast, filename) -> DMap.insert (extractProgUnitName ast) (ast, filename) accum) DMap.empty parsedPrograms'
 
-			-- let subroutineNamePairs = foldl (\accum (ast, fn) -> accum ++ (map (\x -> (extractProgUnitName x, fn)) (extractSubroutines ast))) [] (zip parsedPrograms filenames)
+-- 			-- let subroutineNamePairs = foldl (\accum (ast, fn) -> accum ++ (map (\x -> (extractProgUnitName x, fn)) (extractSubroutines ast))) [] (zip parsedPrograms filenames)
 
-			return subTable
+-- 			return subTable
+
+constructSubroutineTable :: [(Program Anno, String)] -> SubroutineTable
+constructSubroutineTable programs = foldl (\accum (ast, filename) -> DMap.insert (extractProgUnitName ast) (ast, filename) accum) DMap.empty parsedSubroutines
+		where
+			parsedSubroutines = foldl (\accum (ast, filename) -> accum ++ (map (\x -> (x, filename)) (extractSubroutines ast))) [] programs
 
 extractProgUnitName :: ProgUnit Anno -> String
 extractProgUnitName ast 	|	subNames == [] = error ((show ast) ++ "\n\nextractProgUnitName: no subNames")
