@@ -36,7 +36,7 @@ parseFile cppArgs filename = do
 cpp cppArgs filename = do 	
 							let dFlagList = foldl (\accum item -> accum ++ ["-D", item]) [] cppArgs
 							inp <- (readProcess "cpp" ([filename] ++ dFlagList ++ ["-P"]) "") 
-							return inp
+							return $ preProcess inp
 
 --	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
@@ -187,7 +187,7 @@ nullSrcLoc :: SrcLoc
 nullSrcLoc = SrcLoc {srcFilename = "generated", srcLine = -1, srcColumn = -1}
 
 -- generateSrcSpan :: SrcSpan -> SrcSpan
--- generateSrcSpan ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
+-- generateSrcSpan ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, sfgenerateVarrcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
 
 generateSrcSpan :: String -> SrcSpan -> SrcSpan
 generateSrcSpan [] ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
@@ -378,6 +378,10 @@ replaceVarname original replacement inp 	| 	original == inp = replacement
 
 varNameStr :: VarName Anno -> String
 varNameStr (VarName _ str) = str
+
+varNameListStr :: [VarName Anno] -> String
+varNameListStr (var:[]) = varNameStr var
+varNameListStr (var:vars) = (varNameStr var) ++ "," ++ (varNameListStr vars)
 
 --	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran Anno -> Fortran Anno -> Fortran Anno

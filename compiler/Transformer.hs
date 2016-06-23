@@ -67,17 +67,10 @@ main = do
 	parsedProgram <- parseFile cppDFlags (head filenames)
 
 	parsedMain <- parseFile cppDFlags mainFilename
-	-- parsedSubroutines <- parseProgUnits cppDFlags filenames
 	let parsedSubroutines = constructSubroutineTable (zip parsedPrograms filenames)
 
 	let subroutineNames = DMap.keys parsedSubroutines
 	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (subroutineNames)
-
-	-- let constantsFolded = map (map foldConstants) subroutineList
-
-	-- let accessAnalyses = map (analyseAllVarAccess) constantsFolded
-	-- let parallelisedPrograms = map (\(f, vaa, ast) -> paralleliseProgram f vaa ast) (zip3 filenames accessAnalyses constantsFolded)
-	-- let combinedPrograms = map (\x -> combineKernels loopFusionBound (removeAllAnnotations x)) parallelisedPrograms
 
 	let (parallelisedSubroutines, annotationListings) = foldl (transformProgUnit_foldl loopFusionBound) (parsedSubroutines, []) subroutineNames
 	
@@ -89,63 +82,37 @@ main = do
 	let optimisedBufferTransfersSubroutineList = map (\x -> DMap.findWithDefault (error "optimisedBufferTransfersSubroutineList") x optimisedBufferTransfersSubroutines) subroutineNames
 	let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
 	let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
-	-- let optimisedTransfers_map = optimiseBufferTransfers parallelisedSubroutines parsedMain 
 
-	-- let updatedPrograms = updateProgramSubroutines parsedPrograms parsedSubroutines optimisedBufferTransfersSubroutines
 	let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences optimisedBufferTransfersSubroutines parsedPrograms) filenames
 	let ((initWrites, initSrc), (tearDownReads, tearDownSrc)) = initTearDownInfo
 	let initArgList = generateArgList initWrites
 	let tearDownArgList = generateArgList tearDownReads
 	
-	let mainAstInit = insertCallAtSrcSpan parsedMain initSrc "initialiseOpenCLBuffers" initArgList
-	let newMainAst = insertCallAtSrcSpan mainAstInit tearDownSrc "readOpenCLBuffers" initArgList
-	-- let bufferOptimisedPrograms_subroutine_map = optimseBufferTransfers_subroutine accessAnalysis_main parsedMain bufferOptimisedPrograms_kernel_map
-	-- putStr ("bufferOptimisedPrograms_kernel_map:\n" ++ (show bufferOptimisedPrograms_kernel_map) ++ "\n\nbufferOptimisedPrograms_subroutine_map" ++ (show bufferOptimisedPrograms_subroutine_map))
-
-	-- let bufferOptimisedPrograms_subroutine = replaceSubroutineAppearences bufferOptimisedPrograms_subroutine_map bufferOptimisedPrograms_kernel
-	-- putStr ("bufferOptimisedPrograms_subroutine == bufferOptimisedPrograms_kernel: " ++ show (bufferOptimisedPrograms_subroutine == bufferOptimisedPrograms_kernel) ++ "\n")
-
-	-- putStr ("\n\nbufferOptimisedPrograms_subroutine: " ++ (show bufferOptimisedPrograms_subroutine))
-	-- putStr ("\n\nbufferOptimisedPrograms_kernel: " ++ (show bufferOptimisedPrograms_kernel))
-
-	-- putStr $ show $ parsedMain
-
-	-- let annotationListings = zip3 filenames (map compileAnnotationListing parallelisedPrograms) (map compileAnnotationListing combinedPrograms)
+	let mainAstInit = insertCallAtSrcSpan parsedMain initSrc initSubroutineName initArgList
+	let newMainAst = insertCallAtSrcSpan mainAstInit tearDownSrc tearDownSubroutineName tearDownArgList
 	
 
-	mapM (\(filename, par_anno, comb_anno) -> putStr $ "Processing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
+	mapM (\(filename, par_anno, comb_anno) -> putStr $ compilerName ++ ": Analysing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
-	-- putStr (show parsedMain)
-
-	let flattenedMain = flattenSubroutineAppearences parallelisedSubroutines parsedMain
-	-- let kernels = extractKernels flattenedMain
-	-- putStr ("initSrc: " ++ (show initSrc) ++ "\ntearDownSrc: " ++ (show tearDownSrc))
-	-- putStr (show newMainAst)
-	-- putStr "\n\n"
-	-- putStr (show parsedMain)
-	-- let optimisedMain = flattenSubroutineAppearences optimisedBufferTransfersSubroutines parsedMain
-	-- let optimisedKernels = extractKernels optimisedMain
-	-- putStr (show optimisedBufferTransfersSubroutines)
-
-	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms (newMainAst, mainFilename) initTearDownInfo
-	-- emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_optimisedBufferList initTearDownInfo
-	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
-	-- emit outDirectory cppDFlags (zip combinedPrograms filenames) (zip subroutineList filenames)
-	-- emit_alpha outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_parallelisedList
+	putStr (compilerName ++ ": Synthesising OpenCL files\n")
+	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms (newMainAst, mainFilename) initWrites tearDownReads
 
 -- insertCallAtSrcSpan :: ProgUnit Anno -> SrcSpan -> String -> ArgList Anno -> ProgUnit Anno
 insertCallAtSrcSpan ast src callName args = everywhere (mkT (insertCallAtSrcSpan_transformation src callName args)) ast
 
 insertCallAtSrcSpan_transformation ::  SrcSpan -> String -> ArgList Anno -> Fortran Anno -> Fortran Anno
-insertCallAtSrcSpan_transformation targetSrc callName args (FSeq anno src fortran1 fortran2) 	|	sameSrcSpan || betweenSrcSpans = newFSeq
+insertCallAtSrcSpan_transformation targetSrc callName args (FSeq anno src fortran1 fortran2) 	|	sameLine || betweenLines = newFSeq
 																								|	otherwise = (FSeq anno src fortran1 fortran2)
 		where
 			newFSeq = FSeq anno src fortran1 (FSeq nullAnno nullSrcSpan newCall fortran2)
-			-- newFSeq = FSeq nullAnno nullSrcSpan newCall (FSeq anno src fortran1 fortran2)
 			newCall = Call nullAnno targetSrc (generateVar (VarName nullAnno callName)) args
 
-			sameSrcSpan = (fst (srcSpan fortran1)) == (fst targetSrc)
-			betweenSrcSpans = checkSrcSpanBefore (srcSpan fortran1) (targetSrc) && checkSrcSpanAfter (srcSpan fortran2) (targetSrc)
+			((SrcLoc _ targetLineNumber _), _) = targetSrc
+			((SrcLoc _ fortran1LineNumber _), _) = srcSpan fortran1
+			((SrcLoc _ fortran2LineNumber _), _) = srcSpan fortran2
+
+			sameLine = targetLineNumber == fortran1LineNumber
+			betweenLines = targetLineNumber > fortran1LineNumber && targetLineNumber < fortran2LineNumber 
 insertCallAtSrcSpan_transformation _ _ _ codeSeg = codeSeg
 
 

@@ -249,9 +249,9 @@ optimiseBufferTransfers subTable mainAst =
 			
 			kernelRangeSrc = generateKernelCallSrcRange subTable mainAst
 			-- kernelRangeSrc = (fst (srcSpan (head kernels_optimisedBetween)), snd (srcSpan (last kernels_optimisedBetween)))
-			(kernels_withoutInitOrTearDown, initWrites, tearDownReads) = stripInitAndTearDown varAccessAnalysis kernelRangeSrc kernels_optimisedBetween
+			(kernels_withoutInitOrTearDown, initWrites, tearDownReads) = stripInitAndTearDown flattenedVarAccessAnalysis kernelRangeSrc kernels_optimisedBetween
 
-			earliestInitSrc = shiftSrcSpan 1 (generateSrcSpan "" (findEarliestInitialisationSrcSpan varAccessAnalysis kernelRangeSrc initWrites))
+			earliestInitSrc = generateSrcSpan "" (findEarliestInitialisationSrcSpan varAccessAnalysis kernelRangeSrc initWrites)
 			latestTearDownSrc = shiftSrcSpan (-1) (generateSrcSpan "" (findLatestTearDownSrcSpan varAccessAnalysis kernelRangeSrc tearDownReads))
 
 			-- ast_withoutInitOrTearDown = foldl (\accumAst (oldFortran, newFortran) -> replaceFortran accumAst oldFortran newFortran) ast_optimisedBetweenKernels (zip kernels_optimisedBetween kernels_withoutInitOrTearDown)
@@ -327,13 +327,11 @@ stripInitAndTearDown varAccessAnalysis (kernelsStart, kernelsEnd) kernels = (new
 			(currentSrcStart, currentSrcEnd) = srcSpan currentKernel
 			bufferWrites = extractKernelReads currentKernel -- buffer writes are for variables that are read by the kernel
 			bufferReads = extractKernelWrites currentKernel -- buffer reads are for variables that are written to by the kernel
-			(readsBeforeCurrentKernel, writesBeforeCurrentKernel) = getAccessesBetweenSrcSpans varAccessAnalysis kernelsStart currentSrcStart
-			(readsAfterCurrentKernel, writesAfterCurrentKernel) = getAccessesBetweenSrcSpans varAccessAnalysis currentSrcEnd kernelsEnd
+			(_, writesBeforeCurrentKernel) = getAccessesBetweenSrcSpans varAccessAnalysis kernelsStart currentSrcStart
+			(readsAfterCurrentKernel, _) = getAccessesBetweenSrcSpans varAccessAnalysis currentSrcEnd kernelsEnd
 
 			initialisingWrites = listSubtract bufferWrites writesBeforeCurrentKernel
 			tearDownReads = listSubtract bufferReads readsAfterCurrentKernel
-			-- initialisingWrites = listSubtract bufferWrites readsBeforeCurrentKernel
-			-- tearDownReads = listSubtract bufferReads writesAfterCurrentKernel
 
 			newBufferWrites = listSubtract bufferWrites initialisingWrites
 			newBufferReads = listSubtract bufferReads tearDownReads
@@ -345,26 +343,7 @@ stripInitAndTearDown varAccessAnalysis (kernelsStart, kernelsEnd) kernels = (new
 compareKernelsInOrder :: VarAccessAnalysis -> [Fortran Anno] -> (Program Anno, String) -> (Program Anno, String)
 -- compareKernelsInOrder :: VarAccessAnalysis -> [Fortran Anno] -> Program Anno -> Program Anno
 compareKernelsInOrder varAccessAnalysis [] ast = ast
-compareKernelsInOrder varAccessAnalysis kernels (ast, s) = 
-															-- if newFirstKernel == currentKernel
-																-- then
-																	-- error ("compareKernelsInOrder: newFirstKernel == currentKernel\nnewFirstKernel:\n" ++ (show newFirstKernel))
-															-- if newAst == ast 
-															-- 	then
-															-- 		error ("compareKernelsInOrder: newAst == ast:\nMatchCheck: " ++ (show matchCheck)) 
-																-- else
-															-- if currentKernel /= newFirstKernel && (tail kernels) == newKernels && (tail kernels) /= []
-															-- 	then
-															-- 		error ("compareKernelsInOrder: currentKernel /= newFirstKernel && (tail kernels) == newKernels \ncurrentKernel:\n" 
-															-- 			++ (show currentKernel) ++ "\n\nnewFirstKernel:\n" ++ (show newFirstKernel)
-															-- 			++ "\n\nnewKernels:\n" ++ (show newKernels)
-															-- 			)
-															-- 	else
-																-- if length (tail kernels) /= length newKernels
-																-- 	then
-																-- 		error "compareKernelsInOrder: length (tail kernels) /= length newKernels"
-																-- 	else
-																	compareKernelsInOrder varAccessAnalysis (newKernels) (newAst, s ++ debugStr)
+compareKernelsInOrder varAccessAnalysis kernels (ast, s) = compareKernelsInOrder varAccessAnalysis (newKernels) (newAst, s ++ debugStr)
 		where
 			currentKernel = head kernels
 			-- (_, newAst, _, debugStr) = foldl (eliminateBufferPairsKernel_foldl varAccessAnalysis) (currentKernel, ast, [], "") (tail kernels)
@@ -373,22 +352,11 @@ compareKernelsInOrder varAccessAnalysis kernels (ast, s) =
 
 eliminateBufferPairsKernel_recurse :: VarAccessAnalysis -> Fortran Anno -> [Fortran Anno] -> [SrcSpan] -> String -> (Fortran Anno, [Fortran Anno], String)
 eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel [] ignoredSpans debug =  (firstKernel, [], "")
-eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel kernels ignoredSpans debug =
-																								-- if firstKernel /= newFirstKernel && newSecondKernel == secondKernel
-																								-- 	then
-																								-- 		error "eliminateBufferPairsKernel_recurse: currfirstKernelentKernel /= newSecondKernel == secondKernel"
-																								-- 	else
-																								-- (newFirstKernel, [newSecondKernel] ++ (tail kernels), debugStr)
-																								(resursiveCall_firstKernel, newSecondKernel:resursiveCall_kernels, debugStr ++ resursiveCall_debugStr)
+eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel kernels ignoredSpans debug = (resursiveCall_firstKernel, newSecondKernel:resursiveCall_kernels, debugStr ++ resursiveCall_debugStr)
 		where
 			secondKernel = head kernels
 			(newFirstKernel, newSecondKernel, debugStr) = eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel
-			(resursiveCall_firstKernel, resursiveCall_kernels, resursiveCall_debugStr) = eliminateBufferPairsKernel_recurse varAccessAnalysis newFirstKernel (tail kernels) ((srcSpan secondKernel):ignoredSpans) debugStr
-			-- astWithNewFirstKernel = replaceFortran ast firstKernel newFirstKernel
-			-- astWithNewSecondKernel = replaceFortran astWithNewFirstKernel secondKernel newSecondKernel
-
--- eliminateBufferPairsKernel_foldl :: VarAccessAnalysis -> (Fortran Anno, Program Anno, [SrcSpan], String) -> Fortran Anno -> (Fortran Anno, Program Anno, [SrcSpan], String)
--- eliminateBufferPairsKernel_foldl varAccessAnalysis (firstKernel, ast, ignoredSpans, debug) secondKernel = 		
+			(resursiveCall_firstKernel, resursiveCall_kernels, resursiveCall_debugStr) = eliminateBufferPairsKernel_recurse varAccessAnalysis newFirstKernel (tail kernels) ((srcSpan secondKernel):ignoredSpans) debugStr	
 
 eliminateBufferPairsKernel :: VarAccessAnalysis -> [SrcSpan] -> Fortran Anno -> Fortran Anno -> (Fortran Anno, Fortran Anno, String)
 eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel = (newFirstKernel, newSecondKernel, debugStr)
@@ -468,17 +436,6 @@ replaceKernelWrites codeSeg newWrites = case codeSeg of
 				OpenCLMap anno src reads writes loopV fortran -> OpenCLMap anno src reads newWrites loopV fortran
 				OpenCLReduce anno src reads writes loopV redV fortran -> OpenCLReduce anno src reads newWrites loopV redV fortran
 				_ -> error "replaceKernelWrites: not a kernel"
-
--- parseProgUnits :: [String] -> [String] -> IO(SubroutineTable)
--- parseProgUnits cppDFlags filenames = do
--- 			parsedPrograms <- mapM (parseFile cppDFlags) filenames
--- 			let parsedPrograms' = foldl (\accum (ast, filename) -> accum ++ (map (\x -> (x, filename)) (extractSubroutines ast))) [] (zip parsedPrograms filenames)
--- 			-- mapM (\x -> putStr ((show x) ++ "\n\n")) parsedPrograms'
--- 			let subTable = foldl (\accum (ast, filename) -> DMap.insert (extractProgUnitName ast) (ast, filename) accum) DMap.empty parsedPrograms'
-
--- 			-- let subroutineNamePairs = foldl (\accum (ast, fn) -> accum ++ (map (\x -> (extractProgUnitName x, fn)) (extractSubroutines ast))) [] (zip parsedPrograms filenames)
-
--- 			return subTable
 
 constructSubroutineTable :: [(Program Anno, String)] -> SubroutineTable
 constructSubroutineTable programs = foldl (\accum (ast, filename) -> DMap.insert (extractProgUnitName ast) (ast, filename) accum) DMap.empty parsedSubroutines

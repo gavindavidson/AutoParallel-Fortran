@@ -102,7 +102,7 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars dependencie
 												else analysisInfoBaseCase)
 			where
 				writtenExprs = extractOperands expr1
-				readOperands = extractOperands expr2
+				readOperands = listSubtract (extractOperands expr2) (expr1:(extractOperands expr1))
 				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 
 				dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) readExprs) == 1

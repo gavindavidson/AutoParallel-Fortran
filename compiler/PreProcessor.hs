@@ -5,7 +5,9 @@ module PreProcessor where
 import Data.Char
 
 preProcess :: String -> String
-preProcess inputStr =  andOperatorFix $ orOperatorFix $ containsStatementFix $ caseStatementFix $ inputStr
+preProcess inputStr = removeBlankLines $ andOperatorFix $ orOperatorFix $ containsStatementFix $ caseStatementFix $ inputStr
+
+-- removeBlankLines $
 
 caseInsensitive_strReplace :: [Char] -> [Char] -> [Char] -> [Char]
 caseInsensitive_strReplace original replace str 	
@@ -13,6 +15,11 @@ caseInsensitive_strReplace original replace str
 														= replace ++ caseInsensitive_strReplace original replace (drop (length original) str)
 										| str == []		= []
 										| otherwise 	= (take 1 str) ++ caseInsensitive_strReplace original replace (drop 1 str)
+
+removeBlankLines :: [Char] -> [Char]
+removeBlankLines [] = []
+removeBlankLines ('\n':'\n':str) = removeBlankLines ('\n':str)
+removeBlankLines (char:str) = char:(removeBlankLines str)
 
 caseStatementFix :: String -> String
 caseStatementFix input = caseInsensitive_strReplace "\ncase(" "\n case(" (caseInsensitive_strReplace "\ncase " "\n case " input)
