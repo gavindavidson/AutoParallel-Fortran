@@ -36,9 +36,7 @@ import LoopAnalysis
 main = do
 
 	putStr "\nConcerns:"
-	-- putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
-	putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Should original reduction variables be included as args, considering they\n" ++ outputTab ++ outputTab ++ " aren't actually used?")
-	putStr ("\n" ++ outputTab ++ "+" ++ outputTab ++ "Kernel arguments seem to be all over the place..")
+	putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
 	putStr "\n\n"
 
 	args <- getArgs
