@@ -235,6 +235,12 @@ replaceSrSpan input current = input
 standardiseSrcSpan :: SrcSpan -> SrcSpan
 standardiseSrcSpan src = nullSrcSpan
 
+srcSpanInRange :: SrcSpan -> SrcSpan -> Bool
+srcSpanInRange ((SrcLoc _ rSLine rSCol), (SrcLoc _ rELine rECol)) ((SrcLoc _ srcSLine srcSCol), (SrcLoc _ srcELine srcECol)) = startAfterRange && endsBeforeRange
+		where
+			startAfterRange = srcSLine > rSLine || srcSLine == rSLine && srcSCol >= rSCol
+			endsBeforeRange = srcELine < rELine || srcELine == rELine && srcECol <= rECol
+
 generateAssgCode :: Expr Anno -> Expr Anno -> Fortran Anno
 generateAssgCode expr1 expr2 = Assg nullAnno nullSrcSpan expr1 expr2 
 
@@ -342,9 +348,9 @@ combineAnnotations a b = combineMaps a b
 
 
 usesVarName_list :: [VarName Anno] -> Expr Anno -> Bool
-usesVarName_list loopWrites (Var _ _ list) = foldl (||) False $ map (\(varname, exprs) -> elem varname loopWrites) list
-usesVarName_list loopWrites (Bin _ _ _ expr1 expr2) = (usesVarName_list loopWrites expr1) || (usesVarName_list loopWrites expr2)
-usesVarName_list loopWrites _ = False
+usesVarName_list varNames (Var _ _ list) = foldl (||) False $ map (\(varname, exprs) -> elem varname varNames) list
+usesVarName_list varNames (Bin _ _ _ expr1 expr2) = (usesVarName_list varNames expr1) || (usesVarName_list varNames expr2)
+usesVarName_list varNames _ = False
 
 usesVarName :: VarName Anno -> Expr Anno -> Bool
 usesVarName varnameInp (Var _ _ list) = foldl (||) False $ map (\(varname, exprs) -> varname == varnameInp) list

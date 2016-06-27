@@ -36,7 +36,9 @@ import LoopAnalysis
 main = do
 
 	putStr "\nConcerns:"
-	putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
+	putStr ("\n" ++ outputTab ++ "- Consider called subroutines when parallelising.")
+	putStr ("\n" ++ outputTab ++ "- Initialisation location must consider loops, not just accesses before \n" ++ outputTab ++ "position")
+	-- putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
 	putStr "\n\n"
 
 	args <- getArgs
@@ -194,25 +196,25 @@ paralleliseForLoop filename accessAnalysis inp = case inp of
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
 paralleliseLoop :: String -> [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
-paralleliseLoop filename loopVars accessAnalysis loop 	= transformedAst
-												
+paralleliseLoop filename loopVars accessAnalysis loop = transformedAst		
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
 										Nothing -> loopVars
 
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
+									prexistingVars = getPrexistingVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies loop
 
-									mapAttempt = paralleliseLoop_map filename loop newLoopVars nonTempVars dependencies accessAnalysis
+									mapAttempt = paralleliseLoop_map filename loop newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
-									reduceAttempt = paralleliseLoop_reduce filename mapAttempt_ast newLoopVars nonTempVars dependencies accessAnalysis
+									reduceAttempt = paralleliseLoop_reduce filename mapAttempt_ast newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
 
-									iterativeReduceAttempt = paralleliseLoop_iterativeReduce filename reduceAttempt_ast nextFor newLoopVars nonTempVars dependencies accessAnalysis
+									iterativeReduceAttempt = paralleliseLoop_iterativeReduce filename reduceAttempt_ast nextFor newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
 									iterativeReduceAttempt_bool = fst iterativeReduceAttempt
 									iterativeReduceAttempt_ast = snd iterativeReduceAttempt
 
@@ -239,13 +241,13 @@ extractWrites _ = []
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
-paralleliseLoop_map :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_map filename loop loopVarNames nonTempVars dependencies accessAnalysis	
+paralleliseLoop_map :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_map filename loop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis	
 									|	errors_map' == nullAnno 	=	(True, appendAnnotation mapCode (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) "")
 									|	otherwise					=	(False, appendAnnotationMap loop errors_map')
 									where
 										loopWrites = extractWrites_query loop
-										loopAnalysis = analyseLoop_map "Cannot map: " [] loopWrites nonTempVars accessAnalysis dependencies loop
+										loopAnalysis = analyseLoop_map "Cannot map: " [] loopWrites nonTempVars prexistingVars accessAnalysis dependencies loop
 										-- loopAnalysis = analyseLoop_map Empty loopVarNames loopWrites nonTempVars accessAnalysis dependencies loop
 										errors_map = getErrorAnnotations loopAnalysis
 										reads_map = getReads loopAnalysis
@@ -275,13 +277,13 @@ paralleliseLoop_map filename loop loopVarNames nonTempVars dependencies accessAn
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLReduce nodes or the
 --	original sub-tree annotated with reasons why the loop is not a reduction
-paralleliseLoop_reduce :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_reduce filename loop loopVarNames nonTempVars dependencies accessAnalysis	
+paralleliseLoop_reduce :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno]-> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_reduce filename loop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis	
 									| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation reductionCode (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) "")
 									|	otherwise					=	(False, appendAnnotationMap loop errors_reduce')
 									where
 										loopWrites = extractWrites_query loop
-										loopAnalysis = analyseLoop_reduce "Cannot reduce: " [] [] loopWrites nonTempVars dependencies accessAnalysis loop 
+										loopAnalysis = analyseLoop_reduce "Cannot reduce: " [] [] loopWrites nonTempVars prexistingVars dependencies accessAnalysis loop 
 										-- loopAnalysis = analyseLoop_reduce [] loopVarNames loopWrites nonTempVars dependencies accessAnalysis loop 
 										errors_reduce = getErrorAnnotations loopAnalysis
 										reductionVariables = getReductionVars loopAnalysis
@@ -314,15 +316,15 @@ paralleliseLoop_reduce filename loop loopVarNames nonTempVars dependencies acces
 
 --	An iterative reduction (name change pending) occurs when a parallel reduction occurs in some nested loops but requires values from some outer, iterative loop. More advanced loop carried dependency
 --	analysis caused this to be necessary.
-paralleliseLoop_iterativeReduce :: String -> Fortran Anno -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_iterativeReduce filename iteratingLoop parallelLoop loopVarNames nonTempVars dependencies accessAnalysis 
+paralleliseLoop_iterativeReduce :: String -> Fortran Anno -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_iterativeReduce filename iteratingLoop parallelLoop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 
 				| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation iterativeReductionCode (compilerName ++ ": Iterative Reduction at " ++ errorLocationFormatting (srcSpan iteratingLoop) ++ " with parallal loop at "  ++ errorLocationFormatting (srcSpan parallelLoop)) "")
-				|	nextFor_maybe /= Nothing 	= 	paralleliseLoop_iterativeReduce filename (appendAnnotationMap iteratingLoop errors_reduce') nextFor loopVarNames nonTempVars dependencies accessAnalysis 
+				|	nextFor_maybe /= Nothing 	= 	paralleliseLoop_iterativeReduce filename (appendAnnotationMap iteratingLoop errors_reduce') nextFor loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 
 				|	otherwise					=	(False, appendAnnotationMap iteratingLoop errors_reduce')
 
 		where
 			loopWrites = extractWrites_query parallelLoop
-			loopAnalysis = analyseLoop_reduce iterativeReduceComment [] [] loopWrites nonTempVars dependencies accessAnalysis parallelLoop 
+			loopAnalysis = analyseLoop_reduce iterativeReduceComment [] [] loopWrites nonTempVars prexistingVars dependencies accessAnalysis parallelLoop 
 			errors_reduce = getErrorAnnotations loopAnalysis
 			reductionVariables = getReductionVars loopAnalysis
 			reads_reduce = getReads loopAnalysis
