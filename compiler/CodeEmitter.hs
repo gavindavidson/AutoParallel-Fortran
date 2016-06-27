@@ -334,7 +334,7 @@ produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
 						NullStmt _ _ -> ""
 						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall prog tabs codeSeg) ++ (commentSeparator "END")
 						OpenCLReduce _ _ _ _ _ rv f -> (generateKernelCall prog tabs codeSeg)
-																++ (mkQ "" (produceCode_fortran prog "" originalLines) hostReductionLoop) ++ "\n" ++ (commentSeparator "END")
+																++ (mkQ "" (produceCode_fortran prog tabs originalLines) hostReductionLoop) ++ "\n" ++ (commentSeparator "END")
 								where 
 									reductionVarNames = map (\(varname, expr) -> varname) rv
 									r_iter = generateReductionIterator reductionVarNames

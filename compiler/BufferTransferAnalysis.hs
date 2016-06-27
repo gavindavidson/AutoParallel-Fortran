@@ -16,7 +16,7 @@ replaceSubroutineAppearences subTable (firstProgram:programs) = updated:replaceS
 		where 
 			updated = everywhere (mkT (replaceSubroutine subTable)) firstProgram
 
-flattenSubroutineAppearences :: SubroutineTable -> Program Anno -> Program Anno
+-- flattenSubroutineAppearences :: SubroutineTable -> Program Anno -> Program Anno
 flattenSubroutineAppearences subTable mainAst = updated
 		where
 			subroutines = DMap.keys subTable

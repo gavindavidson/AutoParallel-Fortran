@@ -72,13 +72,15 @@ main = do
 	let subroutineNames = DMap.keys parsedSubroutines
 	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (subroutineNames)
 
-	let (parallelisedSubroutines, annotationListings) = foldl (transformProgUnit_foldl loopFusionBound) (parsedSubroutines, []) subroutineNames
-	
-	let parallelisedSubroutineList = map (\x -> DMap.findWithDefault (error "parallelisedSubroutineList") x parallelisedSubroutines) subroutineNames
+	let (parallelisedSubroutines, parAnnotations) = foldl (paralleliseProgUnit_foldl) (parsedSubroutines, []) subroutineNames
+	let (combinedKernelSubroutines, combAnnotations) = foldl (combineKernelProgUnit_foldl loopFusionBound) (parallelisedSubroutines, []) subroutineNames
+	let annotationListings = map (combineAnnotationListings_map parAnnotations) combAnnotations
+
+	let parallelisedSubroutineList = map (\x -> DMap.findWithDefault (error "parallelisedSubroutineList") x combinedKernelSubroutines) subroutineNames
 	let fileCoordinated_parallelisedMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty parallelisedSubroutineList
 	let fileCoordinated_parallelisedList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_parallelisedMap") x fileCoordinated_parallelisedMap, x)) filenames
 
-	let (optimisedBufferTransfersSubroutines, initTearDownInfo) = optimiseBufferTransfers parallelisedSubroutines parsedMain 
+	let (optimisedBufferTransfersSubroutines, initTearDownInfo) = optimiseBufferTransfers combinedKernelSubroutines parsedMain 
 	let optimisedBufferTransfersSubroutineList = map (\x -> DMap.findWithDefault (error "optimisedBufferTransfersSubroutineList") x optimisedBufferTransfersSubroutines) subroutineNames
 	let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
 	let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
@@ -91,11 +93,21 @@ main = do
 	let mainAstInit = insertCallAtSrcSpan parsedMain initSrc initSubroutineName initArgList
 	let newMainAst = insertCallAtSrcSpan mainAstInit tearDownSrc tearDownSubroutineName tearDownArgList
 	
-
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ compilerName ++ ": Analysing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
+
+	putStr "\n\nPARSED SUBROUTINES\n\n"
+	putStr (show parsedSubroutines)
+	putStr "\n\nPARALLEL SUBROUTINES\n\n"
+	putStr (show parallelisedSubroutines)
+	putStr "\n\nCOMBINED SUBROUTINES\n\n"
+	putStr (show combinedKernelSubroutines)
+	-- mapM (\(ast, filename) -> putStr ("FILENAME: " ++ filename ++ "\n\n" ++ (show ast))) fileCoordinated_bufferOptimisedPrograms
 
 	putStr (compilerName ++ ": Synthesising OpenCL files\n")
 	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms (newMainAst, mainFilename) initWrites tearDownReads
+
+combineAnnotationListings_map :: [(String, String)] -> (String, String) -> (String, String, String)
+combineAnnotationListings_map annoations (currentFilename, currentAnno) = foldl (\accum (filename, anno) -> if filename == currentFilename then (filename, currentAnno, anno) else accum) (currentFilename, currentAnno, "") annoations
 
 -- insertCallAtSrcSpan :: ProgUnit Anno -> SrcSpan -> String -> ArgList Anno -> ProgUnit Anno
 insertCallAtSrcSpan ast src callName args = everywhere (mkT (insertCallAtSrcSpan_transformation src callName args)) ast
@@ -124,23 +136,32 @@ generateESeq :: [VarName Anno] -> Expr Anno
 generateESeq (var:[]) = generateVar var
 generateESeq (var:vars) = ESeq nullAnno nullSrcSpan (generateESeq vars) (generateVar var)
 
-transformProgUnit_foldl :: Maybe(Float) -> (SubroutineTable, [(String, String, String)]) -> String -> (SubroutineTable, [(String, String, String)])
-transformProgUnit_foldl loopFusionBound (subTable, annoListing) subName = (newSubTable, annoListing ++ [anno])
+paralleliseProgUnit_foldl ::(SubroutineTable, [(String, String)]) -> String -> (SubroutineTable, [(String, String)])
+paralleliseProgUnit_foldl (subTable, annoListing) subName = (newSubTable, annoListing ++ [anno])
 		where
-			(progUnit, filename) = DMap.findWithDefault (error "transformProgUnit_foldl") subName subTable
-			(transformedProgUnit, anno) = transformProgUnit progUnit filename loopFusionBound
+			(progUnit, filename) = DMap.findWithDefault (error "paralleliseProgUnit_foldl") subName subTable
+			(transformedProgUnit, anno) = paralleliseProgUnit progUnit subTable filename 
 			newSubTable = DMap.insert subName (transformedProgUnit, filename) subTable
 
-transformProgUnit :: ProgUnit Anno -> String -> Maybe(Float) -> (ProgUnit Anno, (String, String, String))
-transformProgUnit progUnit filename loopFusionBound = (combined, (filename, parAnno, combAnno))
+paralleliseProgUnit :: ProgUnit Anno -> SubroutineTable -> String -> (ProgUnit Anno, (String, String))
+paralleliseProgUnit progUnit subTable filename = (parallelised, (filename, parAnno))
 		where
 			foldedConstants = foldConstants progUnit
-			parallelised =  paralleliseProgUnit filename (analyseAllVarAccess_progUnit progUnit) foldedConstants
+			parallelised =  paralleliseProgUnit_transform filename subTable (analyseAllVarAccess_progUnit progUnit) foldedConstants
 			parAnno = compileAnnotationListing parallelised
 
-			combined = combineKernelsProgUnit loopFusionBound (removeAllAnnotations parallelised)
-			combAnno = compileAnnotationListing combined
+combineKernelProgUnit_foldl :: Maybe(Float) -> (SubroutineTable, [(String, String)]) -> String -> (SubroutineTable, [(String, String)])
+combineKernelProgUnit_foldl loopFusionBound (subTable, annoListing) subName = (newSubTable, annoListing ++ [anno])
+		where
+			(progUnit, filename) = DMap.findWithDefault (error "paralleliseProgUnit_foldl") subName subTable
+			(transformedProgUnit, anno) = combineKernelProgUnit loopFusionBound progUnit subTable filename 
+			newSubTable = DMap.insert subName (transformedProgUnit, filename) subTable
 
+combineKernelProgUnit :: Maybe(Float) -> ProgUnit Anno -> SubroutineTable -> String -> (ProgUnit Anno, (String, String))
+combineKernelProgUnit loopFusionBound progUnit subTable filename = (combined, (filename, combAnno))
+		where
+			combined = combineKernelsProgUnit loopFusionBound (removeAllAnnotations progUnit)
+			combAnno = compileAnnotationListing combined
 
 filenameFlag = "-modules"
 outDirectoryFlag = "-out"
@@ -176,27 +197,27 @@ addArg argMap flag value = DMap.insert flag newValues argMap
 usageError = error "USAGE: [<filename>] -main <filename> [<flag> <value>]"
 
 --	The top level function that is called against the original parsed AST
-paralleliseProgram :: String -> VarAccessAnalysis -> Program Anno -> Program Anno 
-paralleliseProgram filename accessAnalysis codeSeg = map (everywhere (mkT (paralleliseBlock filename(accessAnalysis)))) codeSeg
+paralleliseProgram :: String -> SubroutineTable -> VarAccessAnalysis -> Program Anno -> Program Anno 
+paralleliseProgram filename subTable accessAnalysis codeSeg = map (everywhere (mkT (paralleliseBlock filename subTable (accessAnalysis)))) codeSeg
 
-paralleliseProgUnit :: String -> VarAccessAnalysis -> ProgUnit Anno -> ProgUnit Anno 
-paralleliseProgUnit filename accessAnalysis codeSeg = everywhere (mkT (paralleliseBlock filename(accessAnalysis))) codeSeg
+paralleliseProgUnit_transform :: String -> SubroutineTable -> VarAccessAnalysis -> ProgUnit Anno -> ProgUnit Anno 
+paralleliseProgUnit_transform filename subTable accessAnalysis codeSeg = everywhere (mkT (paralleliseBlock filename subTable (accessAnalysis))) codeSeg
 
 
 --	Called by above to identify actions to take when a Block is encountered. In this case look for loops to parallelise using paralleliseForLoop
-paralleliseBlock :: String -> VarAccessAnalysis -> Block Anno -> Block Anno
-paralleliseBlock filename accessAnalysis block = gmapT (mkT (paralleliseForLoop filename accessAnalysis)) block
+paralleliseBlock :: String -> SubroutineTable -> VarAccessAnalysis -> Block Anno -> Block Anno
+paralleliseBlock filename subTable accessAnalysis block = gmapT (mkT (paralleliseForLoop filename subTable accessAnalysis)) block
 
 --	When a for loop is encountered this function attempts to parallelise it.
-paralleliseForLoop :: String -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
-paralleliseForLoop filename accessAnalysis inp = case inp of
-		For _ _ _ _ _ _ _ -> paralleliseLoop filename [] accessAnalysis $ gmapT (mkT (paralleliseForLoop filename accessAnalysis )) inp
-		_ -> gmapT (mkT (paralleliseForLoop filename accessAnalysis)) inp
+paralleliseForLoop :: String -> SubroutineTable -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
+paralleliseForLoop filename subTable accessAnalysis inp = case inp of
+		For _ _ _ _ _ _ _ -> paralleliseLoop filename [] accessAnalysis subTable $ gmapT (mkT (paralleliseForLoop filename subTable accessAnalysis )) inp
+		_ -> gmapT (mkT (paralleliseForLoop filename subTable accessAnalysis)) inp
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new parallel (OpenCLMap etc)
 --	nodes or the original sub-tree annotated with parallelisation errors. Attempts to map and then to reduce.
-paralleliseLoop :: String -> [VarName Anno] -> VarAccessAnalysis -> Fortran Anno -> Fortran Anno
-paralleliseLoop filename loopVars accessAnalysis loop = transformedAst		
+paralleliseLoop :: String -> [VarName Anno] -> VarAccessAnalysis -> SubroutineTable -> Fortran Anno -> Fortran Anno
+paralleliseLoop filename loopVars accessAnalysis subTable loop = transformedAst		
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
@@ -205,7 +226,9 @@ paralleliseLoop filename loopVars accessAnalysis loop = transformedAst
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									prexistingVars = getPrexistingVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies loop
+									flattenedLoop = flattenSubroutineAppearences subTable loop
 
+									-- mapAttempt = paralleliseLoop_map filename flattenedLoop newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
 									mapAttempt = paralleliseLoop_map filename loop newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
