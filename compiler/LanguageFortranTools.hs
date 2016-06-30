@@ -389,10 +389,13 @@ varNameListStr :: [VarName Anno] -> String
 varNameListStr (var:[]) = varNameStr var
 varNameListStr (var:vars) = (varNameStr var) ++ "," ++ (varNameListStr vars)
 
---	Takes two ASTs and appends on onto the other so that the resulting AST is in the correct format
+--	Takes two ASTs and appends one onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran Anno -> Fortran Anno -> Fortran Anno
-appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 (NullStmt anno2 src2)) = FSeq anno1 src1 fortran1 newFortran
+appendFortran_recursive newFortran (FSeq anno1 src1 (NullStmt _ _) fortran2) = FSeq anno1 src1 fortran2 newFortran
+appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 (NullStmt _ _)) = FSeq anno1 src1 fortran1 newFortran
 appendFortran_recursive newFortran (FSeq anno1 src1 fortran1 fortran2) = FSeq anno1 src1 fortran1 (appendFortran_recursive newFortran fortran2)
+appendFortran_recursive (NullStmt _ _) codeSeg = codeSeg
+appendFortran_recursive newFortran (NullStmt _ _) = newFortran
 appendFortran_recursive newFortran codeSeg = FSeq nullAnno nullSrcSpan codeSeg newFortran
 
 --	Takes an AST and removes the loop statements from the node and joins up the rest of the code so that is it represented in the
@@ -403,13 +406,42 @@ removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran) = removeLoopConstructs_
 removeLoopConstructs_recursive (FSeq _ _ fortran (NullStmt _ _)) = removeLoopConstructs_recursive fortran
 removeLoopConstructs_recursive codeSeg = codeSeg
 
-extractFirstChildFor :: Fortran Anno -> Maybe(Fortran Anno)
-extractFirstChildFor (For _ _ _ _ _ _ fortran) = firstFor
+extractFirstChildFor :: Fortran Anno -> Maybe(Fortran Anno, Fortran Anno, Fortran Anno)
+extractFirstChildFor (For _ _ _ _ _ _ fortran) 	|	forFound = Just(priorFortran, firstFor, followingFortran)
+												|	otherwise = Nothing
 		where
-			allFors = everything (++) (mkQ [] extractFor) fortran
-			firstFor = case allFors of
-						[] -> Nothing
-						otherwise -> Just(head allFors)
+			allFors = everything (++) (mkQ [] extractForWithFollowing) fortran
+			forFound = case extractedFor of
+							Nothing -> False
+							Just a -> True
+			extractedFor = extractForWithFollowing_beta fortran
+			(firstFor, followingFortran) = fromMaybe (error "extractFirstChildFor") extractedFor
+			-- (firstFor, followingFortran) = head allFors
+			priorFortran = extractPriorToFor fortran
+
+extractForWithFollowing :: Fortran Anno -> [(Fortran Anno, Fortran Anno)]
+extractForWithFollowing (FSeq _ _ fortran1 fortran2) = case fortran1 of
+															For _ _ _ _ _ _ _  -> [(fortran1, fortran2)]
+															_ -> []
+extractForWithFollowing _ = []
+
+extractForWithFollowing_beta :: Fortran Anno -> Maybe(Fortran Anno, Fortran Anno)
+extractForWithFollowing_beta codeSeg = case codeSeg of
+											FSeq _ _ fortran1 fortran2 -> case fortran1 of
+																				For _ _ _ _ _ _ _ -> Just(fortran1, fortran2)
+																				_ -> recursiveCheck_maybe
+											_ -> recursiveCheck_maybe
+		where
+			recursiveCheck = (gmapQ (mkQ Nothing extractForWithFollowing_beta) codeSeg)
+			recursiveCheck_maybe = case recursiveCheck of
+										[] -> Nothing
+										_ -> head recursiveCheck
+
+extractPriorToFor :: Fortran Anno -> Fortran Anno
+extractPriorToFor codeSeg = case codeSeg of
+								For _ _ _ _ _ _ _ -> NullStmt nullAnno nullSrcSpan
+								FSeq _ _ (For _ _ _ _ _ _ _) _ -> NullStmt nullAnno nullSrcSpan
+								_ -> gmapT (mkT extractPriorToFor) codeSeg
 
 extractFor :: Fortran Anno -> [Fortran Anno]
 extractFor codeSeg = case codeSeg of

@@ -55,12 +55,15 @@ main = do
 	let outDirectory = case DMap.lookup outDirectoryFlag argMap of
 						Just dirList -> head dirList
 						Nothing -> "./"
+
 	let loopFusionBound = case DMap.lookup loopFusionBoundFlag argMap of
-							Just bound -> Just (read (head bound) :: Float)
-							Nothing -> Nothing
+						Just bound -> Just (read (head bound) :: Float)
+						Nothing -> Nothing
+
 	let verbose = case DMap.lookup verboseFlag argMap of
 						Just a -> True
 						Nothing -> False
+
 	let cppDFlags = DMap.findWithDefault [] cppDefineFlag argMap
 
 	parsedPrograms <- mapM (parseFile cppDFlags) filenames
@@ -95,12 +98,12 @@ main = do
 	
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ compilerName ++ ": Analysing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
-	putStr "\n\nPARSED SUBROUTINES\n\n"
-	putStr (show parsedSubroutines)
-	putStr "\n\nPARALLEL SUBROUTINES\n\n"
-	putStr (show parallelisedSubroutines)
-	putStr "\n\nCOMBINED SUBROUTINES\n\n"
-	putStr (show combinedKernelSubroutines)
+	-- putStr "\n\nPARSED SUBROUTINES\n\n"
+	-- putStr (show parsedSubroutines)
+	-- putStr "\n\nPARALLEL SUBROUTINES\n\n"
+	-- putStr (show parallelisedSubroutines)
+	-- putStr "\n\nCOMBINED SUBROUTINES\n\n"
+	-- putStr (show combinedKernelSubroutines)
 	-- mapM (\(ast, filename) -> putStr ("FILENAME: " ++ filename ++ "\n\n" ++ (show ast))) fileCoordinated_bufferOptimisedPrograms
 
 	putStr (compilerName ++ ": Synthesising OpenCL files\n")
@@ -237,22 +240,19 @@ paralleliseLoop filename loopVars accessAnalysis subTable loop = transformedAst
 									reduceAttempt_bool = fst reduceAttempt
 									reduceAttempt_ast = snd reduceAttempt
 
-									iterativeReduceAttempt = paralleliseLoop_iterativeReduce filename reduceAttempt_ast nextFor newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
+									iterativeReduceAttempt = paralleliseLoop_iterativeReduce filename reduceAttempt_ast Nothing newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
 									iterativeReduceAttempt_bool = fst iterativeReduceAttempt
 									iterativeReduceAttempt_ast = snd iterativeReduceAttempt
-
-									nextFor_maybe = extractFirstChildFor loop
-									nextFor = case nextFor_maybe of 
-													Nothing -> error "paralleliseLoop_iterativeReduce: nextFor_maybe is Nothing"
-													Just a -> a
 
 									transformedAst = case mapAttempt_bool of
 										True	->  mapAttempt_ast
 										False 	-> case reduceAttempt_bool of
 													True 	-> reduceAttempt_ast
-													False	-> case nextFor_maybe of
-																Nothing -> reduceAttempt_ast
-																Just codeSeg -> iterativeReduceAttempt_ast
+													False	-> iterativeReduceAttempt_ast
+
+													-- case nextFor_maybe of
+													-- 			Nothing -> reduceAttempt_ast
+													-- 			Just codeSeg -> iterativeReduceAttempt_ast
 									
 --	These functions are used to extract a list of varnames that are written to in a particular chunk of code. Used to asses
 extractWrites_query :: (Typeable p, Data p) => Fortran p -> [VarName p]
@@ -265,7 +265,7 @@ extractWrites _ = []
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
 paralleliseLoop_map :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_map filename loop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis	
+paralleliseLoop_map filename loop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis
 									|	errors_map' == nullAnno 	=	(True, appendAnnotation mapCode (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) "")
 									|	otherwise					=	(False, appendAnnotationMap loop errors_map')
 									where
@@ -339,10 +339,21 @@ paralleliseLoop_reduce filename loop loopVarNames nonTempVars prexistingVars dep
 
 --	An iterative reduction (name change pending) occurs when a parallel reduction occurs in some nested loops but requires values from some outer, iterative loop. More advanced loop carried dependency
 --	analysis caused this to be necessary.
-paralleliseLoop_iterativeReduce :: String -> Fortran Anno -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_iterativeReduce filename iteratingLoop parallelLoop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 
+paralleliseLoop_iterativeReduce :: String -> Fortran Anno -> Maybe(Fortran Anno) -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
+paralleliseLoop_iterativeReduce filename loop Nothing loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 	|	nextFor_maybe == Nothing = (False, loop)
+																														 	|	otherwise = (iterativeReduceAttempt_bool, newAst)
+		where
+			nextFor_maybe = extractFirstChildFor loop
+			(priorFortran, nextFor, followingFortran) = case nextFor_maybe of 
+							Nothing -> error "paralleliseLoop_iterativeReduce: nextFor_maybe is Nothing"
+							Just a -> a
+			(iterativeReduceAttempt_bool, iterativeReduceAttempt_ast) = paralleliseLoop_iterativeReduce filename loop (Just(nextFor)) loopVarNames nonTempVars prexistingVars dependencies accessAnalysis
+			newAst = case iterativeReduceAttempt_ast of
+						For a1 a2 a3 a4 a5 a6 fortran -> For a1 a2 a3 a4 a5 a6 (appendFortran_recursive (appendFortran_recursive followingFortran fortran) priorFortran)
+
+paralleliseLoop_iterativeReduce filename iteratingLoop (Just(parallelLoop)) loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 
 				| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation iterativeReductionCode (compilerName ++ ": Iterative Reduction at " ++ errorLocationFormatting (srcSpan iteratingLoop) ++ " with parallal loop at "  ++ errorLocationFormatting (srcSpan parallelLoop)) "")
-				|	nextFor_maybe /= Nothing 	= 	paralleliseLoop_iterativeReduce filename (appendAnnotationMap iteratingLoop errors_reduce') nextFor loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 
+				|	nextFor_maybe /= Nothing 	= 	paralleliseLoop_iterativeReduce filename (appendAnnotationMap iteratingLoop errors_reduce') (Just(nextFor)) loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 
 				|	otherwise					=	(False, appendAnnotationMap iteratingLoop errors_reduce')
 
 		where
@@ -371,12 +382,13 @@ paralleliseLoop_iterativeReduce filename iteratingLoop parallelLoop loopVarNames
 			varNames_loopVariables = listSubtract (listRemoveDuplications (startVarNames ++ endVarNames ++ stepVarNames)) loopVarNames
 
 			nextFor_maybe = extractFirstChildFor parallelLoop
-			nextFor = case nextFor_maybe of 
+			(priorFortran, nextFor, followingFortran) = case nextFor_maybe of 
 							Nothing -> error "paralleliseLoop_iterativeReduce: nextFor is Nothing"
 							Just a -> a
+			newAst = appendFortran_recursive followingFortran (appendFortran_recursive reductionCode priorFortran)
 
 			iterativeReductionCode = case iteratingLoop of
-										For a1 a2 a3 a4 a5 a6 fortran -> For a1 a2 a3 a4 a5 a6 reductionCode
+										For a1 a2 a3 a4 a5 a6 fortran -> For a1 a2 a3 a4 a5 a6 newAst -- reductionCode
 										_ -> error "paralleliseLoop_iterativeReduce: iterating loop is not FOR"
 
 			reductionCode = OpenCLReduce nullAnno (generateSrcSpan filename (srcSpan parallelLoop))  
