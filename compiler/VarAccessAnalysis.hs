@@ -379,25 +379,3 @@ getAccessesInsideSrcSpan_var src localVarAccesses var = newLocalVarAccesses
 			newReads = filter (srcSpanInRange src) reads
 			newWrites = filter (srcSpanInRange src) writes
 			newLocalVarAccesses = DMap.insert var (newReads, newWrites) localVarAccesses
-
-getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
-getEarliestSrcSpan [] = Nothing
-getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
-
-getLatestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
-getLatestSrcSpan [] = Nothing
-getLatestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then accum else item) (spans!!0) spans)
-
-checkSrcLocBefore :: SrcLoc -> SrcLoc -> Bool
-checkSrcLocBefore (SrcLoc file_before line_before column_before) (SrcLoc file_after line_after column_after) =  (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
-
-checkSrcSpanAfter :: SrcSpan -> SrcSpan -> Bool
-checkSrcSpanAfter ((SrcLoc file_before line_before column_before), _) (_, (SrcLoc file_after line_after column_after)) = (line_before > line_after) || ((line_before == line_after) && (column_before > column_after))
--- checkSrcSpanAfter ((SrcLoc file_before line_before column_before), _) ((SrcLoc file_after line_after column_after), _) = (line_before > line_after) || ((line_before == line_after) && (column_before > column_after))
-
-checkSrcSpanBefore :: SrcSpan -> SrcSpan -> Bool
-checkSrcSpanBefore (_, (SrcLoc file_before line_before column_before)) ((SrcLoc file_after line_after column_after), _) = (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
--- checkSrcSpanBefore ((SrcLoc file_before line_before column_before), _) ((SrcLoc file_after line_after column_after), _) = (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
-
-checkSrcSpanBefore_line :: SrcSpan -> SrcSpan -> Bool
-checkSrcSpanBefore_line ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after)

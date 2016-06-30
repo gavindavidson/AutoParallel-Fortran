@@ -138,6 +138,10 @@ extractVarNames :: (Typeable p, Data p) => Expr p -> [VarName p]
 extractVarNames (Var _ _ lst) = map (\(x, _) -> x) lst
 extractVarNames _ = []
 
+extractAllVarNames ::(Data (a Anno)) => a Anno -> [VarName Anno]
+-- extractAllVarNames :: Expr Anno -> [VarName Anno]
+extractAllVarNames = everything (++) (mkQ [] (extractVarNames))
+
 --	Used to extract array index expressions and function call arguments.
 extractContainedVars :: (Typeable p, Data p) => Expr p -> [Expr p]
 extractContainedVars (Var _ _ lst) = foldl (\accumExprs (itemVar, itemExprs) -> accumExprs ++ itemExprs) [] lst
@@ -165,10 +169,6 @@ extractAssigneeFromDecl (Decl anno src lst typ) = head (extractVarNames assignee
 				assignee = (\(x, _, _) -> x) (head lst)
 extractAssigneeFromDecl	_ = error "extractAssigneeFromDecl"
 
--- extractBaseType :: Decl Anno -> BaseType Anno
--- extractBaseType (Decl _ _ _ (BaseType _ bt _ _ _)) = bt
--- extractBaseType (Decl _ _ _ (ArrayT _ _ bt _ _ _)) = bt
-
 extractBaseType :: Type Anno -> BaseType Anno
 extractBaseType (BaseType _ bt _ _ _) = bt
 extractBaseType (ArrayT _ _ bt _ _ _) = bt
@@ -185,9 +185,6 @@ nullSrcSpan = (nullSrcLoc, nullSrcLoc)
 
 nullSrcLoc :: SrcLoc
 nullSrcLoc = SrcLoc {srcFilename = "generated", srcLine = -1, srcColumn = -1}
-
--- generateSrcSpan :: SrcSpan -> SrcSpan
--- generateSrcSpan ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, sfgenerateVarrcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
 
 generateSrcSpan :: String -> SrcSpan -> SrcSpan
 generateSrcSpan [] ((SrcLoc sFile sLine sCol), (SrcLoc eFile eLine eCol)) = (SrcLoc {srcFilename = "generated", srcLine = sLine, srcColumn = sCol}, SrcLoc {srcFilename = "generated", srcLine = eLine, srcColumn = eCol})
@@ -466,6 +463,28 @@ getSrcSpanNonIntersection src1 src2 = (firstSrc, secondSrc)
 						firstSrc = (src1_s, src2_s)
 						secondSrc = (src2_e, src1_e)
 
+getEarliestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
+getEarliestSrcSpan [] = Nothing
+getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then item else accum) (spans!!0) spans)
+
+getLatestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
+getLatestSrcSpan [] = Nothing
+getLatestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then accum else item) (spans!!0) spans)
+
+checkSrcLocBefore :: SrcLoc -> SrcLoc -> Bool
+checkSrcLocBefore (SrcLoc file_before line_before column_before) (SrcLoc file_after line_after column_after) =  (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
+
+checkSrcSpanAfter :: SrcSpan -> SrcSpan -> Bool
+checkSrcSpanAfter ((SrcLoc file_before line_before column_before), _) (_, (SrcLoc file_after line_after column_after)) = (line_before > line_after) || ((line_before == line_after) && (column_before > column_after))
+-- checkSrcSpanAfter ((SrcLoc file_before line_before column_before), _) ((SrcLoc file_after line_after column_after), _) = (line_before > line_after) || ((line_before == line_after) && (column_before > column_after))
+
+checkSrcSpanBefore :: SrcSpan -> SrcSpan -> Bool
+checkSrcSpanBefore (_, (SrcLoc file_before line_before column_before)) ((SrcLoc file_after line_after column_after), _) = (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
+-- checkSrcSpanBefore ((SrcLoc file_before line_before column_before), _) ((SrcLoc file_after line_after column_after), _) = (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))
+
+checkSrcSpanBefore_line :: SrcSpan -> SrcSpan -> Bool
+checkSrcSpanBefore_line ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after)
+
 listCartesianProduct :: [a] -> [a] -> [(a,a)]
 listCartesianProduct xs ys = [(x,y) | x <- xs, y <- ys]
 
@@ -637,9 +656,6 @@ outputTab = "  "
 
 compilerName :: String
 compilerName = "ParallelFortran"
-
--- commentSeparator :: String
--- commentSeparator = "!" ++ (take 40 ['-','-'..'-']) ++ "\n"
 
 commentSeparator :: String -> String
 commentSeparator str = prefix ++ (commentSeparator' comment body) ++ suffix

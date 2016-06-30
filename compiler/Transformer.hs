@@ -36,8 +36,16 @@ import LoopAnalysis
 main = do
 
 	putStr "\nConcerns:"
-	putStr ("\n" ++ outputTab ++ "- Consider called subroutines when parallelising.")
-	putStr ("\n" ++ outputTab ++ "- Initialisation location must consider loops, not just accesses before \n" ++ outputTab ++ "position")
+	putStr ("\n" 	++ outputTab ++ "- Consider called subroutines when parallelising.")
+	putStr ("\n" 	++ outputTab ++ "- Initialisation location must consider loops, not just accesses before\n" 
+					++ outputTab ++ "position")
+	putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
+					++ outputTab ++ "are read back from buffers.")
+	putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
+	putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments")
+	putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use")
+
+
 	-- putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
 	putStr "\n\n"
 
@@ -91,10 +99,13 @@ main = do
 	let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences optimisedBufferTransfersSubroutines parsedPrograms) filenames
 	let ((initWrites, initSrc), (tearDownReads, tearDownSrc)) = initTearDownInfo
 	let initArgList = generateArgList initWrites
-	let tearDownArgList = generateArgList tearDownReads
+	-- let tearDownArgList = generateArgList tearDownReads
 	
 	let mainAstInit = insertCallAtSrcSpan parsedMain initSrc initSubroutineName initArgList
-	let newMainAst = insertCallAtSrcSpan mainAstInit tearDownSrc tearDownSubroutineName tearDownArgList
+	let newMainAst = insertBufferReads mainAstInit tearDownReads tearDownSrc
+	-- let newMainAst = insertCallAtSrcSpan mainAstInit tearDownSrc tearDownSubroutineName tearDownArgList
+
+	-- insertBufferReads
 	
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ compilerName ++ ": Analysing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
 
@@ -104,6 +115,8 @@ main = do
 	-- putStr (show parallelisedSubroutines)
 	-- putStr "\n\nCOMBINED SUBROUTINES\n\n"
 	-- putStr (show combinedKernelSubroutines)
+	-- putStr "\n\nNEWMAINAST\n\n"
+	-- putStr (show newMainAst)
 	-- mapM (\(ast, filename) -> putStr ("FILENAME: " ++ filename ++ "\n\n" ++ (show ast))) fileCoordinated_bufferOptimisedPrograms
 
 	putStr (compilerName ++ ": Synthesising OpenCL files\n")

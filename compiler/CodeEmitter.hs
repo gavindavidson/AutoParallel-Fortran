@@ -57,11 +57,11 @@ synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownRead
 																			++ initSubroutineBody
 																			++ initSubroutineFooter
 
-																			++ "\n\n"
+																			-- ++ "\n\n"
 
-																			++ tearDownSubroutineHeader
-																			++ tearDownSubroutineBody
-																			++ tearDownSubroutineFooter
+																			-- ++ tearDownSubroutineHeader
+																			-- ++ tearDownSubroutineBody
+																			-- ++ tearDownSubroutineFooter
 		where
 			oneIndent = outputTab
 			twoIndent = oneIndent ++ outputTab
@@ -74,12 +74,12 @@ synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownRead
 										++ bufferWrites ++ "\n"
 			initSubroutineFooter = oneIndent ++ "end subroutine " ++ initSubroutineName ++ "\n"
 
-			tearDownSubroutineHeader = oneIndent ++ "subroutine " ++ tearDownSubroutineName ++ "(" ++ (varNameListStr tearDownReads) ++  ")\n"
-			tearDownSubroutineBody =	writtenDeclStr ++ "\n"
-										++ writtenSizeStatement ++ "\n"
-										++ writtenBufferStatements ++ "\n"
-										++ bufferReads ++ "\n"
-			tearDownSubroutineFooter = oneIndent ++  "end subroutine " ++ tearDownSubroutineName ++ "\n"
+			-- tearDownSubroutineHeader = oneIndent ++ "subroutine " ++ tearDownSubroutineName ++ "(" ++ (varNameListStr tearDownReads) ++  ")\n"
+			-- tearDownSubroutineBody =	writtenDeclStr ++ "\n"
+			-- 							++ writtenSizeStatement ++ "\n"
+			-- 							++ writtenBufferStatements ++ "\n"
+			-- 							++ bufferReads ++ "\n"
+			-- tearDownSubroutineFooter = oneIndent ++  "end subroutine " ++ tearDownSubroutineName ++ "\n"
 
 			moduleFooter = "end module " ++ initTearDownModuleName
 
@@ -89,11 +89,11 @@ synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownRead
 			readSizeStatement = synthesiseSizeStatements twoIndent initWrites
 			bufferWrites = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls))
 
-			writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) mainAst)) tearDownReads
-			writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (twoIndent) item) "" (writtenDecls)
-			writtenBufferStatements = synthesiseBufferDeclatations twoIndent allKernelArgsMap tearDownReads
-			writtenSizeStatement = synthesiseSizeStatements twoIndent tearDownReads
-			bufferReads = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls))
+			-- writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) mainAst)) tearDownReads
+			-- writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (twoIndent) item) "" (writtenDecls)
+			-- writtenBufferStatements = synthesiseBufferDeclatations twoIndent allKernelArgsMap tearDownReads
+			-- writtenSizeStatement = synthesiseSizeStatements twoIndent tearDownReads
+			-- bufferReads = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls))
 
 
 emitKernels :: [String] -> (Program Anno, String) -> IO [(String, String)]
@@ -248,6 +248,10 @@ synthesiseKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, wr
 					readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
 					writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
 					generalDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
+synthesiseKernelDeclarations prog (OpenCLBufferRead _ _ varName) = (readDecls, [], [])
+				where
+					readDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) varName]
+
 
 produceCodeProg :: KernelArgsIndexMap -> [String] -> String -> (Program Anno, String) -> IO(String)
 produceCodeProg allKernelArgsMap cppDFlags kernelModuleName (prog, filename) = do
@@ -332,6 +336,7 @@ produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
 						Assg _ _ _ _ -> synthesiseAssg prog tabs originalLines codeSeg
 						For _ _ _ _ _ _ _ -> synthesiseFor prog tabs originalLines codeSeg
 						NullStmt _ _ -> ""
+						OpenCLBufferRead _ _ _ -> synthesiseOpenCLBufferRead prog tabs originalLines codeSeg
 						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall prog tabs codeSeg) ++ (commentSeparator "END")
 						OpenCLReduce _ _ _ _ _ rv f -> (generateKernelCall prog tabs codeSeg)
 																++ (mkQ "" (produceCode_fortran prog tabs originalLines) hostReductionLoop) ++ "\n" ++ (commentSeparator "END")
@@ -369,6 +374,12 @@ synthesiseESeq expr = outputExprFormatting expr
 synthesisUses :: String -> Uses Anno -> String
 synthesisUses tabs (Use _ (str, rename) _ _) = tabs ++ "use " ++ str ++ "\n"
 synthesisUses tabs _ = ""
+
+synthesiseOpenCLBufferRead :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
+synthesiseOpenCLBufferRead (progAst, filename) tabs originalLines (OpenCLBufferRead anno src varName) = tabs ++ bufferRead ++ "\n"
+		where
+			bufferRead = synthesiseBufferAccess "Read" readDecl
+			(readDecl:_, _, _) = synthesiseKernelDeclarations progAst (OpenCLBufferRead anno src varName)
 
 synthesiseFor :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
 synthesiseFor prog tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	partialGenerated = tabs ++ "do " ++ (varNameStr varname) ++ "=" ++ outputExprFormatting expr1 

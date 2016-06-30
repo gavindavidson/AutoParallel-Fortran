@@ -227,6 +227,8 @@ data Fortran  p = Assg p SrcSpan (Expr p) (Expr p)
                   [(VarName p, Expr p, Expr p, Expr p)] -- Loop variables of nested reductions
                   [(VarName p, Expr p)]                 -- List of variables that are considered 'reduction variables' along with their initial values
                   (Fortran p)                           -- Body of kernel code
+                | OpenCLBufferRead p SrcSpan
+                  (VarName p)                           -- Name of var that buffer is read to
                   deriving (Show, Functor, Typeable, Data, Eq)
 
 -- type Bound    = ((Expr p),(Expr p))
@@ -386,6 +388,7 @@ instance Span (Fortran a) where
     srcSpan (SelectStmt x sp e fes)  = sp          -- GAV ADDED
     srcSpan (OpenCLMap x sp e1 e2 _ f2) = sp       -- GAV ADDED
     srcSpan (OpenCLReduce x sp e1 e2 _ e3 f2) = sp -- GAV ADDED
+    srcSpan (OpenCLBufferRead _ sp _) = sp         -- GAV ADDED
 
 -- Extract the tag 
 
@@ -513,6 +516,7 @@ instance Tagged Fortran where
     tag (SelectStmt x sp e fes)  = x          -- GAV ADDED
     tag (OpenCLMap x sp e1 e2 _ f2) = x       -- GAV ADDED
     tag (OpenCLReduce x sp e1 e2 _ e3 f2) = x -- GAV ADDED
+    tag (OpenCLBufferRead x _ _) = x          -- GAV ADDED
 
 
 instance Tagged Expr where
