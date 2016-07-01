@@ -9,7 +9,11 @@ import LanguageFortranTools
 import qualified Data.Map as DMap
 
 type SubroutineTable = DMap.Map String (ProgUnit Anno, String)
-type ArgumentTranslation = DMap.Map (VarName Anno) (VarName Anno)
+
+subroutineTable_ast (a, _) =  a
+subroutineTable_filename (_, b) =  b
+
+type ArgumentTranslation = DMap.Map (String) (DMap.Map (VarName Anno) (VarName Anno))
 
 replaceSubroutineAppearences :: SubroutineTable -> [Program Anno] -> [Program Anno]
 replaceSubroutineAppearences subTable [] = []
@@ -18,10 +22,36 @@ replaceSubroutineAppearences subTable (firstProgram:programs) = updated:replaceS
 			updated = everywhere (mkT (replaceSubroutine subTable)) firstProgram
 
 -- flattenSubroutineAppearences :: (Data (a Anno)) => SubroutineTable -> a Anno -> a Anno
-flattenSubroutineAppearences subTable mainAst = updated
+flattenSubroutineAppearences subTable argTransTable mainAst = updated
 		where
 			subroutines = DMap.keys subTable
-			updated = everywhere (mkT (flattenSubroutineCall_container subTable)) mainAst
+			updated = everywhere (mkT (flattenSubroutineCall_container subTable argTransTable)) mainAst
+
+extractArgumentTranslation subTable mainAst = argTransTable
+		where
+			subroutines = DMap.keys subTable
+			calls = everything (++) (mkQ [] extractCalls) mainAst
+			argTransTable = foldl (generateArgumentTranslation subTable) (DMap.empty) calls
+			-- callArgs = everything (++) (mkQ [] extractExpr_list) arglist
+			-- bodyArgs = everything (++) (mkQ [] extractArgName) arg
+
+generateArgumentTranslation :: SubroutineTable -> ArgumentTranslation -> Fortran Anno -> ArgumentTranslation
+generateArgumentTranslation subTable argTable (Call anno src callExpr arglist) = DMap.insert subroutineName varNameReplacements argTable
+		where
+			subroutineName = varNameStr (head (extractVarNames callExpr))
+			subroutineMaybe = DMap.lookup subroutineName subTable
+			(subroutineParsed, subroutine) = case subroutineMaybe of
+									Nothing -> (False, error "generateArgumentTranslation")
+									Just sub -> (True, sub)
+			(Sub _ _ _ _ arg _) = subroutineTable_ast subroutine
+
+			callArgs = everything (++) (mkQ [] extractExpr_list) arglist
+			bodyArgs = everything (++) (mkQ [] extractArgName) arg
+
+			callArgs_varNames = map (\x -> if extractVarNames x == [] then error ("substituteArguments: " ++ (show x)) else  head (extractVarNames x)) callArgs
+			bodyArgs_varNames = map (\(ArgName _ str) -> VarName nullAnno str) bodyArgs
+
+			varNameReplacements = foldl (\dmap (old, new) -> DMap.insert old new dmap) DMap.empty (zip bodyArgs_varNames callArgs_varNames)
 
 -- insertBufferReads :: ProgUnit Anno -> [VarName Anno] -> SrcSpan -> ProgUnit Anno
 insertBufferReads mainAst varsOnDevice openCLendSrc = everywhere (mkT (insertBufferReads_block varsOnDevice openCLendSrc)) mainAst
@@ -61,16 +91,16 @@ buildBufferReadFortran (varToRead:vars) followingFortran = FSeq nullAnno nullSrc
 		where
 			oclRead = (OpenCLBufferRead nullAnno nullSrcSpan varToRead)
 
-flattenSubroutineCall_container :: SubroutineTable -> Fortran Anno -> Fortran Anno
-flattenSubroutineCall_container subTable containerSeg 	| 	containedCalls /= [] = containerWithFlattenedSub
-														|	otherwise = containerSeg
+flattenSubroutineCall_container :: SubroutineTable -> ArgumentTranslation -> Fortran Anno -> Fortran Anno
+flattenSubroutineCall_container subTable argTransTable containerSeg 	| 	containedCalls /= [] = containerWithFlattenedSub
+														|	otherwise = containerSeg														
 		where
 			containedCalls = foldl (++) [] (gmapQ (mkQ [] extractCalls) containerSeg)
 			(Call _ _ callExpr _) = if (length containedCalls > 1) then error "flattenSubroutineCall_container: multiple contained calls unsupported" else head containedCalls
 
 			subroutineSrc = case DMap.lookup subroutineName subTable of
 										Nothing -> nullSrcSpan
-										Just (subroutineBody, _) -> srcSpan subroutineBody
+										Just subroutine -> srcSpan (subroutineTable_ast subroutine)
 			subroutineLineSize = srcSpanLineCount subroutineSrc
 			containerWithScrShifts = gmapT (mkT (ignoreCall_T (shiftSrcSpanLineGlobal subroutineLineSize))) containerSeg
 
@@ -84,7 +114,7 @@ flattenSubroutineCall subTable (Call anno cSrc callExpr args) = fromMaybe callFo
 			subroutineName = if extractVarNames callExpr == [] then (error "flattenSubroutineCall:callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
 			(subroutineReplacement) = case DMap.lookup subroutineName subTable of
 										Nothing -> Nothing
-										Just (subroutineBody, _) -> Just (substituteArguments callFortran subroutineBody)
+										Just subroutine -> Just (substituteArguments callFortran (subroutineTable_ast subroutine))
 
 			subroutineSrc = srcSpan (fromMaybe (error "flattenSubroutineCall: subroutineSrc") subroutineReplacement)
 			((SrcLoc _ callLineStart _), _) =  cSrc
@@ -101,7 +131,7 @@ ignoreCall_T func codeSeg = case codeSeg of
 								Call _ _ _ _ -> codeSeg
 								_ -> func codeSeg
 
-extractCalls :: Fortran Anno -> [Fortran Anno]
+-- extractCalls :: Fortran Anno -> [Fortran Anno]
 extractCalls codeSeg = case codeSeg of
 							Call _ _ _ _ -> [codeSeg]
 							_ -> []
@@ -129,7 +159,7 @@ replaceArgs varNameReplacements varname = DMap.findWithDefault varname varname v
 
 replaceSubroutine :: SubroutineTable -> ProgUnit Anno -> ProgUnit Anno
 replaceSubroutine subTable codeSeg = case codeSeg of
-								(Sub _ _ _ (SubName _ str) _ _) -> fst (DMap.findWithDefault (codeSeg, "") str subTable)
+								(Sub _ _ _ (SubName _ str) _ _) -> subroutineTable_ast (DMap.findWithDefault (codeSeg, "") str subTable)
 								_ -> codeSeg
 
 extractSubroutineInitBufferWrites :: ProgUnit Anno -> [VarName Anno]
@@ -213,7 +243,9 @@ eliminateWrites' eliminateList kernelList = newKernel:(eliminateWrites' newElimi
 optimiseBufferTransfers :: SubroutineTable -> Program Anno -> (SubroutineTable, (([VarName Anno], SrcSpan), ([VarName Anno], SrcSpan)))
 optimiseBufferTransfers subTable mainAst = (newSubTable,((initWrites, earliestInitSrc), (tearDownReads, latestTearDownSrc)))
 		where
-			flattenedAst = flattenSubroutineAppearences subTable mainAst
+			argumentTranslation = extractArgumentTranslation subTable mainAst
+
+			flattenedAst = flattenSubroutineAppearences subTable argumentTranslation mainAst
 			flattenedVarAccessAnalysis = analyseAllVarAccess flattenedAst
 			optimisedFlattenedAst = optimseBufferTransfers_kernel flattenedVarAccessAnalysis flattenedAst
 
@@ -244,7 +276,9 @@ generateKernelCallSrcRange subTable ast = (kernelsStart, kernelsEnd)
 replaceKernels_foldl :: [(Fortran Anno, Fortran Anno)] -> SubroutineTable -> String -> SubroutineTable
 replaceKernels_foldl kernelPairs subTable subName = DMap.insert subName (newAst, filename) subTable
 		where
-			(ast, filename) = DMap.findWithDefault (error "replaceKernels_foldl") subName subTable
+			ast = subroutineTable_ast subroutine
+			filename = subroutineTable_filename subroutine
+			subroutine = DMap.findWithDefault (error "replaceKernels_foldl") subName subTable
 			newAst = replaceKernels kernelPairs ast
 
 replaceKernels :: [(Fortran Anno, Fortran Anno)] -> ProgUnit Anno -> ProgUnit Anno

@@ -383,6 +383,7 @@ varNameStr :: VarName Anno -> String
 varNameStr (VarName _ str) = str
 
 varNameListStr :: [VarName Anno] -> String
+varNameListStr [] =  ""
 varNameListStr (var:[]) = varNameStr var
 varNameListStr (var:vars) = (varNameStr var) ++ "," ++ (varNameListStr vars)
 

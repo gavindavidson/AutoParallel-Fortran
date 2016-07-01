@@ -244,7 +244,6 @@ paralleliseLoop filename loopVars accessAnalysis subTable loop = transformedAst
 									nonTempVars = getNonTempVars (srcSpan loop) accessAnalysis
 									prexistingVars = getPrexistingVars (srcSpan loop) accessAnalysis
 									dependencies = analyseDependencies loop
-									flattenedLoop = flattenSubroutineAppearences subTable loop
 
 									-- mapAttempt = paralleliseLoop_map filename flattenedLoop newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
 									mapAttempt = paralleliseLoop_map filename loop newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
