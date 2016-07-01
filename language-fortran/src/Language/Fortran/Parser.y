@@ -1,7 +1,9 @@
 {
 module Language.Fortran.Parser (
     parser
-  , parse -- GAV ADDED
+  , parse 				-- GAV ADDED
+  , statement_parse		-- GAV ADDED
+  , context_parse		-- GAV ADDED
   , include_parser
     -- * Helpers
   , fst3
@@ -29,6 +31,8 @@ import qualified Data.Map as DMap
 
 %name parser executable_program
 %name include_parser include_program
+%partial statement_parser line -- GAV ADDED
+%partial context_parser declaration_construct -- GAV ADDED
 %tokentype { Token }
 
 %monad { P } { >>= } { return }
@@ -1854,6 +1858,18 @@ parse :: String -> Program A0
 parse p = case (runParser parser (pre_process p)) of 
             (ParseOk p)       -> p
             (ParseFailed l e) ->  error e
+            
+--	<GAV ADDED to work with F95StatementParser>
+statement_parse :: String -> Fortran A0
+statement_parse p = case (runParser statement_parser (pre_process p)) of 
+            (ParseOk p)       -> p
+            (ParseFailed l e) ->  error e 
+
+context_parse :: String -> Decl A0
+context_parse p = case (runParser context_parser (pre_process p)) of 
+            (ParseOk p)       -> p
+            (ParseFailed l e) ->  error e 
+-- 	</GAV ADDED to work with F95StatementParser>
 
 --parse :: String -> [Program]
 --parse = clean . parser . fixdecls . scan

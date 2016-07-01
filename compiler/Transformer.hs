@@ -44,6 +44,8 @@ main = do
 	putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
 	putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments")
 	putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use")
+	putStr ("\n" 	++ outputTab ++ "- Translate buffer numbers between subroutines. As in, the same buffer being\n"
+					++ outputTab ++ "represented by many variable names across subroutines")
 
 
 	-- putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
