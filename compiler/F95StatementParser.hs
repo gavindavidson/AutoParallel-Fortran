@@ -17,3 +17,10 @@ parseF95Statement f95_line context_str = (show fortranAst) -- ++ "\n" ++ (show c
 
 -- parse_with_your_parser :: String -> Context -> (AST, Context)    
 -- readContext :: String -> Context    
+
+--	TAKEN FROM "LanaguageFortranTools.hs"
+	-- 	Type used when determining allowed values for iterator variables. Holds the currently chosen values
+	-- 	for previous iterator variables that allow the calculation of inner iterator variables in the case
+	-- 	of nested loops whose bounds depends on previous iterator variables.
+	-- 	Also used during constant folding to hold current constants
+	-- type ValueTable = DMap.Map String (Float, BaseType Anno)
