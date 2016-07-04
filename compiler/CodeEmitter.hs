@@ -57,12 +57,6 @@ synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownRead
 																			++ initSubroutineHeader
 																			++ initSubroutineBody
 																			++ initSubroutineFooter
-
-																			-- ++ "\n\n"
-
-																			-- ++ tearDownSubroutineHeader
-																			-- ++ tearDownSubroutineBody
-																			-- ++ tearDownSubroutineFooter
 		where
 			oneIndent = outputTab
 			twoIndent = oneIndent ++ outputTab
@@ -75,13 +69,6 @@ synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownRead
 										++ bufferWrites ++ "\n"
 			initSubroutineFooter = oneIndent ++ "end subroutine " ++ initSubroutineName ++ "\n"
 
-			-- tearDownSubroutineHeader = oneIndent ++ "subroutine " ++ tearDownSubroutineName ++ "(" ++ (varNameListStr tearDownReads) ++  ")\n"
-			-- tearDownSubroutineBody =	writtenDeclStr ++ "\n"
-			-- 							++ writtenSizeStatement ++ "\n"
-			-- 							++ writtenBufferStatements ++ "\n"
-			-- 							++ bufferReads ++ "\n"
-			-- tearDownSubroutineFooter = oneIndent ++  "end subroutine " ++ tearDownSubroutineName ++ "\n"
-
 			moduleFooter = "end module " ++ initTearDownModuleName
 
 			readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) mainAst)) initWrites
@@ -89,13 +76,6 @@ synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownRead
 			readBufferStatements = synthesiseBufferDeclatations twoIndent allKernelArgsMap DMap.empty initWrites
 			readSizeStatement = synthesiseSizeStatements twoIndent initWrites
 			bufferWrites = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls))
-
-			-- writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) mainAst)) tearDownReads
-			-- writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (twoIndent) item) "" (writtenDecls)
-			-- writtenBufferStatements = synthesiseBufferDeclatations twoIndent allKernelArgsMap tearDownReads
-			-- writtenSizeStatement = synthesiseSizeStatements twoIndent tearDownReads
-			-- bufferReads = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls))
-
 
 emitKernels :: [String] -> (Program Anno, String) -> IO [(String, String)]
 emitKernels cppDFlags (ast, filename) = do
@@ -128,19 +108,17 @@ synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader +
 generateStateName :: String -> String
 generateStateName kernelName = "ST_" ++ (map (toUpper) kernelName)
 
--- synthesiseInitialisationSubroutine :: 
-
 synthesiseStateDefinitions :: [(String, String)] -> Int -> String
 synthesiseStateDefinitions [] currentVal =  ""
 synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "integer, parameter :: " ++ state ++ " = " ++ show currentVal ++ " !  " ++ kernel ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
 
 synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
-synthesiseSuperKernel tabs name programs [] = ("", DMap.empty) -- error $ show allKernelArgs -- superKernel
+synthesiseSuperKernel tabs name programs [] = ("", DMap.empty)
 synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else (superKernel, allKernelArgsMap) -- error $ show allKernelArgs -- superKernel
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
-					-- kernelAstLists = foldl (\accum item -> accum ++ (extractKernels item)) [] programAsts
+
 					kernelAsts = foldl (++) [] (map (\(k_asts, p_ast) -> map (\a -> (a, p_ast)) k_asts) (zip kernelAstLists programAsts))
 					kernelArgs = (map (\(x, _) -> listRemoveDuplications (extractKernelArguments x)) kernelAsts)
 					allKernelArgs = listRemoveDuplications (foldl (++) [] kernelArgs)
@@ -239,9 +217,7 @@ synthesiseKernelDeclarations prog (OpenCLMap _ _ r w _ _) = (readDecls, writtenD
 synthesiseKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, writtenDecls, generalDecls)
 				where
 					reductionVarNames = map (\(varname, expr) -> varname) rv
-					-- readArgs = r
-					-- writtenArgs = w
-					-- generalArgs = reductionVarNames
+
 					readArgs = listSubtract (listSubtract r w) reductionVarNames
 					writtenArgs = listSubtract (listSubtract w r) reductionVarNames
 					generalArgs = listSubtract (listIntersection w r) reductionVarNames
@@ -345,7 +321,6 @@ synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation vars = foldl (
 
 
 synthesiseBufferDeclatations_kernel :: String -> KernelArgsIndexMap -> ArgumentTranslation -> Block Anno -> String
--- synthesiseBufferDeclatations_kernel :: String -> KernelArgsIndexMap -> ArgumentTranslation -> ProgUnit Anno -> String
 synthesiseBufferDeclatations_kernel tabs allKernelArgsMap argTranslation ast = synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation kernelArgs
 		where
 			kernels = extractKernels ast
@@ -399,9 +374,7 @@ synthesiseCall prog tabs originalLines (Call anno src expr args)	 	-- tabs ++ "!
 			suffix = "" -- if subroutineName == tearDownSubroutineName then "\n" ++ (commentSeparator "END OPENCL") else ""
 
 synthesiseArgList :: ArgList Anno -> String
-synthesiseArgList (ArgList _ expr) = 
-									-- "(" ++ (show expr) ++ ")"
-									"(" ++ (synthesiseESeq expr) ++ ")"
+synthesiseArgList (ArgList _ expr) = "(" ++ (synthesiseESeq expr) ++ ")"
 
 synthesiseESeq :: Expr Anno -> String
 synthesiseESeq (ESeq _ _ expr1 expr2) = (synthesiseESeq expr1) ++ "," ++ (synthesiseESeq expr2)
