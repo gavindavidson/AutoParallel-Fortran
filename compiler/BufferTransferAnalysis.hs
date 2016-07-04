@@ -13,7 +13,9 @@ type SubroutineTable = DMap.Map String (ProgUnit Anno, String)
 subroutineTable_ast (a, _) =  a
 subroutineTable_filename (_, b) =  b
 
-type ArgumentTranslation = DMap.Map (String) (DMap.Map (VarName Anno) (VarName Anno))
+emptyArgumentTranslation = DMap.empty
+type ArgumentTranslation = DMap.Map (VarName Anno) (VarName Anno)
+type ArgumentTranslationSubroutines = DMap.Map (String) ArgumentTranslation
 
 replaceSubroutineAppearences :: SubroutineTable -> [Program Anno] -> [Program Anno]
 replaceSubroutineAppearences subTable [] = []
@@ -21,27 +23,24 @@ replaceSubroutineAppearences subTable (firstProgram:programs) = updated:replaceS
 		where 
 			updated = everywhere (mkT (replaceSubroutine subTable)) firstProgram
 
--- flattenSubroutineAppearences :: (Data (a Anno)) => SubroutineTable -> a Anno -> a Anno
 flattenSubroutineAppearences subTable argTransTable mainAst = updated
 		where
 			subroutines = DMap.keys subTable
 			updated = everywhere (mkT (flattenSubroutineCall_container subTable argTransTable)) mainAst
 
-extractArgumentTranslation subTable mainAst = argTransTable
+extractArgumentTranslationSubroutines subTable mainAst = argTransTable
 		where
 			subroutines = DMap.keys subTable
 			calls = everything (++) (mkQ [] extractCalls) mainAst
-			argTransTable = foldl (generateArgumentTranslation subTable) (DMap.empty) calls
-			-- callArgs = everything (++) (mkQ [] extractExpr_list) arglist
-			-- bodyArgs = everything (++) (mkQ [] extractArgName) arg
+			argTransTable = foldl (generateArgumentTranslationSubroutines subTable) (DMap.empty) calls
 
-generateArgumentTranslation :: SubroutineTable -> ArgumentTranslation -> Fortran Anno -> ArgumentTranslation
-generateArgumentTranslation subTable argTable (Call anno src callExpr arglist) = DMap.insert subroutineName varNameReplacements argTable
+generateArgumentTranslationSubroutines :: SubroutineTable -> ArgumentTranslationSubroutines -> Fortran Anno -> ArgumentTranslationSubroutines
+generateArgumentTranslationSubroutines subTable argTable (Call anno src callExpr arglist) = DMap.insert subroutineName varNameReplacements argTable
 		where
 			subroutineName = varNameStr (head (extractVarNames callExpr))
 			subroutineMaybe = DMap.lookup subroutineName subTable
 			(subroutineParsed, subroutine) = case subroutineMaybe of
-									Nothing -> (False, error "generateArgumentTranslation")
+									Nothing -> (False, error "generateArgumentTranslationSubroutines")
 									Just sub -> (True, sub)
 			(Sub _ _ _ _ arg _) = subroutineTable_ast subroutine
 
@@ -53,7 +52,25 @@ generateArgumentTranslation subTable argTable (Call anno src callExpr arglist) =
 
 			varNameReplacements = foldl (\dmap (old, new) -> DMap.insert old new dmap) DMap.empty (zip bodyArgs_varNames callArgs_varNames)
 
--- insertBufferReads :: ProgUnit Anno -> [VarName Anno] -> SrcSpan -> ProgUnit Anno
+translateArgumentsSubroutine :: ArgumentTranslationSubroutines -> String -> [VarName Anno] -> [VarName Anno]
+translateArgumentsSubroutine argTranslations subroutineName args = map (translateArgument argTranslationsSubroutine) args
+		where
+			argTranslationsSubroutine = getSubroutineArgumentTranslation argTranslations subroutineName
+
+translateArgumentSubroutine :: ArgumentTranslationSubroutines -> String -> VarName Anno -> VarName Anno
+translateArgumentSubroutine argTranslations subroutineName arg = translateArgument argTranslationsSubroutine arg
+		where
+			argTranslationsSubroutine = getSubroutineArgumentTranslation argTranslations subroutineName
+
+getSubroutineArgumentTranslation :: ArgumentTranslationSubroutines -> String -> ArgumentTranslation
+getSubroutineArgumentTranslation argTranslation subName = DMap.findWithDefault (DMap.empty) subName argTranslation
+
+translateArguments :: ArgumentTranslation -> [VarName Anno] -> [VarName Anno]
+translateArguments argTranslations args = map (translateArgument argTranslations) args
+
+translateArgument :: ArgumentTranslation -> VarName Anno -> VarName Anno
+translateArgument argTranslations var = DMap.findWithDefault (var) var argTranslations
+
 insertBufferReads mainAst varsOnDevice openCLendSrc = everywhere (mkT (insertBufferReads_block varsOnDevice openCLendSrc)) mainAst
 
 insertBufferReads_block :: [VarName Anno] -> SrcSpan -> Block Anno -> Block Anno
@@ -91,7 +108,7 @@ buildBufferReadFortran (varToRead:vars) followingFortran = FSeq nullAnno nullSrc
 		where
 			oclRead = (OpenCLBufferRead nullAnno nullSrcSpan varToRead)
 
-flattenSubroutineCall_container :: SubroutineTable -> ArgumentTranslation -> Fortran Anno -> Fortran Anno
+flattenSubroutineCall_container :: SubroutineTable -> ArgumentTranslationSubroutines -> Fortran Anno -> Fortran Anno
 flattenSubroutineCall_container subTable argTransTable containerSeg 	| 	containedCalls /= [] = containerWithFlattenedSub
 														|	otherwise = containerSeg														
 		where
@@ -104,17 +121,18 @@ flattenSubroutineCall_container subTable argTransTable containerSeg 	| 	containe
 			subroutineLineSize = srcSpanLineCount subroutineSrc
 			containerWithScrShifts = gmapT (mkT (ignoreCall_T (shiftSrcSpanLineGlobal subroutineLineSize))) containerSeg
 
-			subroutineName = if extractVarNames callExpr == [] then (error "flattenSubroutineCall:callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
-			containerWithFlattenedSub = gmapT (mkT (flattenSubroutineCall subTable)) containerWithScrShifts
+			subroutineName = if extractVarNames callExpr == [] then (error "flattenSubroutineCall: callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
+			subroutineArgTrans = DMap.findWithDefault (error "flattenSubroutineCall_container: subroutineArgTrans") subroutineName argTransTable
+			containerWithFlattenedSub = gmapT (mkT (flattenSubroutineCall subTable subroutineArgTrans)) containerWithScrShifts
 
-flattenSubroutineCall :: SubroutineTable -> Fortran Anno -> Fortran Anno
-flattenSubroutineCall subTable (Call anno cSrc callExpr args) = fromMaybe callFortran shiftedSubroutineReplacement
+flattenSubroutineCall :: SubroutineTable -> ArgumentTranslation -> Fortran Anno -> Fortran Anno
+flattenSubroutineCall subTable argTransTable (Call anno cSrc callExpr args) = fromMaybe callFortran shiftedSubroutineReplacement
 		where
 			callFortran = (Call anno cSrc callExpr args)
 			subroutineName = if extractVarNames callExpr == [] then (error "flattenSubroutineCall:callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
 			(subroutineReplacement) = case DMap.lookup subroutineName subTable of
 										Nothing -> Nothing
-										Just subroutine -> Just (substituteArguments callFortran (subroutineTable_ast subroutine))
+										Just subroutine -> Just (substituteArguments argTransTable callFortran (subroutineTable_ast subroutine))
 
 			subroutineSrc = srcSpan (fromMaybe (error "flattenSubroutineCall: subroutineSrc") subroutineReplacement)
 			((SrcLoc _ callLineStart _), _) =  cSrc
@@ -124,14 +142,13 @@ flattenSubroutineCall subTable (Call anno cSrc callExpr args) = fromMaybe callFo
 			shiftedSubroutineReplacement = case subroutineReplacement of
 												Nothing -> Nothing
 												Just rep -> Just (shiftSrcSpanLineGlobal bodyOffset rep) 
-flattenSubroutineCall subTable codeSeg = codeSeg
+flattenSubroutineCall subTable argTransTable codeSeg = codeSeg
 
 ignoreCall_T :: (Fortran Anno -> Fortran Anno) -> Fortran Anno -> Fortran Anno
 ignoreCall_T func codeSeg = case codeSeg of
 								Call _ _ _ _ -> codeSeg
 								_ -> func codeSeg
 
--- extractCalls :: Fortran Anno -> [Fortran Anno]
 extractCalls codeSeg = case codeSeg of
 							Call _ _ _ _ -> [codeSeg]
 							_ -> []
@@ -141,18 +158,8 @@ extractCallsWithStrings codeSeg = case codeSeg of
 							Call _ _ callExpr _ -> [(codeSeg, varNameStr $ head (extractVarNames callExpr))]
 							_ -> []
 
-substituteArguments :: Fortran Anno -> ProgUnit Anno -> (Fortran Anno)
-substituteArguments (Call _ _ _ arglist) (Sub _ _ _ _ arg (Block _ _ _ _ _ for)) = (newFortran)
-		where
-			callArgs = everything (++) (mkQ [] extractExpr_list) arglist
-			bodyArgs = everything (++) (mkQ [] extractArgName) arg
-
-			callArgs_varNames = map (\x -> if extractVarNames x == [] then error ("substituteArguments: " ++ (show x)) else  head (extractVarNames x)) callArgs
-			bodyArgs_varNames = map (\(ArgName _ str) -> VarName nullAnno str) bodyArgs
-
-			varNameReplacements = foldl (\dmap (old, new) -> DMap.insert old new dmap) DMap.empty (zip bodyArgs_varNames callArgs_varNames)
-
-			newFortran = everywhere (mkT (replaceArgs varNameReplacements)) for
+substituteArguments :: ArgumentTranslation -> Fortran Anno -> ProgUnit Anno -> (Fortran Anno)
+substituteArguments argTransTable (Call _ _ _ arglist) (Sub _ _ _ _ arg (Block _ _ _ _ _ for)) = everywhere (mkT (replaceArgs argTransTable)) for
 
 replaceArgs :: DMap.Map (VarName Anno) (VarName Anno) -> VarName Anno -> VarName Anno
 replaceArgs varNameReplacements varname = DMap.findWithDefault varname varname varNameReplacements
@@ -179,9 +186,7 @@ extractSubroutineFinalBufferReads ast = snd (foldl (\(accum_r, accum_w) (item_r,
 compareSubroutinesInOrder :: VarAccessAnalysis -> [(ProgUnit Anno, SrcSpan)] -> [(ProgUnit Anno, SrcSpan)]
 compareSubroutinesInOrder varAccessAnalysis [] = []
 compareSubroutinesInOrder varAccessAnalysis (subroutine:[]) = [subroutine]
-compareSubroutinesInOrder varAccessAnalysis subroutines = 
-														-- if newSubroutines == [] then error "compareSubroutinesInOrder: newSubroutines == []" else 
-															(head newSubroutines):compareSubroutinesInOrder varAccessAnalysis (tail newSubroutines)
+compareSubroutinesInOrder varAccessAnalysis subroutines = (head newSubroutines):compareSubroutinesInOrder varAccessAnalysis (tail newSubroutines)
 		where
 			currentSubroutine = head subroutines
 			newSubroutines = foldl (eliminateBufferPairsSubroutine_foldl varAccessAnalysis currentSubroutine) [] (tail subroutines)
@@ -193,11 +198,7 @@ eliminateBufferPairsSubroutine_foldl varAccessAnalysis firstSubroutine subroutin
 			(firstNewSubroutine, secondNewSubroutine) = eliminateBufferPairsSubroutine varAccessAnalysis ignoredSpans firstSubroutine secondSubroutine
 
 eliminateBufferPairsSubroutine :: VarAccessAnalysis -> [SrcSpan] -> (ProgUnit Anno, SrcSpan) -> (ProgUnit Anno, SrcSpan) -> ((ProgUnit Anno, SrcSpan),(ProgUnit Anno, SrcSpan))
-eliminateBufferPairsSubroutine varAccessAnalysis ignoredSpans (firstAst, firstSrc) (secondAst, secondSrc) = 
-																											-- if newFirstAst /= firstAst then  error ("elminateBuffers: " ++ (show elminateBuffers) ++
-																											-- 											"\n\nfirstAst:\n" ++ (show firstAst) ++
-																											-- 											"\n\nnewFirstAst:\n" ++ (show newFirstAst) ) else 
-																											((newFirstAst, firstSrc), (newSecondAst, secondSrc))
+eliminateBufferPairsSubroutine varAccessAnalysis ignoredSpans (firstAst, firstSrc) (secondAst, secondSrc) = ((newFirstAst, firstSrc), (newSecondAst, secondSrc))
 		where
 			(readsBetween, writesBetween) = getAccessesBetweenSrcSpansIgnore varAccessAnalysis firstSrc secondSrc ignoredSpans
 
@@ -240,12 +241,10 @@ eliminateWrites' eliminateList kernelList = newKernel:(eliminateWrites' newElimi
 			newEliminateList = listSubtract eliminateList bufferWrites
 			newKernel = replaceKernelReads curerentKernel newWrites
 
-optimiseBufferTransfers :: SubroutineTable -> Program Anno -> (SubroutineTable, (([VarName Anno], SrcSpan), ([VarName Anno], SrcSpan)))
-optimiseBufferTransfers subTable mainAst = (newSubTable,((initWrites, earliestInitSrc), (tearDownReads, latestTearDownSrc)))
+optimiseBufferTransfers :: SubroutineTable -> ArgumentTranslationSubroutines -> Program Anno -> (SubroutineTable, (([VarName Anno], SrcSpan), ([VarName Anno], SrcSpan)))
+optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable,((initWrites, earliestInitSrc), (tearDownReads, latestTearDownSrc)))
 		where
-			argumentTranslation = extractArgumentTranslation subTable mainAst
-
-			flattenedAst = flattenSubroutineAppearences subTable argumentTranslation mainAst
+			flattenedAst = flattenSubroutineAppearences subTable argTranslations mainAst
 			flattenedVarAccessAnalysis = analyseAllVarAccess flattenedAst
 			optimisedFlattenedAst = optimseBufferTransfers_kernel flattenedVarAccessAnalysis flattenedAst
 
@@ -287,7 +286,7 @@ replaceKernels kernelPairs subroutine = foldl (\accumSub (old, optim) -> replace
 optimseBufferTransfers_kernel :: VarAccessAnalysis -> Program Anno -> Program Anno
 optimseBufferTransfers_kernel varAccessAnalysis ast = ast_optimisedBetweenKernels
 		where
-			(ast_optimisedBetweenKernels, debugStr) = compareKernelsInOrder varAccessAnalysis kernels (ast, "")
+			ast_optimisedBetweenKernels = compareKernelsInOrder varAccessAnalysis kernels ast
 			kernels = extractKernels ast
 			kernels_optimisedBetween = extractKernels ast_optimisedBetweenKernels
 
@@ -325,26 +324,24 @@ stripInitAndTearDown varAccessAnalysis (kernelsStart, kernelsEnd) kernels = (new
 
 			(recursiveKernels, recursiveInitialisingWrites, recursiveTearDownReads) = stripInitAndTearDown varAccessAnalysis (kernelsStart, kernelsEnd) (tail kernels)
 
-compareKernelsInOrder :: VarAccessAnalysis -> [Fortran Anno] -> (Program Anno, String) -> (Program Anno, String)
--- compareKernelsInOrder :: VarAccessAnalysis -> [Fortran Anno] -> Program Anno -> Program Anno
+compareKernelsInOrder :: VarAccessAnalysis -> [Fortran Anno] -> Program Anno -> Program Anno
 compareKernelsInOrder varAccessAnalysis [] ast = ast
-compareKernelsInOrder varAccessAnalysis kernels (ast, s) = compareKernelsInOrder varAccessAnalysis (newKernels) (newAst, s ++ debugStr)
+compareKernelsInOrder varAccessAnalysis kernels ast = compareKernelsInOrder varAccessAnalysis (newKernels) newAst
 		where
 			currentKernel = head kernels
-			-- (_, newAst, _, debugStr) = foldl (eliminateBufferPairsKernel_foldl varAccessAnalysis) (currentKernel, ast, [], "") (tail kernels)
-			(newFirstKernel, newKernels, debugStr) = eliminateBufferPairsKernel_recurse varAccessAnalysis currentKernel (tail kernels) [] ""
+			(newFirstKernel, newKernels) = eliminateBufferPairsKernel_recurse varAccessAnalysis currentKernel (tail kernels) []
 			newAst = foldl (\accumAst (oldFortran, newFortran) -> replaceFortran accumAst oldFortran newFortran) ast (zip kernels (newFirstKernel:newKernels))
 
-eliminateBufferPairsKernel_recurse :: VarAccessAnalysis -> Fortran Anno -> [Fortran Anno] -> [SrcSpan] -> String -> (Fortran Anno, [Fortran Anno], String)
-eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel [] ignoredSpans debug =  (firstKernel, [], "")
-eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel kernels ignoredSpans debug = (resursiveCall_firstKernel, newSecondKernel:resursiveCall_kernels, debugStr ++ resursiveCall_debugStr)
+eliminateBufferPairsKernel_recurse :: VarAccessAnalysis -> Fortran Anno -> [Fortran Anno] -> [SrcSpan] -> (Fortran Anno, [Fortran Anno])
+eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel [] ignoredSpans = (firstKernel, [])
+eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel kernels ignoredSpans = (resursiveCall_firstKernel, newSecondKernel:resursiveCall_kernels)
 		where
 			secondKernel = head kernels
-			(newFirstKernel, newSecondKernel, debugStr) = eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel
-			(resursiveCall_firstKernel, resursiveCall_kernels, resursiveCall_debugStr) = eliminateBufferPairsKernel_recurse varAccessAnalysis newFirstKernel (tail kernels) ((srcSpan secondKernel):ignoredSpans) debugStr	
+			(newFirstKernel, newSecondKernel) = eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel
+			(resursiveCall_firstKernel, resursiveCall_kernels) = eliminateBufferPairsKernel_recurse varAccessAnalysis newFirstKernel (tail kernels) ((srcSpan secondKernel):ignoredSpans)
 
-eliminateBufferPairsKernel :: VarAccessAnalysis -> [SrcSpan] -> Fortran Anno -> Fortran Anno -> (Fortran Anno, Fortran Anno, String)
-eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel = (newFirstKernel, newSecondKernel, debugStr)
+eliminateBufferPairsKernel :: VarAccessAnalysis -> [SrcSpan] -> Fortran Anno -> Fortran Anno -> (Fortran Anno, Fortran Anno)
+eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel = (newFirstKernel, newSecondKernel)
 		where
 			firstKernel_src = srcSpan firstKernel
 			secondKernel_src = srcSpan secondKernel
@@ -373,14 +370,8 @@ eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKern
 			newFirstBufferReads_crossOver = listSubtractWithExemption (readsBetween) firstBufferReads newSecondBufferWrites
 			newFirstBufferReads = listSubtractWithExemption (readsBetween) newFirstBufferReads_crossOver secondBufferReads
 
-			-- newFirstBufferReads = listSubtractWithExemption ([]) firstBufferReads secondBufferWrites
-			-- newSecondBufferWrites = listSubtractWithExemption ([]) secondBufferWrites firstBufferReads 
-
 			k1src = errorLocationFormatting (srcSpan firstKernel)
 			k2src = errorLocationFormatting (srcSpan secondKernel)
-
-			debugStr = k1src ++ " firstBufferReads: " ++ (show firstBufferReads) ++ "\n" ++ k2src ++ " secondBufferWrites: " ++ (show secondBufferWrites) 
-						++ "\n" ++ k1src ++ " newFirstBufferReads: " ++ (show newFirstBufferReads) ++ "\n" ++ k2src ++ " newSecondBufferWrites: " ++ (show newSecondBufferWrites) ++ "\n\n"
 
 			newFirstKernel = replaceKernelWrites firstKernel newFirstBufferReads
 			newSecondKernel = replaceKernelReads secondKernel newSecondBufferWrites

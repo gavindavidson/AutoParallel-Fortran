@@ -19,6 +19,7 @@ import Data.Maybe
 import qualified Data.Map as DMap 
 
 import LanguageFortranTools
+import BufferTransferAnalysis
 
 initSubroutineName = "initialiseOpenCL"
 tearDownSubroutineName = "tearDownOpenCL"
@@ -26,8 +27,8 @@ initTearDownModuleName = "OpenCLInitAndTearDown"
 
 type KernelArgsIndexMap = DMap.Map (VarName Anno) Int
 
-emit :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> (Program Anno, String) -> [VarName Anno] -> [VarName Anno] -> IO [()]
-emit specified cppDFlags programs_verboseArgs programs_optimisedBuffers (mainAst, mainFilename) initWrites tearDownReads = do
+emit :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> ArgumentTranslationSubroutines -> (Program Anno, String) -> [VarName Anno] -> [VarName Anno] -> IO [()]
+emit specified cppDFlags programs_verboseArgs programs_optimisedBuffers argTranslations (mainAst, mainFilename) initWrites tearDownReads = do
 				kernels_code <- mapM (emitKernels cppDFlags) programs_verboseArgs
 				let allKernels = foldl (++) [] kernels_code
 				let kernelNames = map (snd) allKernels
@@ -39,10 +40,10 @@ emit specified cppDFlags programs_verboseArgs programs_optimisedBuffers (mainAst
 				let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
 				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
 
-				host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_optimisedBuffers
-				main_code <- produceCodeProg allKernelArgsMap cppDFlags initTearDownModuleName (mainAst, mainFilename)
+				host_code <- mapM (produceCode_prog allKernelArgsMap argTranslations cppDFlags moduleName) programs_optimisedBuffers
+				main_code <- produceCode_prog allKernelArgsMap argTranslations cppDFlags initTearDownModuleName (mainAst, mainFilename)
 				let initAndTearDownCode = synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads
-				-- host_code <- mapM (produceCodeProg allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
+				-- host_code <- mapM (produceCode_prog allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
 
 				writeFile moduleFilename superKernel_module
@@ -85,7 +86,7 @@ synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownRead
 
 			readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) mainAst)) initWrites
 			readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (twoIndent) item) "" (readDecls)
-			readBufferStatements = synthesiseBufferDeclatations twoIndent allKernelArgsMap initWrites
+			readBufferStatements = synthesiseBufferDeclatations twoIndent allKernelArgsMap DMap.empty initWrites
 			readSizeStatement = synthesiseSizeStatements twoIndent initWrites
 			bufferWrites = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls))
 
@@ -253,44 +254,77 @@ synthesiseKernelDeclarations prog (OpenCLBufferRead _ _ varName) = (readDecls, [
 					readDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) varName]
 
 
-produceCodeProg :: KernelArgsIndexMap -> [String] -> String -> (Program Anno, String) -> IO(String)
-produceCodeProg allKernelArgsMap cppDFlags kernelModuleName (prog, filename) = do
+produceCode_prog :: KernelArgsIndexMap -> ArgumentTranslationSubroutines -> [String] -> String -> (Program Anno, String) -> IO(String)
+produceCode_prog allKernelArgsMap argTranslation cppDFlags kernelModuleName (prog, filename) = do
 					originalLines <- readOriginalFileLines cppDFlags filename
-					let result = foldl (\accum item -> accum ++ produceCodeProgUnit allKernelArgsMap (prog, filename) kernelModuleName originalLines item) "" prog
+					let result = foldl (\accum item -> accum ++ produceCode_progUnit allKernelArgsMap emptyArgumentTranslation (prog, filename) kernelModuleName originalLines item) "" prog
 					return result
 
---	This function handles producing the code that is not changed from the original source. It also inserts a "use .."
---	line for the file containing the new kernels and makes a call to the function that produces the body of the new
---	host code. 
-produceCodeProgUnit :: KernelArgsIndexMap -> (Program Anno, String) -> String -> [String] -> ProgUnit Anno -> String
-produceCodeProgUnit allKernelArgsMap prog kernelModuleName originalLines progUnit = nonGeneratedHeaderCode 
+produceCode_progUnit :: KernelArgsIndexMap -> ArgumentTranslationSubroutines -> (Program Anno, String) -> String -> [String] -> ProgUnit Anno -> String
+produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines (Main _ src _ _ block progUnits) =	
+																																nonGeneratedHeaderCode
+																															++ 	everything (++) (mkQ "" (produceCodeBlock argTranslation prog nonGeneratedBlockCode_indent originalLines)) block
+																															++	containedProgUnitCode
+																															++	nonGeneratedFooterCode
+		where
+			blockSrc = srcSpan block
+			((SrcLoc _ block_ls _), _) = blockSrc
+			(nonGeneratedHeaderSrc, nonGeneratedFooterSrc) = getSrcSpanNonIntersection src blockSrc
+
+			((SrcLoc _ nonGeneratedHeader_ls _), (SrcLoc _ nonGeneratedHeader_le _)) = nonGeneratedHeaderSrc
+			nonGeneratedHeaderCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedHeader_ls..nonGeneratedHeader_le-1]
+			
+			((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
+			nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls..nonGeneratedFooter_le-1]
+
+			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines item)) "" progUnits
+			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(block_ls-1))
+
+produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines (Module _ src _ _ _ _ progUnits) = 	nonGeneratedHeaderCode 
+																																++ 	containedProgUnitCode
+																																++	nonGeneratedFooterCode
+		where
+			firstProgUnitSrc = srcSpan (head progUnits)
+			lastProgUnitSrc = srcSpan (last progUnits)
+			
+			(nonGeneratedHeaderSrc, _) = getSrcSpanNonIntersection src firstProgUnitSrc
+			(_, nonGeneratedFooterSrc) = getSrcSpanNonIntersection src lastProgUnitSrc
+			((SrcLoc _ nonGeneratedHeader_ls _), (SrcLoc _ nonGeneratedHeader_le _)) = nonGeneratedHeaderSrc
+			nonGeneratedHeaderCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedHeader_ls..nonGeneratedHeader_le-1]
+			((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
+			nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls..nonGeneratedFooter_le-1]
+
+			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines item)) "" progUnits
+produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines (Sub _ src _ (SubName _ subroutineName) _ block) =  nonGeneratedHeaderCode 
 												 ++ nonGeneratedBlockCode_indent ++ "use " ++ kernelModuleName ++ "\n" 
 												 ++	nonGeneratedBlockCode_indent ++ "real (kind=4) :: exectime\n"
 												 ++ nonGeneratedBlockCode 
 												 ++ shapeStatements ++ "\n"
 												 ++ bufferStatements ++ "\n"
-												 ++ everything (++) (mkQ "" (produceCodeBlock prog nonGeneratedBlockCode_indent originalLines)) progUnit
-												 ++ nonGeneratedFooterCode			
-							where
-								progUnitSrc = srcSpan progUnit
-								firstFortranSrc = head (everything (++) (mkQ [] (getFirstFortranSrc)) progUnit)
-								firstBlockSrc = head (everything (++) (mkQ [] (getFirstBlockSrc)) progUnit)
-								(nonGeneratedHeaderSrc, nonGeneratedFooterSrc) = getSrcSpanNonIntersection progUnitSrc firstBlockSrc
+												 ++ everything (++) (mkQ "" (produceCodeBlock argTranslation prog nonGeneratedBlockCode_indent originalLines)) block
+												 ++ nonGeneratedFooterCode	
+		where
+			firstFortranSrc = head (everything (++) (mkQ [] (getFirstFortranSrc)) block)
+			blockSrc = srcSpan block
+			(nonGeneratedHeaderSrc, nonGeneratedFooterSrc) = getSrcSpanNonIntersection src blockSrc
 
-								((SrcLoc _ nonGeneratedHeader_ls _), (SrcLoc _ nonGeneratedHeader_le _)) = nonGeneratedHeaderSrc
-								nonGeneratedHeaderCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedHeader_ls..nonGeneratedHeader_le-1]
+			((SrcLoc _ nonGeneratedHeader_ls _), (SrcLoc _ nonGeneratedHeader_le _)) = nonGeneratedHeaderSrc
+			nonGeneratedHeaderCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedHeader_ls..nonGeneratedHeader_le-1]
 
-								((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
-								nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls-1..nonGeneratedFooter_le-1]
+			((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
+			nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls-1..nonGeneratedFooter_le-1]
 
-								((SrcLoc _ block_ls _), (SrcLoc _ _ _)) = firstBlockSrc
-								((SrcLoc _ fortran_ls _), (SrcLoc _ _ _)) = firstFortranSrc
-								nonGeneratedBlockCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [block_ls..fortran_ls-1]
+			((SrcLoc _ block_ls _), (SrcLoc _ _ _)) = blockSrc
+			((SrcLoc _ fortran_ls _), (SrcLoc _ _ _)) = firstFortranSrc
+			nonGeneratedBlockCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [block_ls..fortran_ls-1]
 
-								nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
+			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
 
-								shapeStatements = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
-								bufferStatements = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap (fst prog)
+			argTranslationSubroutine = getSubroutineArgumentTranslation argTranslation subroutineName
+
+			shapeStatements = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
+			bufferStatements = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslationSubroutine block
+produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines progunit = foldl (++) "" (gmapQ (mkQ "" (produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines)) progunit)
 
 synthesiseSizeStatements :: String -> [VarName Anno] -> String
 synthesiseSizeStatements tabs vars = foldl (\accum (varName, sizeVarName) -> accum ++ tabs ++ (varNameStr sizeVarName) ++ " = shape(" ++ (varNameStr varName) ++ ")\n") "" kernelSizeVars_pairs
@@ -303,19 +337,21 @@ synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs kernelA
 			kernels = extractKernels ast
 			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels) -- map (extractKernelArguments) kernels
 
-synthesiseBufferDeclatations :: String -> KernelArgsIndexMap -> [VarName Anno] -> String
-synthesiseBufferDeclatations tabs allKernelArgsMap vars = foldl (\accum (var, index) -> accum ++ tabs ++ "call oclLoadBuffer(" ++ (show index) ++ ", " ++ (varNameStr var) ++ ")" ++  "\n") "" kernelBufferIndices
--- synthesiseBufferDeclatations tabs allKernelArgsMap vars = foldl (\accum (var, index) -> accum ++ tabs ++ (varNameStr var) ++ " = oclBuffers(" ++ (show index) ++ ")" ++  "\n") "" kernelBufferIndices
+synthesiseBufferDeclatations :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> String
+synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation vars = foldl (\accum (var, index) -> accum ++ tabs ++ "call oclLoadBuffer(" ++ (show index) ++ ", " ++ (varNameStr var) ++ ")" ++  "\n") "" kernelBufferIndices
 		where
-			kernelBufferIndices = map (\x -> (varBufVarName x, DMap.findWithDefault (-1) x allKernelArgsMap)) vars
+			translatedVars = translateArguments argTranslation vars
+			kernelBufferIndices = zip vars (map (\x -> DMap.findWithDefault (-1) x allKernelArgsMap) translatedVars)
 
-synthesiseBufferDeclatations_kernel :: String -> KernelArgsIndexMap -> Program Anno -> String
-synthesiseBufferDeclatations_kernel tabs allKernelArgsMap ast = synthesiseBufferDeclatations tabs allKernelArgsMap kernelArgs
+
+synthesiseBufferDeclatations_kernel :: String -> KernelArgsIndexMap -> ArgumentTranslation -> Block Anno -> String
+-- synthesiseBufferDeclatations_kernel :: String -> KernelArgsIndexMap -> ArgumentTranslation -> ProgUnit Anno -> String
+synthesiseBufferDeclatations_kernel tabs allKernelArgsMap argTranslation ast = synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation kernelArgs
 		where
 			kernels = extractKernels ast
 			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels)
 
---	Function is used (along with "getFirstBlockSrc") by "produceCodeProgUnit" to determine which lines of the original
+--	Function is used (along with "getFirstBlockSrc") by "produceCode_progUnit" to determine which lines of the original
 --	source can be taken as is. It is used to determine where the first Fortran nodes of the AST appear in the source
 --	because the Fortran nodes are the ones that have been transformed.
 getFirstFortranSrc :: Block Anno -> [SrcSpan]
@@ -324,8 +360,8 @@ getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
 getFirstBlockSrc :: Block Anno -> [SrcSpan]
 getFirstBlockSrc codeSeg = [srcSpan codeSeg]
 
-produceCodeBlock :: (Program Anno, String) -> String -> [String] -> Block Anno -> String
-produceCodeBlock prog tabs originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog tabs originalLines)) block)
+produceCodeBlock :: ArgumentTranslationSubroutines -> (Program Anno, String) -> String -> [String] -> Block Anno -> String
+produceCodeBlock argTranslation prog tabs originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog tabs originalLines)) block)
 
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
@@ -359,8 +395,8 @@ synthesiseCall prog tabs originalLines (Call anno src expr args)	 	-- tabs ++ "!
 			partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
 			codeSeg = (Call anno src expr args)
 			subroutineName = (outputExprFormatting expr)
-			prefix = if subroutineName == initSubroutineName then "\n" ++ (commentSeparator "BEGIN OPENCL") else ""
-			suffix = if subroutineName == tearDownSubroutineName then "\n" ++ (commentSeparator "END OPENCL") else ""
+			prefix = "" -- if subroutineName == initSubroutineName then "\n" ++ (commentSeparator "BEGIN OPENCL") else ""
+			suffix = "" -- if subroutineName == tearDownSubroutineName then "\n" ++ (commentSeparator "END OPENCL") else ""
 
 synthesiseArgList :: ArgList Anno -> String
 synthesiseArgList (ArgList _ expr) = 
@@ -385,7 +421,7 @@ synthesiseFor :: (Program Anno, String) -> String -> [String] -> Fortran Anno ->
 synthesiseFor prog tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	partialGenerated = tabs ++ "do " ++ (varNameStr varname) ++ "=" ++ outputExprFormatting expr1 
 																								++ ", " ++ outputExprFormatting expr2 ++ (if expr3isOne then "" else outputExprFormatting expr3)
 																								++ "\n" ++ (mkQ "" (produceCode_fortran prog (tabs ++ tabInc) originalLines) fort) ++ tabs ++ "end do\n"
-																				|	otherwise = extractOriginalCode tabs originalLines src
+																						|	otherwise = extractOriginalCode tabs originalLines src
 																	where
 																		expr3isOne = case expr3 of
 																						Con _ _ "1" -> True
@@ -779,6 +815,15 @@ generateKernelName identifier src varnames = (getModuleName filename) ++ "_" ++ 
 			where
 				((SrcLoc filename line _), _) = src
 
+determineSubroutineName :: Program Anno -> SrcSpan -> String
+determineSubroutineName ast src 	|	length matchingSubroutineNamesSrcs > 1 = error "determineSubroutineName: length matchingSubroutineNamesSrcs > 1"
+									|	matchingSubroutineNamesSrcs == [] = error ("determineSubroutineName: matchingSubroutineNamesSrcs == []\n\nAST:\n\n" ++ (show ast) ++ "\n\nsrc:\n\n" ++ (show src))
+									|	otherwise = fst (head matchingSubroutineNamesSrcs)
+		where
+			subroutineHeaders = extractSubroutines ast
+			subroutineNamesSrcs = map (\x -> (extractProgUnitName x, srcSpan x)) subroutineHeaders
+			matchingSubroutineNamesSrcs = filter (\(_, s) -> checkSrcSpanContainsSrcSpan s src) subroutineNamesSrcs
+
 --	Function used during host code generation to produce call to OpenCL kernel.
 generateKernelCall :: (Program Anno, String) -> String -> Fortran Anno -> String
 generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = -- if allArguments == [] then error "generateKernelCall" else 	-- "! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n"
@@ -824,6 +869,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fort
 															++ tabs ++ bufferReads_rv 
 															++ "\n"
 			where 
+
 				reductionVarNames = map (\(varname, expr) -> varname) rv
 				workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames
 				global_reductionArrays = map (generateGlobalReductionArray) reductionVarNames

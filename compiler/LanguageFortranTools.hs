@@ -486,6 +486,12 @@ checkSrcSpanBefore (_, (SrcLoc file_before line_before column_before)) ((SrcLoc 
 checkSrcSpanBefore_line :: SrcSpan -> SrcSpan -> Bool
 checkSrcSpanBefore_line ((SrcLoc file_before line_before column_before), beforeEnd) ((SrcLoc file_after line_after column_after), afterEnd) = (line_before < line_after)
 
+checkSrcSpanContainsSrcSpan :: SrcSpan -> SrcSpan -> Bool
+checkSrcSpanContainsSrcSpan ((SrcLoc _ outerLS outerCS), (SrcLoc _ outerLE outerCE)) ((SrcLoc _ innerLS innerCS), (SrcLoc _ innerLE innerCE)) = outerStartsBefore && outerEndsAfter
+		where
+			outerStartsBefore = (outerLS < innerLS)|| (outerLS == innerLS && outerCS < innerCS)
+			outerEndsAfter = (outerLE > innerLE)|| (outerLE == innerLE && outerCE > innerCE)
+
 listCartesianProduct :: [a] -> [a] -> [(a,a)]
 listCartesianProduct xs ys = [(x,y) | x <- xs, y <- ys]
 

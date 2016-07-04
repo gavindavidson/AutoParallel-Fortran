@@ -36,16 +36,16 @@ import LoopAnalysis
 main = do
 
 	putStr "\nConcerns:"
-	putStr ("\n" 	++ outputTab ++ "- Consider called subroutines when parallelising.")
+	-- putStr ("\n" 	++ outputTab ++ "- Consider called subroutines when parallelising.")
 	putStr ("\n" 	++ outputTab ++ "- Initialisation location must consider loops, not just accesses before\n" 
 					++ outputTab ++ "position")
 	putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
 					++ outputTab ++ "are read back from buffers.")
-	putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
+	-- putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
 	putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments")
 	putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use")
-	putStr ("\n" 	++ outputTab ++ "- Translate buffer numbers between subroutines. As in, the same buffer being\n"
-					++ outputTab ++ "represented by many variable names across subroutines")
+	-- putStr ("\n" 	++ outputTab ++ "- Translate buffer numbers between subroutines. As in, the same buffer being\n"
+	-- 				++ outputTab ++ "represented by many variable names across subroutines")
 
 
 	-- putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
@@ -93,7 +93,8 @@ main = do
 	let fileCoordinated_parallelisedMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty parallelisedSubroutineList
 	let fileCoordinated_parallelisedList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_parallelisedMap") x fileCoordinated_parallelisedMap, x)) filenames
 
-	let (optimisedBufferTransfersSubroutines, initTearDownInfo) = optimiseBufferTransfers combinedKernelSubroutines parsedMain 
+	let argTranslations = extractArgumentTranslationSubroutines combinedKernelSubroutines parsedMain
+	let (optimisedBufferTransfersSubroutines, initTearDownInfo) = optimiseBufferTransfers combinedKernelSubroutines argTranslations parsedMain 
 	let optimisedBufferTransfersSubroutineList = map (\x -> DMap.findWithDefault (error "optimisedBufferTransfersSubroutineList") x optimisedBufferTransfersSubroutines) subroutineNames
 	let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
 	let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
@@ -119,10 +120,12 @@ main = do
 	-- putStr (show combinedKernelSubroutines)
 	-- putStr "\n\nNEWMAINAST\n\n"
 	-- putStr (show newMainAst)
+	-- putStr "\n\nMAIN AST\n\n"
+	-- putStr (show parsedMain)
 	-- mapM (\(ast, filename) -> putStr ("FILENAME: " ++ filename ++ "\n\n" ++ (show ast))) fileCoordinated_bufferOptimisedPrograms
 
 	putStr (compilerName ++ ": Synthesising OpenCL files\n")
-	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms (newMainAst, mainFilename) initWrites tearDownReads
+	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms argTranslations (newMainAst, mainFilename) initWrites tearDownReads
 
 combineAnnotationListings_map :: [(String, String)] -> (String, String) -> (String, String, String)
 combineAnnotationListings_map annoations (currentFilename, currentAnno) = foldl (\accum (filename, anno) -> if filename == currentFilename then (filename, currentAnno, anno) else accum) (currentFilename, currentAnno, "") annoations
