@@ -142,14 +142,33 @@ flattenSubroutineCall subTable argTransTable codeSeg = codeSeg
 --				each pair to a Data.Map.
 --			+	Return the Data.Map
 --		-	Stored each Data.Map in another Data.Map, whose keys are subroutine names.
-extractArgumentTranslationSubroutines subTable mainAst = argTransTable
+extractArgumentTranslationSubroutines subTable ast = argTransTable
 		where
 			subroutines = DMap.keys subTable
-			calls = everything (++) (mkQ [] extractCalls) mainAst
+			calls = everything (++) (mkQ [] extractCalls) ast
 			argTransTable = foldl (generateArgumentTranslationSubroutines subTable) (DMap.empty) calls
 
 generateArgumentTranslationSubroutines :: SubroutineTable -> ArgumentTranslationSubroutines -> Fortran Anno -> ArgumentTranslationSubroutines
 generateArgumentTranslationSubroutines subTable argTable (Call anno src callExpr arglist) = DMap.insert subroutineName varNameReplacements argTable
+		where
+			varNameReplacements = generateArgumentTranslation subTable (Call anno src callExpr arglist)
+			subroutineName = varNameStr (head (extractVarNames callExpr))
+			-- subroutineMaybe = DMap.lookup subroutineName subTable
+			-- (subroutineParsed, subroutine) = case subroutineMaybe of
+			-- 						Nothing -> (False, error "generateArgumentTranslationSubroutines")
+			-- 						Just sub -> (True, sub)
+			-- (Sub _ _ _ _ arg _) = subroutineTable_ast subroutine
+
+			-- callArgs = everything (++) (mkQ [] extractExpr_list) arglist
+			-- bodyArgs = everything (++) (mkQ [] extractArgName) arg
+
+			-- callArgs_varNames = map (\x -> if extractVarNames x == [] then error ("substituteArguments: " ++ (show x)) else  head (extractVarNames x)) callArgs
+			-- bodyArgs_varNames = map (\(ArgName _ str) -> VarName nullAnno str) bodyArgs
+
+			-- varNameReplacements = foldl (\dmap (old, new) -> DMap.insert old new dmap) DMap.empty (zip bodyArgs_varNames callArgs_varNames)
+
+generateArgumentTranslation :: SubroutineTable -> Fortran Anno -> ArgumentTranslation
+generateArgumentTranslation subTable (Call anno src callExpr arglist) = varNameReplacements
 		where
 			subroutineName = varNameStr (head (extractVarNames callExpr))
 			subroutineMaybe = DMap.lookup subroutineName subTable

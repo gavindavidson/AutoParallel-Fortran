@@ -14,6 +14,7 @@ import qualified Data.Map as DMap
 import VarAccessAnalysis
 import VarDependencyAnalysis
 import LanguageFortranTools
+import BufferTransferAnalysis
 
 --	Type used to standardise loop analysis functions
 --						errors 		reduction variables read variables		written variables		
@@ -42,15 +43,15 @@ getWrites (_, _, _, writes) = writes
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	cannot be mapped. If the returned string is empty, the loop represents a possible parallel map
-analyseLoop_map :: String -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> VarDependencyAnalysis -> Fortran Anno -> AnalysisInfo
-analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAnalysis dependencies codeSeg = case codeSeg of
+analyseLoop_map :: String -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarAccessAnalysis -> VarDependencyAnalysis -> SubroutineTable -> Fortran Anno -> AnalysisInfo
+analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable codeSeg = case codeSeg of
 		If _ _ expr _ elifList maybeElse -> foldl combineAnalysisInfo analysisInfoBaseCase (generalAnalysis ++ elifAnalysis_fortran ++ elifAnalysis_readExprs ++ [elseAnalysis])
 						where
-							generalAnalysis = gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map comment (loopVars) loopWrites nonTempVars prexistingVars accessAnalysis dependencies)) codeSeg
-							elifAnalysis_fortran = map (\(_, elif_fortran) -> analyseLoop_map comment (loopVars) loopWrites nonTempVars prexistingVars accessAnalysis dependencies elif_fortran) elifList
+							generalAnalysis = gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map comment (loopVars) loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable)) codeSeg
+							elifAnalysis_fortran = map (\(_, elif_fortran) -> analyseLoop_map comment (loopVars) loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable elif_fortran) elifList
 							elifAnalysis_readExprs = map (\(elif_expr, _) -> (nullAnno,[],extractOperands elif_expr,[])) elifList
 							elseAnalysis = case maybeElse of
-												Just else_fortran ->  analyseLoop_map comment (loopVars) loopWrites nonTempVars prexistingVars accessAnalysis dependencies else_fortran
+												Just else_fortran ->  analyseLoop_map comment (loopVars) loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable else_fortran
 												Nothing -> analysisInfoBaseCase
 		Assg _ srcspan expr1 expr2 -> foldl (combineAnalysisInfo) analysisInfoBaseCase [expr1Analysis, --expr2Analysis, 
 																								(DMap.empty,[],
@@ -68,17 +69,30 @@ analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAna
 
 		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis -- ++ [(DMap.insert ("LOOPITERTABLE:\n") [ show (loopVars ++ [var]) ++ "\n" ++ (show newLoopIterTable) ++ "\n"] DMap.empty, [],[],[])])
 						where
-							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map comment (loopVars ++ [var]) loopWrites nonTempVars prexistingVars accessAnalysis dependencies)) codeSeg)
-		Call _ srcspan expr arglist -> (errorMap_call, [], [], argExprs)
+							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map comment (loopVars ++ [var]) loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable)) codeSeg)
+		Call _ srcspan callExpr arglist -> callAnalysis --(errorMap_call, [], [], argExprs)
 						where
+							subroutineName = if extractVarNames callExpr == [] then (error "analyseLoop_map: callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
+							argTranslation = generateArgumentTranslation subTable codeSeg
+							(subroutineParsed, (subroutineBody, _)) = case DMap.lookup subroutineName subTable of
+													Just a -> (True, a)
+													Nothing -> (False, error "analyseLoop_map: DMap.lookup subroutineName subTable")
+							subCallAnalysis = analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable (extractFirstFortran subroutineBody)
+
+							callAnalysis = if not subroutineParsed then
+												(errorMap_call, [], [], argExprs)
+											else
+												subCallAnalysis
+
 							errorMap_call = DMap.insert (outputTab ++ comment ++ "Call to external function:\n")
-															[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting expr]
-															DMap.empty
+														[errorLocationFormatting srcspan ++ outputTab ++ outputExprFormatting callExpr]
+														DMap.empty
+
 							argExprs = everything (++) (mkQ [] extractExpr_list) arglist
 		_ -> foldl combineAnalysisInfo analysisInfoBaseCase (childrenAnalysis ++ nodeAccessAnalysis)
 						where
 							nodeAccessAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseAccess comment loopVars loopWrites nonTempVars accessAnalysis)) codeSeg)
-							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAnalysis dependencies)) codeSeg)
+							childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable)) codeSeg)
 
 --	Function takes a list of loop variables and a possible parallel loop's AST and returns a string that details the reasons why the loop
 --	doesn't represent a reduction. If the returned string is empty, the loop represents a possible parallel reduction

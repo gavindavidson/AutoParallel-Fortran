@@ -39,12 +39,12 @@ main = do
 	-- putStr ("\n" 	++ outputTab ++ "- Consider called subroutines when parallelising.")
 	putStr ("\n" 	++ outputTab ++ "- Initialisation location must consider loops, not just accesses before\n" 
 					++ outputTab ++ "position")
-	putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
-					++ outputTab ++ "are read back from buffers.")
+	-- putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
+	-- 				++ outputTab ++ "are read back from buffers.")
 	-- putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
 	putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments\n"
 					++ outputTab ++ "(Input can now be fixed form, output functionality almost there)") -- -ffixed-form
-	putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use")
+	putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use (MUST TEST)")
 	-- putStr ("\n" 	++ outputTab ++ "- Translate buffer numbers between subroutines. As in, the same buffer being\n"
 	-- 				++ outputTab ++ "represented by many variable names across subroutines")
 
@@ -89,7 +89,7 @@ main = do
 	let subroutineNames = DMap.keys parsedSubroutines
 	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (subroutineNames)
 
-	let (parallelisedSubroutines, parAnnotations) = foldl (paralleliseProgUnit_foldl) (parsedSubroutines, []) subroutineNames
+	let (parallelisedSubroutines, parAnnotations) = foldl (paralleliseProgUnit_foldl parsedSubroutines) (DMap.empty, []) subroutineNames
 	let (combinedKernelSubroutines, combAnnotations) = foldl (combineKernelProgUnit_foldl loopFusionBound) (parallelisedSubroutines, []) subroutineNames
 	let annotationListings = map (combineAnnotationListings_map parAnnotations) combAnnotations
 
@@ -161,16 +161,22 @@ generateESeq :: [VarName Anno] -> Expr Anno
 generateESeq (var:[]) = generateVar var
 generateESeq (var:vars) = ESeq nullAnno nullSrcSpan (generateESeq vars) (generateVar var)
 
-paralleliseProgUnit_foldl ::(SubroutineTable, [(String, String)]) -> String -> (SubroutineTable, [(String, String)])
-paralleliseProgUnit_foldl (subTable, annoListing) subName = (newSubTable, annoListing ++ [anno])
+paralleliseProgUnit_foldl :: SubroutineTable -> (SubroutineTable, [(String, String)]) -> String -> (SubroutineTable, [(String, String)])
+paralleliseProgUnit_foldl originalTable (accumSubTable, annoListing) subName = (newSubTable, annoListing ++ [anno])
 		where
-			(progUnit, filename) = DMap.findWithDefault (error "paralleliseProgUnit_foldl") subName subTable
-			(transformedProgUnit, anno) = paralleliseProgUnit progUnit subTable filename 
-			newSubTable = DMap.insert subName (transformedProgUnit, filename) subTable
+			(progUnit, filename) = DMap.findWithDefault (error "paralleliseProgUnit_foldl") subName originalTable
+			(transformedProgUnit, anno) = paralleliseProgUnit progUnit originalTable filename 
+			newSubTable = DMap.insert subName (transformedProgUnit, filename) accumSubTable
+			-- (progUnit, filename) = DMap.findWithDefault (error "paralleliseProgUnit_foldl") subName subTable
+			-- (transformedProgUnit, anno) = paralleliseProgUnit progUnit subTable filename 
+			-- newSubTable = DMap.insert subName (transformedProgUnit, filename) subTable
 
 paralleliseProgUnit :: ProgUnit Anno -> SubroutineTable -> String -> (ProgUnit Anno, (String, String))
 paralleliseProgUnit progUnit subTable filename = (parallelised, (filename, parAnno))
 		where
+			-- argTransTable = extractArgumentTranslationSubroutines subTable progUnit
+			-- flattenedProgUnit = flattenSubroutineAppearences subTable argTransTable progUnit
+
 			foldedConstants = foldConstants progUnit
 			parallelised =  paralleliseProgUnit_transform filename subTable (analyseAllVarAccess_progUnit progUnit) foldedConstants
 			parAnno = compileAnnotationListing parallelised
@@ -225,8 +231,8 @@ addArg argMap flag value = DMap.insert flag newValues argMap
 usageError = error "USAGE: [<filename>] -main <filename> [<flag> <value>]"
 
 --	The top level function that is called against the original parsed AST
-paralleliseProgram :: String -> SubroutineTable -> VarAccessAnalysis -> Program Anno -> Program Anno 
-paralleliseProgram filename subTable accessAnalysis codeSeg = map (everywhere (mkT (paralleliseBlock filename subTable (accessAnalysis)))) codeSeg
+-- paralleliseProgram :: String -> SubroutineTable -> VarAccessAnalysis -> Program Anno -> Program Anno 
+-- paralleliseProgram filename subTable accessAnalysis codeSeg = map (everywhere (mkT (paralleliseBlock filename subTable (accessAnalysis)))) codeSeg
 
 paralleliseProgUnit_transform :: String -> SubroutineTable -> VarAccessAnalysis -> ProgUnit Anno -> ProgUnit Anno 
 paralleliseProgUnit_transform filename subTable accessAnalysis codeSeg = everywhere (mkT (paralleliseBlock filename subTable (accessAnalysis))) codeSeg
@@ -256,7 +262,7 @@ paralleliseLoop filename loopVars accessAnalysis subTable loop = transformedAst
 									dependencies = analyseDependencies loop
 
 									-- mapAttempt = paralleliseLoop_map filename flattenedLoop newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
-									mapAttempt = paralleliseLoop_map filename loop newLoopVars nonTempVars prexistingVars dependencies accessAnalysis
+									mapAttempt = paralleliseLoop_map filename loop newLoopVars nonTempVars prexistingVars dependencies accessAnalysis subTable
 									mapAttempt_bool = fst mapAttempt
 									mapAttempt_ast = snd mapAttempt
 
@@ -288,20 +294,20 @@ extractWrites _ = []
 
 --	Function is applied to sub-trees that are loops. It returns either a version of the sub-tree that uses new OpenCLMap nodes or the
 --	original sub-tree annotated with reasons why the loop cannot be mapped
-paralleliseLoop_map :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
-paralleliseLoop_map filename loop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis
+paralleliseLoop_map :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno] -> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> SubroutineTable -> (Bool, Fortran Anno)
+paralleliseLoop_map filename loop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis subTable
 									|	errors_map' == nullAnno 	=	(True, appendAnnotation mapCode (compilerName ++ ": Map at " ++ errorLocationFormatting (srcSpan loop)) "")
 									|	otherwise					=	(False, appendAnnotationMap loop errors_map')
 									where
 										loopWrites = extractWrites_query loop
-										loopAnalysis = analyseLoop_map "Cannot map: " [] loopWrites nonTempVars prexistingVars accessAnalysis dependencies loop
-										-- loopAnalysis = analyseLoop_map Empty loopVarNames loopWrites nonTempVars accessAnalysis dependencies loop
+										loopAnalysis = analyseLoop_map "Cannot map: " [] loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable loop
+
 										errors_map = getErrorAnnotations loopAnalysis
 										reads_map = getReads loopAnalysis
 										writes_map = getWrites loopAnalysis
 
 										(loopCarriedDeps_bool, evaluated_bool, loopCarriedDeps) = loopCarriedDependencyCheck loop
-										-- loopCarriedDeps_bool = loopCarriedDeps /= []
+
 										errors_map' = case loopCarriedDeps_bool of
 															True -> case evaluated_bool of
 																	True -> DMap.insert (outputTab ++ "Cannot map: Loop carried dependency detected:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_map

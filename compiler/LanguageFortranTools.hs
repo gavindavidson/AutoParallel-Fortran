@@ -404,6 +404,8 @@ removeLoopConstructs_recursive (For _ _ _ _ _ _ fortran) = removeLoopConstructs_
 removeLoopConstructs_recursive (FSeq _ _ fortran (NullStmt _ _)) = removeLoopConstructs_recursive fortran
 removeLoopConstructs_recursive codeSeg = codeSeg
 
+extractFirstFortran codeSeg = head (everything (++) (mkQ [] extractFortran) codeSeg)
+
 extractFirstChildFor :: Fortran Anno -> Maybe(Fortran Anno, Fortran Anno, Fortran Anno)
 extractFirstChildFor (For _ _ _ _ _ _ fortran) 	|	forFound = Just(priorFortran, firstFor, followingFortran)
 												|	otherwise = Nothing
