@@ -27,9 +27,11 @@ initTearDownModuleName = "OpenCLInitAndTearDown"
 
 type KernelArgsIndexMap = DMap.Map (VarName Anno) Int
 
-emit :: String -> [String] -> [(Program Anno, String)] -> [(Program Anno, String)] -> ArgumentTranslationSubroutines -> (Program Anno, String) -> [VarName Anno] -> [VarName Anno] -> IO [()]
-emit specified cppDFlags programs_verboseArgs programs_optimisedBuffers argTranslations (mainAst, mainFilename) initWrites tearDownReads = do
-				kernels_code <- mapM (emitKernels cppDFlags) programs_verboseArgs
+emit :: String -> [String] -> Bool -> [(Program Anno, String)] -> [(Program Anno, String)] -> ArgumentTranslationSubroutines -> (Program Anno, String) -> [VarName Anno] -> [VarName Anno] -> IO [()]
+emit specified cppDFlags fixedForm' programs_verboseArgs programs_optimisedBuffers argTranslations (mainAst, mainFilename) initWrites tearDownReads = do
+				let fixedForm = False
+
+				kernels_code <- mapM (emitKernels cppDFlags fixedForm) programs_verboseArgs
 				let allKernels = foldl (++) [] kernels_code
 				let kernelNames = map (snd) allKernels
 
@@ -40,17 +42,38 @@ emit specified cppDFlags programs_verboseArgs programs_optimisedBuffers argTrans
 				let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
 				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
 
-				host_code <- mapM (produceCode_prog allKernelArgsMap argTranslations cppDFlags moduleName) programs_optimisedBuffers
-				main_code <- produceCode_prog allKernelArgsMap argTranslations cppDFlags initTearDownModuleName (mainAst, mainFilename)
+				host_code <- mapM (produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm moduleName) programs_optimisedBuffers
+				main_code <- produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm initTearDownModuleName (mainAst, mainFilename)
 				let initAndTearDownCode = synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads
-				-- host_code <- mapM (produceCode_prog allKernelArgsMap cppDFlags moduleName) programs_verboseArgs
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
 
-				writeFile moduleFilename superKernel_module
-				writeFile newMainFilename main_code
-				writeFile initTearDownFilename initAndTearDownCode
+				writeFile moduleFilename (if fixedForm then fixedFormFormat superKernel_module else superKernel_module)
+				writeFile newMainFilename (if fixedForm then fixedFormFormat main_code else main_code)
+				writeFile initTearDownFilename (if fixedForm then fixedFormFormat initAndTearDownCode else initAndTearDownCode)
 				mapM (\(code, filename) -> writeFile filename code) host_programs
 
+fixedFormFormat :: String -> String
+fixedFormFormat inputStr = foldl (\accum item -> accum ++ "\n" ++ (fixedFormFormat_line item)) "" allLines
+		where
+			allLines = lines inputStr
+
+fixedFormFormat_line :: String -> String
+fixedFormFormat_line "" = ""
+fixedFormFormat_line inputLine = addedLeadingWhiteSpace ++  (take lineLength_contAndWhiteSpace (removeCarridgeReturns inputLine)) ++ "||" ++ (drop lineLength_contAndWhiteSpace (removeCarridgeReturns inputLine)) ++ "! " ++ (show inputLine) ++ "\n" --(if nextLineExists then " &\n" else "\n") ++ fixedFormFormat_line (drop lineLength_contAndWhiteSpace inputLine)
+--(fixedFormFormat_line (drop lineLength_contAndWhiteSpace inputLine))
+		where
+			whiteSpaceCount = fixedFormFormat_leadingWhiteSpaceCount inputLine
+			addedLeadingWhiteSpace = foldl (\accum item -> accum ++ "-") "" [whiteSpaceCount + 1 .. desiredLeadingWhiteSpace]
+			desiredLeadingWhiteSpace = 6
+			desiredLineLength = 72
+			lineLength_contAndWhiteSpace = desiredLineLength - 2 - (desiredLeadingWhiteSpace - whiteSpaceCount)
+
+			nextLineExists = (drop lineLength_contAndWhiteSpace inputLine) /= ""
+			removeCarridgeReturns = (\x -> filter (/= '\r') x)
+
+fixedFormFormat_leadingWhiteSpaceCount :: String -> Int
+fixedFormFormat_leadingWhiteSpaceCount (char:str) 	|	isSpace char = 1 + fixedFormFormat_leadingWhiteSpaceCount str
+													|	otherwise = 0
 
 synthesiseInitAndTearDownModule :: KernelArgsIndexMap -> Program Anno -> [VarName Anno] -> [VarName Anno] -> String
 synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads = moduleHeader
@@ -77,9 +100,9 @@ synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownRead
 			readSizeStatement = synthesiseSizeStatements twoIndent initWrites
 			bufferWrites = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls))
 
-emitKernels :: [String] -> (Program Anno, String) -> IO [(String, String)]
-emitKernels cppDFlags (ast, filename) = do
-				originalLines <- readOriginalFileLines cppDFlags filename
+emitKernels :: [String] -> Bool -> (Program Anno, String) -> IO [(String, String)]
+emitKernels cppDFlags fixedForm (ast, filename) = do
+				originalLines <- readOriginalFileLines cppDFlags fixedForm filename
 				let originalListing = case originalLines of
 										[]	-> ""
 										_ -> foldl (\accum item -> accum ++ "\n" ++ item) (head originalLines) (tail originalLines)
@@ -191,9 +214,9 @@ generateOriginalFileName (x:xs) = x ++ "/" ++ generateOriginalFileName xs
 
 --	This function produces a list of strings where each element is a line of the original source. This
 --	list is used heavily in this module.
-readOriginalFileLines :: [String] -> String -> IO ([String])
-readOriginalFileLines cppDFlags filename = do
-				content <- cpp cppDFlags filename
+readOriginalFileLines :: [String] -> Bool -> String -> IO ([String])
+readOriginalFileLines cppDFlags fixedForm filename = do
+				content <- cpp cppDFlags fixedForm filename
 				let contentLines = lines content
 				return contentLines
 
@@ -230,9 +253,9 @@ synthesiseKernelDeclarations prog (OpenCLBufferRead _ _ varName) = (readDecls, [
 					readDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) varName]
 
 
-produceCode_prog :: KernelArgsIndexMap -> ArgumentTranslationSubroutines -> [String] -> String -> (Program Anno, String) -> IO(String)
-produceCode_prog allKernelArgsMap argTranslation cppDFlags kernelModuleName (prog, filename) = do
-					originalLines <- readOriginalFileLines cppDFlags filename
+produceCode_prog :: KernelArgsIndexMap -> ArgumentTranslationSubroutines -> [String] -> Bool -> String -> (Program Anno, String) -> IO(String)
+produceCode_prog allKernelArgsMap argTranslation cppDFlags fixedForm kernelModuleName (prog, filename) = do
+					originalLines <- readOriginalFileLines cppDFlags fixedForm filename
 					let result = foldl (\accum item -> accum ++ produceCode_progUnit allKernelArgsMap emptyArgumentTranslation (prog, filename) kernelModuleName originalLines item) "" prog
 					return result
 
@@ -336,7 +359,22 @@ getFirstBlockSrc :: Block Anno -> [SrcSpan]
 getFirstBlockSrc codeSeg = [srcSpan codeSeg]
 
 produceCodeBlock :: ArgumentTranslationSubroutines -> (Program Anno, String) -> String -> [String] -> Block Anno -> String
-produceCodeBlock argTranslation prog tabs originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog tabs originalLines)) block)
+produceCodeBlock argTranslation prog tabs originalLines (Block _ _ _ src decl fort) = 	nonGeneratedHeaderCode
+																					++ 	produceCode_fortran prog tabs originalLines fort
+																					++	nonGeneratedFooterCode
+		where
+			fortranSrc = srcSpan fort
+			((SrcLoc _ fortran_ls _), _) = fortranSrc
+			(nonGeneratedHeaderSrc, nonGeneratedFooterSrc) = getSrcSpanNonIntersection src fortranSrc
+
+			((SrcLoc _ nonGeneratedHeader_ls _), (SrcLoc _ nonGeneratedHeader_le _)) = nonGeneratedHeaderSrc
+			nonGeneratedHeaderCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedHeader_ls..nonGeneratedHeader_le-1]
+			
+			((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
+			nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls..nonGeneratedFooter_le-1]
+
+			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
+-- produceCodeBlock argTranslation prog tabs originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog tabs originalLines)) block)
 
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
@@ -365,7 +403,7 @@ produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
 synthesiseCall :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
 synthesiseCall prog tabs originalLines (Call anno src expr args)	 	-- tabs ++ "! generated call: " ++ (outputExprFormatting expr) ++ "at " ++ (errorLocationFormatting src) ++ "\n"
 																	|	partialGenerated = prefix ++ tabs ++ "call " ++ (outputExprFormatting expr) ++ (synthesiseArgList args) ++ suffix ++ "\n"
-																	|	otherwise = (extractOriginalCode tabs originalLines src)
+																	|	otherwise = prefix ++ (extractOriginalCode tabs originalLines src) ++ suffix
 		where
 			partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
 			codeSeg = (Call anno src expr args)

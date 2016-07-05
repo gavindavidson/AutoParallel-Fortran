@@ -42,7 +42,8 @@ main = do
 	putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
 					++ outputTab ++ "are read back from buffers.")
 	-- putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
-	putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments")
+	putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments\n"
+					++ outputTab ++ "(Input can now be fixed form, output functionality almost there)") -- -ffixed-form
 	putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use")
 	-- putStr ("\n" 	++ outputTab ++ "- Translate buffer numbers between subroutines. As in, the same buffer being\n"
 	-- 				++ outputTab ++ "represented by many variable names across subroutines")
@@ -74,12 +75,15 @@ main = do
 						Just a -> True
 						Nothing -> False
 
+	let fixedForm = case DMap.lookup fiexedFormFlag argMap of
+						Just a -> True
+						Nothing -> False
+
 	let cppDFlags = DMap.findWithDefault [] cppDefineFlag argMap
 
-	parsedPrograms <- mapM (parseFile cppDFlags) filenames
-	parsedProgram <- parseFile cppDFlags (head filenames)
+	parsedPrograms <- mapM (parseFile cppDFlags fixedForm) filenames
 
-	parsedMain <- parseFile cppDFlags mainFilename
+	parsedMain <- parseFile cppDFlags fixedForm mainFilename
 	let parsedSubroutines = constructSubroutineTable (zip parsedPrograms filenames)
 
 	let subroutineNames = DMap.keys parsedSubroutines
@@ -125,7 +129,7 @@ main = do
 	-- mapM (\(ast, filename) -> putStr ("FILENAME: " ++ filename ++ "\n\n" ++ (show ast))) fileCoordinated_bufferOptimisedPrograms
 
 	putStr (compilerName ++ ": Synthesising OpenCL files\n")
-	emit outDirectory cppDFlags fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms argTranslations (newMainAst, mainFilename) initWrites tearDownReads
+	emit outDirectory cppDFlags fixedForm fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms argTranslations (newMainAst, mainFilename) initWrites tearDownReads
 
 combineAnnotationListings_map :: [(String, String)] -> (String, String) -> (String, String, String)
 combineAnnotationListings_map annoations (currentFilename, currentAnno) = foldl (\accum (filename, anno) -> if filename == currentFilename then (filename, currentAnno, anno) else accum) (currentFilename, currentAnno, "") annoations
@@ -190,13 +194,16 @@ loopFusionBoundFlag = "-lfb"
 verboseFlag = "-v"
 mainFileFlag = "-main"
 cppDefineFlag = "-D"
+fiexedFormFlag = "-ffixed-form"
 
-flags = [filenameFlag, outDirectoryFlag, loopFusionBoundFlag, cppDefineFlag, verboseFlag, mainFileFlag]
+flags = [filenameFlag, outDirectoryFlag, loopFusionBoundFlag, cppDefineFlag, verboseFlag, mainFileFlag, fiexedFormFlag]
 
 processArgs :: [String] -> DMap.Map String [String]
 processArgs [] = usageError
-processArgs (arg:args)	|	elem arg flags = usageError
-						|	otherwise = gatherFlag filenameFlag (arg:args) []
+processArgs (flag:arg:args)	|	elem flag flags = gatherFlag flag (arg:args) []
+							|	otherwise 		= gatherFlag filenameFlag (flag:arg:args) []
+-- processArgs (arg:args)	|	elem arg flags = usageError
+-- 						|	otherwise = gatherFlag filenameFlag (arg:args) []
 
 processArgs' :: [String] -> DMap.Map String [String]
 processArgs' (flag:arg:args) 	|	elem flag flags = gatherFlag flag (arg:args) []

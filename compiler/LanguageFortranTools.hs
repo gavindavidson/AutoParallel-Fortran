@@ -28,15 +28,15 @@ nullAnno :: Anno
 nullAnno = DMap.empty
 
 --	Taken from language-fortran example. Runs preprocessor on target source and then parses the result, returning an AST.
-parseFile cppArgs filename = do 
+parseFile cppArgs fixedForm filename = do 
 								let dFlagList = foldl (\accum item -> accum ++ ["-D", item]) [] cppArgs
 								inp <- (readProcess "cpp" ([filename] ++ dFlagList ++ ["-P"]) "") 
-								return $ parse $ preProcess inp
+								return $ parse $ preProcess fixedForm inp
 
-cpp cppArgs filename = do 	
-							let dFlagList = foldl (\accum item -> accum ++ ["-D", item]) [] cppArgs
-							inp <- (readProcess "cpp" ([filename] ++ dFlagList ++ ["-P"]) "") 
-							return $ preProcess inp
+cpp cppArgs fixedForm filename = do 	
+								let dFlagList = foldl (\accum item -> accum ++ ["-D", item]) [] cppArgs
+								inp <- (readProcess "cpp" ([filename] ++ dFlagList ++ ["-P"]) "") 
+								return $ preProcess fixedForm inp
 
 --	Used by analyseLoop_map to format the information on the position of a particular piece of code that is used as the information
 --	output to the user
