@@ -359,7 +359,9 @@ getFirstBlockSrc :: Block Anno -> [SrcSpan]
 getFirstBlockSrc codeSeg = [srcSpan codeSeg]
 
 produceCodeBlock :: ArgumentTranslationSubroutines -> (Program Anno, String) -> String -> [String] -> Block Anno -> String
-produceCodeBlock argTranslation prog tabs originalLines (Block _ _ _ src decl fort) = 	nonGeneratedHeaderCode
+produceCodeBlock argTranslation prog tabs originalLines (Block _ _ _ src decl fort) |	nonGeneratedHeader_ls < 1 = error "produceCodeBlock: nonGeneratedHeader_ls < 1"
+																					|	nonGeneratedFooter_ls < 1 = error "produceCodeBlock: nonGeneratedFooter_ls < 1"
+																					|	otherwise =	nonGeneratedHeaderCode
 																					++ 	produceCode_fortran prog tabs originalLines fort
 																					++	nonGeneratedFooterCode
 		where

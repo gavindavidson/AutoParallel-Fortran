@@ -74,9 +74,10 @@ analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAna
 						where
 							subroutineName = if extractVarNames callExpr == [] then (error "analyseLoop_map: callExpr\n" ++ (show callExpr))  else varNameStr (head (extractVarNames callExpr))
 							argTranslation = generateArgumentTranslation subTable codeSeg
-							(subroutineParsed, (subroutineBody, _)) = case DMap.lookup subroutineName subTable of
+							(subroutineParsed, subTableEntry) = case DMap.lookup subroutineName subTable of
 													Just a -> (True, a)
 													Nothing -> (False, error "analyseLoop_map: DMap.lookup subroutineName subTable")
+							subroutineBody = subroutineTable_ast subTableEntry
 							subCallAnalysis = analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable (extractFirstFortran subroutineBody)
 
 							callAnalysis = if not subroutineParsed then

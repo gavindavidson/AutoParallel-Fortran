@@ -305,7 +305,8 @@ findLatestTearDownSrcSpan :: VarAccessAnalysis -> SrcSpan -> [VarName Anno] -> S
 findLatestTearDownSrcSpan varAccessAnalysis kernelsRange tearDownReads = firstRead
 		where
 			readsAfter = foldl (\accum item -> accum ++ fst (getAccessLocationsAfterSrcSpan varAccessAnalysis item kernelsRange)) [] tearDownReads
-			firstRead = fromMaybe nullSrcSpan (getEarliestSrcSpan readsAfter)
+			kernelsEndLine = (snd kernelsRange, snd kernelsRange)
+			firstRead = fromMaybe kernelsEndLine (getEarliestSrcSpan readsAfter)
 
 --	Using the variable access analysis from the flattened main AST, strip away those arguments that the kernel writes back to the host that are never read
 --	by the host after the end of the kernel and before the end of ALL of the kernels (As in, there is no need for the variable to be on the host while OpenCL stuff is
