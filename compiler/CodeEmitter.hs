@@ -251,6 +251,9 @@ synthesiseKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, wr
 synthesiseKernelDeclarations prog (OpenCLBufferRead _ _ varName) = (readDecls, [], [])
 				where
 					readDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) varName]
+synthesiseKernelDeclarations prog (OpenCLBufferWrite _ _ varName) = (writtenDecls, [], [])
+				where
+					writtenDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) varName]
 
 
 produceCode_prog :: KernelArgsIndexMap -> ArgumentTranslationSubroutines -> [String] -> Bool -> String -> (Program Anno, String) -> IO(String)
@@ -388,6 +391,7 @@ produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
 						For _ _ _ _ _ _ _ -> synthesiseFor prog tabs originalLines codeSeg
 						NullStmt _ _ -> ""
 						OpenCLBufferRead _ _ _ -> synthesiseOpenCLBufferRead prog tabs originalLines codeSeg
+						OpenCLBufferWrite _ _ _ -> synthesiseOpenCLBufferWrite prog tabs originalLines codeSeg
 						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall prog tabs codeSeg) ++ (commentSeparator "END")
 						OpenCLReduce _ _ _ _ _ rv f -> (generateKernelCall prog tabs codeSeg)
 																++ (mkQ "" (produceCode_fortran prog tabs originalLines) hostReductionLoop) ++ "\n" ++ (commentSeparator "END")
@@ -423,6 +427,12 @@ synthesiseESeq expr = outputExprFormatting expr
 synthesisUses :: String -> Uses Anno -> String
 synthesisUses tabs (Use _ (str, rename) _ _) = tabs ++ "use " ++ str ++ "\n"
 synthesisUses tabs _ = ""
+
+synthesiseOpenCLBufferWrite :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
+synthesiseOpenCLBufferWrite (progAst, filename) tabs originalLines (OpenCLBufferWrite anno src varName) = tabs ++ bufferRead ++ "\n"
+		where
+			bufferRead = synthesiseBufferAccess "Write" writeDecl
+			(writeDecl:_, _, _) = synthesiseKernelDeclarations progAst (OpenCLBufferWrite anno src varName)
 
 synthesiseOpenCLBufferRead :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
 synthesiseOpenCLBufferRead (progAst, filename) tabs originalLines (OpenCLBufferRead anno src varName) = tabs ++ bufferRead ++ "\n"

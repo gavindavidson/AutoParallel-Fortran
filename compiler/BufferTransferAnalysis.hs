@@ -44,8 +44,8 @@ emptyArgumentTranslation = DMap.empty
 --		-	Take the new kernels and determine when the 'initialisation' subroutine call can be perfomed. This is done with 'findEarliestInitialisationSrcSpan'
 --		-	Finally, replace the kernels in the original subroutine table with the new kernels that use far less read/write arguments. Return the new
 --			subroutine table along with the SrcSpans that indicate where initialisation should happen and where the OpenCL portion of the main ends.
-optimiseBufferTransfers :: SubroutineTable -> ArgumentTranslationSubroutines -> Program Anno -> (SubroutineTable, (([VarName Anno], SrcSpan), ([VarName Anno], SrcSpan)))
-optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable,((initWrites, earliestInitSrc), (tearDownReads, latestTearDownSrc)))
+optimiseBufferTransfers :: SubroutineTable -> ArgumentTranslationSubroutines -> Program Anno -> (SubroutineTable, Program Anno) -- (SubroutineTable, (([VarName Anno], SrcSpan), ([VarName Anno], SrcSpan)))
+optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable, newMainAst) --,((initWrites, earliestInitSrc), (tearDownReads, latestTearDownSrc)))
 		where
 			flattenedAst = flattenSubroutineAppearences subTable argTranslations mainAst
 			flattenedVarAccessAnalysis = analyseAllVarAccess flattenedAst
@@ -55,10 +55,16 @@ optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable,((initWr
 			kernels_optimisedBetween = extractKernels optimisedFlattenedAst
 			
 			kernelRangeSrc = generateKernelCallSrcRange subTable mainAst
-			(kernels_withoutInitOrTearDown, initWrites, tearDownReads) = stripInitAndTearDown flattenedVarAccessAnalysis kernelRangeSrc kernels_optimisedBetween
+			(kernels_withoutInitOrTearDown, initWrites, varsOnDeviceAfterOpenCL) = stripInitAndTearDown flattenedVarAccessAnalysis kernelRangeSrc kernels_optimisedBetween
 
-			earliestInitSrc = generateSrcSpan "" (findEarliestInitialisationSrcSpan varAccessAnalysis kernelRangeSrc initWrites)
-			latestTearDownSrc = shiftSrcSpan (-1) (generateSrcSpan "" (findLatestTearDownSrcSpan varAccessAnalysis kernelRangeSrc tearDownReads))
+			writeConsiderationSrc = findWriteConsiderationRange (fst kernelRangeSrc) (extractFirstFortran mainAst)
+			readConsiderationSrc = kernelRangeSrc
+
+			newMainAst = insertBufferReads mainAst varsOnDeviceAfterOpenCL readConsiderationSrc
+			-- newMainAst = insertBufferWrites (insertBufferReads mainAst varsOnDeviceAfterOpenCL readConsiderationSrc) initWrites writeConsiderationSrc
+
+			-- earliestInitSrc = generateSrcSpan "" (findEarliestInitialisationSrcSpan varAccessAnalysis kernelRangeSrc initWrites)
+			-- latestTearDownSrc = shiftSrcSpan (-1) (generateSrcSpan "" (findLatestTearDownSrcSpan varAccessAnalysis kernelRangeSrc tearDownReads))
 
 			oldKernels = extractKernels flattenedAst
 			kernelPairs = zip oldKernels kernels_withoutInitOrTearDown
@@ -66,6 +72,28 @@ optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable,((initWr
 			keys = (DMap.keys subTable)
 
 			newSubTable = foldl (replaceKernels_foldl kernelPairs) subTable (DMap.keys subTable)
+
+-- trackFinalWritesToKernelStart :: SrcLoc -> Fortran Anno ->  SrcLoc
+-- trackFinalWritesToKernelStart targetSrcLoc initVarsWithSrc (Assg _ src expr1 expr2) =  newInitVarsWithSrc)
+-- 		where
+-- 			reachedTarget = checkSrcLocBefore targetSrcLoc (snd src)
+-- 			writtenVarName = head (extractVarNames expr1)
+-- 			newInitVarsWithSrc = case elem writtenVarName (DMap.keys initVarsWithSrc) of
+-- 									True -> if not reachedTarget then DMap.insert writtenVarName src initVarsWithSrc else initVarsWithSrc
+-- 									False -> initVarsWithSrc
+-- trackFinalWritesToKernelStart targetSrcLoc initVarsWithSrc (For  _ src _ _ _ _ fortran) = trackFinalWritesToKernelStart (snd src) initVarsWithSrc fortran
+-- trackFinalWritesToKernelStart targetSrcLoc initVarsWithSrc codeSeg = gmapQ (mkQ DMap.empty (trackFinalWritesToKernelStart targetSrcLoc initVarsWithSrc)) codeSeg
+
+findWriteConsiderationRange :: SrcLoc -> Fortran Anno ->  SrcSpan
+findWriteConsiderationRange targetSrcLoc (For  _ src _ _ _ _ fortran) = findWriteConsiderationRange (snd src) fortran
+findWriteConsiderationRange targetSrcLoc codeSeg 	|	reachedTarget = src
+													|	otherwise = fromMaybe (error "findWriteConsiderationRange") (getLatestSrcSpan recursiveResult)
+		where
+			src = srcSpan codeSeg
+			reachedTarget = checkSrcLocBefore targetSrcLoc (snd src)
+
+			recursiveResult = gmapQ (mkQ nullSrcSpan (findWriteConsiderationRange targetSrcLoc)) codeSeg
+
 
 replaceSubroutineAppearences :: SubroutineTable -> [Program Anno] -> [Program Anno]
 replaceSubroutineAppearences subTable [] = []
@@ -240,6 +268,34 @@ insertBufferReads_fortran varsOnDevice afterSrc codeSeg 	| 	rightLocation = gmap
 			bufferReadFortran = buildBufferReadFortran readVarNamesOnDevice codeSeg
 			newVarsOnDevice = listSubtract varsOnDevice readVarNamesOnDevice
 
+insertBufferWrites mainAst writtenVars openCLendSrc = everywhere (mkT (insertBufferWrites_block writtenVars openCLendSrc)) mainAst
+
+insertBufferWrites_block :: [VarName Anno] -> SrcSpan -> Block Anno -> Block Anno
+insertBufferWrites_block writtenVars beforeSrc inputBlock = gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) inputBlock
+
+insertBufferWrites_fortran :: [VarName Anno] -> SrcSpan -> Fortran Anno -> Fortran Anno
+insertBufferWrites_fortran writtenVars beforeSrc (FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) fortran2) 	| 	rightLocation = gmapT (mkT (insertBufferWrites_fortran newVarsToInitialise beforeSrc)) bufferWriteFortran
+																														|	otherwise = 	gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) codeSeg
+		where
+			codeSeg = (FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) fortran2)
+			rightLocation = checkSrcSpanBefore assgSrc beforeSrc
+			readVarNames = listRemoveDuplications ((extractAllVarNames expr2) ++ (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars expr1)))
+			varNamesToInitialise = listIntersection writtenVars readVarNames
+
+			bufferWriteFortran = buildBufferWriteFortran varNamesToInitialise codeSeg
+
+			newVarsToInitialise = listSubtract writtenVars varNamesToInitialise
+insertBufferWrites_fortran writtenVars beforeSrc codeSeg 	| 	rightLocation = gmapT (mkT (insertBufferWrites_fortran newVarsToInitialise beforeSrc)) bufferWriteFortran
+															|	otherwise = 	gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) codeSeg
+		where
+			-- exprs = foldl (++) [] (gmapQ (mkQ [] extractExpr_list) codeSeg)
+			rightLocation = checkSrcSpanBefore beforeSrc (srcSpan codeSeg)
+			readVarNames = listRemoveDuplications (extractAllVarNames codeSeg)
+			varNamesToInitialise = listIntersection writtenVars readVarNames
+
+			bufferWriteFortran = buildBufferWriteFortran varNamesToInitialise codeSeg
+			newVarsToInitialise = listSubtract writtenVars varNamesToInitialise
+
 buildBufferReadFortran :: [VarName Anno] -> Fortran Anno -> Fortran Anno
 buildBufferReadFortran [] followingFortran = followingFortran
 buildBufferReadFortran (varToRead:[]) followingFortran = FSeq nullAnno nullSrcSpan oclRead followingFortran
@@ -248,6 +304,15 @@ buildBufferReadFortran (varToRead:[]) followingFortran = FSeq nullAnno nullSrcSp
 buildBufferReadFortran (varToRead:vars) followingFortran = FSeq nullAnno nullSrcSpan oclRead (buildBufferReadFortran vars followingFortran)
 		where
 			oclRead = (OpenCLBufferRead nullAnno nullSrcSpan varToRead)
+
+buildBufferWriteFortran :: [VarName Anno] -> Fortran Anno -> Fortran Anno
+buildBufferWriteFortran [] followingFortran = followingFortran
+buildBufferWriteFortran (varToWrite:[]) followingFortran = FSeq nullAnno nullSrcSpan oclWrite followingFortran
+		where
+			oclWrite = (OpenCLBufferWrite nullAnno nullSrcSpan varToWrite)
+buildBufferWriteFortran (varToWrite:vars) followingFortran = FSeq nullAnno nullSrcSpan oclWrite (buildBufferWriteFortran vars followingFortran)
+		where
+			oclWrite = (OpenCLBufferWrite nullAnno nullSrcSpan varToWrite)
 
 --	The following function determines which variables should be 'initialised' before any OpenCL kernel call. This is done by considering the kernels in order to find kernel arguments that
 --	are read by the kernel before any writen occurs on them. As in, the kernels expect that the variable/argument already exists on the device.

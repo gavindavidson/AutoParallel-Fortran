@@ -92,25 +92,26 @@ main = do
 	let fileCoordinated_parallelisedList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_parallelisedMap") x fileCoordinated_parallelisedMap, x)) filenames
 
 	let argTranslations = extractArgumentTranslationSubroutines combinedKernelSubroutines parsedMain
-	let (optimisedBufferTransfersSubroutines, initTearDownInfo) = optimiseBufferTransfers combinedKernelSubroutines argTranslations parsedMain 
-	let optimisedBufferTransfersSubroutineList = map (\x -> DMap.findWithDefault (error "optimisedBufferTransfersSubroutineList") x optimisedBufferTransfersSubroutines) subroutineNames
-	let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
-	let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
+	let (optimisedBufferTransfersSubroutines, newMainAst) = optimiseBufferTransfers combinedKernelSubroutines argTranslations parsedMain 
+	-- let (optimisedBufferTransfersSubroutines, initTearDownInfo) = optimiseBufferTransfers combinedKernelSubroutines argTranslations parsedMain 
+	-- let optimisedBufferTransfersSubroutineList = map (\x -> DMap.findWithDefault (error "optimisedBufferTransfersSubroutineList") x optimisedBufferTransfersSubroutines) subroutineNames
+	-- let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
+	-- let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
 
 	let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences optimisedBufferTransfersSubroutines parsedPrograms) filenames
-	let ((initWrites, initSrc), (tearDownReads, tearDownSrc)) = initTearDownInfo
-	let initArgList = generateArgList initWrites
+	-- let ((initWrites, initSrc), (tearDownReads, tearDownSrc)) = initTearDownInfo
+	-- let initArgList = generateArgList initWrites
 	-- let tearDownArgList = generateArgList tearDownReads
 	
-	let mainAstInit = insertCallAtSrcSpan parsedMain initSrc initSubroutineName initArgList
-	let newMainAst = insertBufferReads mainAstInit tearDownReads tearDownSrc
+	-- let mainAstInit = insertCallAtSrcSpan parsedMain initSrc initSubroutineName initArgList
+	-- let newMainAst = insertBufferReads mainAstInit tearDownReads tearDownSrc
 
 	-- let newMainAst = insertCallAtSrcSpan mainAstInit tearDownSrc tearDownSubroutineName tearDownArgList
 
 	-- insertBufferReads
 	
 	mapM (\(filename, par_anno, comb_anno) -> putStr $ compilerName ++ ": Analysing " ++ filename ++ (if verbose then "\n\n" ++ par_anno ++ "\n" ++ comb_anno ++ "\n" else "\n")) annotationListings
-	putStr ("tearDownSrc: " ++ errorLocationFormatting tearDownSrc)
+	-- putStr ("tearDownSrc: " ++ errorLocationFormatting tearDownSrc)
 
 	-- putStr "\n\nPARSED SUBROUTINES\n\n"
 	-- putStr (show parsedSubroutines)
@@ -125,7 +126,7 @@ main = do
 	-- mapM (\(ast, filename) -> putStr ("FILENAME: " ++ filename ++ "\n\n" ++ (show ast))) fileCoordinated_bufferOptimisedPrograms
 
 	putStr (compilerName ++ ": Synthesising OpenCL files\n")
-	emit outDirectory cppDFlags fixedForm fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms argTranslations (newMainAst, mainFilename) initWrites tearDownReads
+	emit outDirectory cppDFlags fixedForm fileCoordinated_parallelisedList fileCoordinated_bufferOptimisedPrograms argTranslations (newMainAst, mainFilename) [] []
 
 filenameFlag = "-modules"
 outDirectoryFlag = "-out"

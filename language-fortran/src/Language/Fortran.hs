@@ -229,6 +229,8 @@ data Fortran  p = Assg p SrcSpan (Expr p) (Expr p)
                   (Fortran p)                           -- Body of kernel code
                 | OpenCLBufferRead p SrcSpan
                   (VarName p)                           -- Name of var that buffer is read to
+                | OpenCLBufferWrite p SrcSpan
+                  (VarName p)                           -- Name of var that buffer is written to
                   deriving (Show, Functor, Typeable, Data, Eq)
 
 -- type Bound    = ((Expr p),(Expr p))
