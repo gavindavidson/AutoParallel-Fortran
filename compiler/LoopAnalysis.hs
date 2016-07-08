@@ -80,7 +80,7 @@ analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAna
 							subroutineBody = subroutineTable_ast subTableEntry
 							subCallAnalysis = analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable (extractFirstFortran subroutineBody)
 
-							callAnalysis = if not subroutineParsed then
+							callAnalysis = 	if not subroutineParsed then
 												(errorMap_call, [], [], argExprs)
 											else
 												subCallAnalysis
@@ -114,7 +114,8 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars prexistingV
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo
 											(errorMap3
 											,
-											if potentialReductionVar then [expr1] else [],
+											if potentialReductionVar then 
+												[expr1] else [],
 											prexistingReadExprs, --extractOperands expr2,
 											if isNonTempAssignment then [expr1] else [])
 											(if not potentialReductionVar then
@@ -159,11 +160,13 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars prexistingV
 												errorMap2
 											else errorMap2
 				errorMapDebug = DMap.insert (outputTab ++ comment ++ "Debug:\n")
-												["potentialReductionVar: " ++ show potentialReductionVar,
-												"isNonTempAssignment: " ++ show isNonTempAssignment,
-												"dependsOnSelf: " ++ show dependsOnSelf,
-												"dependsOnSelfOnce: " ++ show dependsOnSelfOnce,
-												"doesNotUseFullLoopVar: " ++ show doesNotUseFullLoopVar
+												["expr1: " ++ outputExprFormatting expr1 ++ "\n" ++
+												"potentialReductionVar: " ++ show potentialReductionVar ++ "\n" ++
+												"isNonTempAssignment: " ++ show isNonTempAssignment ++ "\n" ++
+												"dependsOnSelf: " ++ show dependsOnSelf ++ "\n" ++
+												"dependsOnSelfOnce: " ++ show dependsOnSelfOnce ++ "\n" ++
+												"doesNotUseFullLoopVar: " ++ show doesNotUseFullLoopVar ++ "\n" ++
+												"nonTempVars: " ++ show nonTempVars ++ "\n\n"
 												] 
 												errorMap3
 

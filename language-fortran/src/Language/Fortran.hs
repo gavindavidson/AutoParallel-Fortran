@@ -391,6 +391,7 @@ instance Span (Fortran a) where
     srcSpan (OpenCLMap x sp e1 e2 _ f2) = sp       -- GAV ADDED
     srcSpan (OpenCLReduce x sp e1 e2 _ e3 f2) = sp -- GAV ADDED
     srcSpan (OpenCLBufferRead _ sp _) = sp         -- GAV ADDED
+    srcSpan (OpenCLBufferWrite _ sp _) = sp        -- GAV ADDED
 
 -- Extract the tag 
 

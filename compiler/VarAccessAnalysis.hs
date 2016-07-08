@@ -80,6 +80,16 @@ isNullExpr :: Expr Anno -> Bool
 isNullExpr (NullExpr _ _) = True
 isNullExpr _ = False
 
+getAccessLocationsInsideSrcSpan :: VarAccessAnalysis -> VarName Anno -> SrcSpan -> ([SrcSpan], [SrcSpan])
+getAccessLocationsInsideSrcSpan accessAnalysis accessVar src = (readsInside, writesInside)
+		where
+			localVarAccesses = (getAccessesInsideSrcSpan ((\(x,_,_,_) -> x) accessAnalysis) src)
+			-- (reads, writes) = DMap.findWithDefault (error "getAccessLocationsBeforeSrcSpan: doesn't exist") accessVar localVarAccesses
+
+			(readsInside, writesInside) = DMap.findWithDefault ([], []) accessVar localVarAccesses
+			-- readsInside = filter (\x -> checkSrcSpanContainsSrcSpan src x) reads
+			-- writesInside = filter (\x -> checkSrcSpanContainsSrcSpan src x) writes
+
 getAccessesBetweenSrcSpansIgnore :: VarAccessAnalysis -> SrcSpan -> SrcSpan -> [SrcSpan] -> ([VarName Anno], [VarName Anno])
 getAccessesBetweenSrcSpansIgnore accessAnalysis (_,startLoc) (endLoc,_) skipSrcs = getAccessesBetweenManySrcSpans accessAnalysis allowedSrcSpans -- ([], [])
 		where
@@ -201,13 +211,20 @@ analyseAllVarAccess_fortran declarations prevAnalysis codeSeg = case codeSeg of
 
 													analysis = foldl (addVarReadAccess (srcSpan readExpr)) prevAnalysis readVarNames
 													analysis' = foldl (addVarWriteAccess (srcSpan writeExpr)) analysis writtenVarNames
-									If _ _ readExpr _ _ _ -> analysis
-
+									If _ _ readExpr mainFortran elseList maybeFortran -> analysisIncChildren
 												where
 													readExprs = extractOperands readExpr
 													readVarNames = foldl (collectVarNames_foldl declarations) [] readExprs
 
+													elseListFortran = map (snd) elseList
+													allFortran = case maybeFortran of
+															Nothing -> mainFortran:elseListFortran
+															Just finalElse -> mainFortran:finalElse:elseListFortran
+														
 													analysis = foldl (addVarReadAccess (srcSpan readExpr)) prevAnalysis readVarNames
+
+													analysisIncChildren_list = map (analyseAllVarAccess_fortran declarations analysis) allFortran
+													analysisIncChildren = foldl (combineLocalVarAccessAnalysis) analysis analysisIncChildren_list
 									Call _ src _ argList -> analysis'
 												where
 													extractedExprs = everything (++) (mkQ [] extractExpr_list) argList
@@ -230,6 +247,7 @@ analyseAllVarAccess_fortran declarations prevAnalysis codeSeg = case codeSeg of
 													analysisIncChildren_list = gmapQ (mkQ (DMap.empty) (analyseAllVarAccess_fortran declarations analysis)) codeSeg
 													analysisIncChildren = foldl (combineLocalVarAccessAnalysis) DMap.empty analysisIncChildren_list
 
+-- If   p SrcSpan (Expr p) (Fortran p) [((Expr p),(Fortran p))] (Maybe (Fortran p))
 
 collectVarNames :: [VarName Anno] -> Expr Anno -> [VarName Anno]
 collectVarNames declarations item = varnames
@@ -376,6 +394,6 @@ getAccessesInsideSrcSpan_var :: SrcSpan -> LocalVarAccessAnalysis -> VarName Ann
 getAccessesInsideSrcSpan_var src localVarAccesses var = newLocalVarAccesses
 		where
 			(reads, writes) = DMap.findWithDefault ([], []) var localVarAccesses
-			newReads = filter (srcSpanInRange src) reads
-			newWrites = filter (srcSpanInRange src) writes
+			newReads = filter (srcSpanInSrcSpan src) reads
+			newWrites = filter (srcSpanInSrcSpan src) writes
 			newLocalVarAccesses = DMap.insert var (newReads, newWrites) localVarAccesses

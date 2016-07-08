@@ -142,6 +142,7 @@ extractAllVarNames ::(Data (a Anno)) => a Anno -> [VarName Anno]
 -- extractAllVarNames :: Expr Anno -> [VarName Anno]
 extractAllVarNames = everything (++) (mkQ [] (extractVarNames))
 
+
 --	Used to extract array index expressions and function call arguments.
 extractContainedVars :: (Typeable p, Data p) => Expr p -> [Expr p]
 extractContainedVars (Var _ _ lst) = foldl (\accumExprs (itemVar, itemExprs) -> accumExprs ++ itemExprs) [] lst
@@ -232,8 +233,11 @@ replaceSrSpan input current = input
 standardiseSrcSpan :: SrcSpan -> SrcSpan
 standardiseSrcSpan src = nullSrcSpan
 
-srcSpanInRange :: SrcSpan -> SrcSpan -> Bool
-srcSpanInRange ((SrcLoc _ rSLine rSCol), (SrcLoc _ rELine rECol)) ((SrcLoc _ srcSLine srcSCol), (SrcLoc _ srcELine srcECol)) = startAfterRange && endsBeforeRange
+srcSpanInSrcSpanRange :: SrcSpan -> SrcSpan -> SrcSpan -> Bool
+srcSpanInSrcSpanRange start finish inside = srcSpanInSrcSpan (fst start, snd finish) inside
+
+srcSpanInSrcSpan :: SrcSpan -> SrcSpan -> Bool
+srcSpanInSrcSpan ((SrcLoc _ rSLine rSCol), (SrcLoc _ rELine rECol)) ((SrcLoc _ srcSLine srcSCol), (SrcLoc _ srcELine srcECol)) = startAfterRange && endsBeforeRange
 		where
 			startAfterRange = srcSLine > rSLine || srcSLine == rSLine && srcSCol >= rSCol
 			endsBeforeRange = srcELine < rELine || srcELine == rELine && srcECol <= rECol
@@ -473,6 +477,13 @@ getEarliestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore ite
 getLatestSrcSpan :: [SrcSpan] -> Maybe(SrcSpan)
 getLatestSrcSpan [] = Nothing
 getLatestSrcSpan spans = Just (foldl (\accum item -> if checkSrcSpanBefore item accum then accum else item) (spans!!0) spans)
+
+checkSrcLocEqualLines :: SrcLoc -> SrcLoc -> Bool
+checkSrcLocEqualLines (SrcLoc _ l1 _) (SrcLoc _ l2 _) = l1 == l2
+
+getEarliestSrcLoc :: [SrcLoc] -> Maybe(SrcLoc)
+getEarliestSrcLoc [] = Nothing
+getEarliestSrcLoc locs = Just (foldl (\accum item -> if checkSrcLocBefore item accum then item else accum) (locs!!0) locs)
 
 checkSrcLocBefore :: SrcLoc -> SrcLoc -> Bool
 checkSrcLocBefore (SrcLoc file_before line_before column_before) (SrcLoc file_after line_after column_after) =  (line_before < line_after) || ((line_before == line_after) && (column_before < column_after))

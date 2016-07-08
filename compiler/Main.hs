@@ -98,7 +98,8 @@ main = do
 	-- let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
 	-- let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
 
-	let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences optimisedBufferTransfersSubroutines parsedPrograms) filenames
+	let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences combinedKernelSubroutines parsedPrograms) filenames
+	-- let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences optimisedBufferTransfersSubroutines parsedPrograms) filenames
 	-- let ((initWrites, initSrc), (tearDownReads, tearDownSrc)) = initTearDownInfo
 	-- let initArgList = generateArgList initWrites
 	-- let tearDownArgList = generateArgList tearDownReads
@@ -119,6 +120,8 @@ main = do
 	-- putStr (show parallelisedSubroutines)
 	-- putStr "\n\nCOMBINED SUBROUTINES\n\n"
 	-- putStr (show combinedKernelSubroutines)
+	-- putStr "\n\nOPTIMISED SUBROUTINES\n\n"
+	-- putStr (show optimisedBufferTransfersSubroutines)
 	-- putStr "\n\nNEWMAINAST\n\n"
 	-- putStr (show newMainAst)
 	-- putStr "\n\nMAIN AST\n\n"

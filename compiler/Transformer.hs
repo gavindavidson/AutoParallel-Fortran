@@ -159,6 +159,7 @@ paralleliseLoop_map filename loop loopVarNames nonTempVars prexistingVars depend
 --	original sub-tree annotated with reasons why the loop is not a reduction
 paralleliseLoop_reduce :: String -> Fortran Anno -> [VarName Anno] -> [VarName Anno]-> [VarName Anno] -> VarDependencyAnalysis -> VarAccessAnalysis -> (Bool, Fortran Anno)
 paralleliseLoop_reduce filename loop loopVarNames nonTempVars prexistingVars dependencies accessAnalysis	
+									-- | 	errors_reduce' == nullAnno 	=	(True, appendAnnotation reductionCode (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) ("getReductionVars loopAnalysis: " ++ (show (getReductionVars loopAnalysis))))
 									| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation reductionCode (compilerName ++ ": Reduction at " ++ errorLocationFormatting (srcSpan loop)) "")
 									|	otherwise					=	(False, appendAnnotationMap loop errors_reduce')
 									where
@@ -209,6 +210,7 @@ paralleliseLoop_iterativeReduce filename loop Nothing loopVarNames nonTempVars p
 						For a1 a2 a3 a4 a5 a6 fortran -> For a1 a2 a3 a4 a5 a6 (appendFortran_recursive (appendFortran_recursive followingFortran fortran) priorFortran)
 
 paralleliseLoop_iterativeReduce filename iteratingLoop (Just(parallelLoop)) loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 
+				-- | 	errors_reduce' == nullAnno 	=	(True, appendAnnotation iterativeReductionCode (compilerName ++ ": Iterative Reduction at " ++ errorLocationFormatting (srcSpan iteratingLoop) ++ " with parallal loop at "  ++ errorLocationFormatting (srcSpan parallelLoop)) ("getReductionVars loopAnalysis: " ++ (show (getReductionVars loopAnalysis))))
 				| 	errors_reduce' == nullAnno 	=	(True, appendAnnotation iterativeReductionCode (compilerName ++ ": Iterative Reduction at " ++ errorLocationFormatting (srcSpan iteratingLoop) ++ " with parallal loop at "  ++ errorLocationFormatting (srcSpan parallelLoop)) "")
 				|	nextFor_maybe /= Nothing 	= 	paralleliseLoop_iterativeReduce filename (appendAnnotationMap iteratingLoop errors_reduce') (Just(nextFor)) loopVarNames nonTempVars prexistingVars dependencies accessAnalysis 
 				|	otherwise					=	(False, appendAnnotationMap iteratingLoop errors_reduce')
@@ -225,10 +227,10 @@ paralleliseLoop_iterativeReduce filename iteratingLoop (Just(parallelLoop)) loop
 
 			(loopCarriedDeps_bool, evaluated_bool, loopCarriedDeps) = loopCarriedDependencyCheck_iterative iteratingLoop parallelLoop
 			errors_reduce' = case loopCarriedDeps_bool of
-															True -> case evaluated_bool of
-																	True -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency detected:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
-																	False -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency possible (not evaluated):\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
-															False -> errors_reduce
+								True -> case evaluated_bool of
+										True -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency detected:\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
+										False -> DMap.insert (outputTab ++ "Cannot reduce: Loop carried dependency possible (not evaluated):\n") (formatLoopCarriedDependencies loopCarriedDeps) errors_reduce
+								False -> errors_reduce
 
 			loopVariables = loopCondtions_query parallelLoop
 

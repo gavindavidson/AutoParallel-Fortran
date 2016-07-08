@@ -44,8 +44,10 @@ emptyArgumentTranslation = DMap.empty
 --		-	Take the new kernels and determine when the 'initialisation' subroutine call can be perfomed. This is done with 'findEarliestInitialisationSrcSpan'
 --		-	Finally, replace the kernels in the original subroutine table with the new kernels that use far less read/write arguments. Return the new
 --			subroutine table along with the SrcSpans that indicate where initialisation should happen and where the OpenCL portion of the main ends.
-optimiseBufferTransfers :: SubroutineTable -> ArgumentTranslationSubroutines -> Program Anno -> (SubroutineTable, Program Anno) -- (SubroutineTable, (([VarName Anno], SrcSpan), ([VarName Anno], SrcSpan)))
-optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable, newMainAst) --,((initWrites, earliestInitSrc), (tearDownReads, latestTearDownSrc)))
+optimiseBufferTransfers :: SubroutineTable -> ArgumentTranslationSubroutines -> Program Anno -> (SubroutineTable, Program Anno)
+optimiseBufferTransfers subTable argTranslations mainAst =  -- error ("bufferWritePositions: " ++ (show bufferWritePositions)) 
+														 	(newSubTable, 
+														 		newMainAst_withReadsWrites)
 		where
 			flattenedAst = flattenSubroutineAppearences subTable argTranslations mainAst
 			flattenedVarAccessAnalysis = analyseAllVarAccess flattenedAst
@@ -54,15 +56,19 @@ optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable, newMain
 			varAccessAnalysis = analyseAllVarAccess mainAst
 			kernels_optimisedBetween = extractKernels optimisedFlattenedAst
 			
-			kernelRangeSrc = generateKernelCallSrcRange subTable mainAst
+			(kernelStartSrc, kernelEndSrc) = generateKernelCallSrcRange subTable mainAst
+
+			kernelRangeSrc = (fst kernelStartSrc, snd kernelEndSrc)
+			-- kernelRangeSrc = generateKernelCallSrcRange subTable mainAst
 			(kernels_withoutInitOrTearDown, initWrites, varsOnDeviceAfterOpenCL) = stripInitAndTearDown flattenedVarAccessAnalysis kernelRangeSrc kernels_optimisedBetween
 
-			writeConsiderationSrc = findWriteConsiderationRange (fst kernelRangeSrc) (extractFirstFortran mainAst)
 			readConsiderationSrc = kernelRangeSrc
 
-			newMainAst = insertBufferReads mainAst varsOnDeviceAfterOpenCL readConsiderationSrc
-			-- newMainAst = insertBufferWrites (insertBufferReads mainAst varsOnDeviceAfterOpenCL readConsiderationSrc) initWrites writeConsiderationSrc
+			(bufferWritesBefore, bufferWritesAfter) = generateBufferInitPositions initWrites mainAst kernelStartSrc kernelEndSrc varAccessAnalysis
 
+			newMainAst_withReads = insertBufferReads mainAst varsOnDeviceAfterOpenCL readConsiderationSrc)
+			newMainAst_withReadsWrites = insertBufferWritesBefore bufferWritesBefore (insertBufferWritesAfter bufferWritesAfter newMainAst_withReads)
+			-- newMainAst = insertBufferWritesAfter (insertBufferReads mainAst varsOnDeviceAfterOpenCL readConsiderationSrc) initWrites writeConsiderationSrc
 			-- earliestInitSrc = generateSrcSpan "" (findEarliestInitialisationSrcSpan varAccessAnalysis kernelRangeSrc initWrites)
 			-- latestTearDownSrc = shiftSrcSpan (-1) (generateSrcSpan "" (findLatestTearDownSrcSpan varAccessAnalysis kernelRangeSrc tearDownReads))
 
@@ -73,26 +79,45 @@ optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable, newMain
 
 			newSubTable = foldl (replaceKernels_foldl kernelPairs) subTable (DMap.keys subTable)
 
--- trackFinalWritesToKernelStart :: SrcLoc -> Fortran Anno ->  SrcLoc
--- trackFinalWritesToKernelStart targetSrcLoc initVarsWithSrc (Assg _ src expr1 expr2) =  newInitVarsWithSrc)
--- 		where
--- 			reachedTarget = checkSrcLocBefore targetSrcLoc (snd src)
--- 			writtenVarName = head (extractVarNames expr1)
--- 			newInitVarsWithSrc = case elem writtenVarName (DMap.keys initVarsWithSrc) of
--- 									True -> if not reachedTarget then DMap.insert writtenVarName src initVarsWithSrc else initVarsWithSrc
--- 									False -> initVarsWithSrc
--- trackFinalWritesToKernelStart targetSrcLoc initVarsWithSrc (For  _ src _ _ _ _ fortran) = trackFinalWritesToKernelStart (snd src) initVarsWithSrc fortran
--- trackFinalWritesToKernelStart targetSrcLoc initVarsWithSrc codeSeg = gmapQ (mkQ DMap.empty (trackFinalWritesToKernelStart targetSrcLoc initVarsWithSrc)) codeSeg
+generateBufferInitPositions :: [VarName Anno] -> Program Anno -> SrcSpan -> SrcSpan -> VarAccessAnalysis -> ([(VarName Anno, SrcSpan)], [(VarName Anno, SrcSpan)])
+generateBufferInitPositions initWrites mainAst kernelStartSrc kernelEndSrc varAccessAnalysis = 
+																								-- error ("bufferWritePositions: " ++ (show bufferWritePositions)
+																								-- 		++ "\nbufferWritePositionsKernelStart: " ++ (show bufferWritePositionsKernelStart)) 
+																								-- error ("kernelStartSrc: " ++ (show kernelStartSrc)
+																								-- 	++ "\nkernelEndSrc: " ++ (show kernelEndSrc))
+																										-- bufferWritePositionsExcludingNull
+																										(bufferWritesBeforeSrc, bufferWritesAfterSrc)
+		where 
+			fortranNode = (extractFirstFortran mainAst)
+			writeConsiderationEnd = findWriteConsiderationRange (fst kernelStartSrc) fortranNode
+			writeConsiderationSrc = (fst (srcSpan fortranNode), writeConsiderationEnd)
 
-findWriteConsiderationRange :: SrcLoc -> Fortran Anno ->  SrcSpan
+			varWritesInSrc = map (\var -> snd (getAccessLocationsInsideSrcSpan varAccessAnalysis var writeConsiderationSrc)) initWrites
+			varWritesInSrcExcludingKernelRange = map (filter (\x -> not (srcSpanInSrcSpanRange kernelStartSrc kernelEndSrc x))) varWritesInSrc
+
+			bufferWritePositions = zip initWrites (map (\srcs -> fromMaybe (nullSrcSpan) (getLatestSrcSpan srcs)) varWritesInSrcExcludingKernelRange)
+			bufferWritePositionsKernelStart = map (\(var, src) -> if checkSrcLocBefore (fst kernelStartSrc) (fst src) then (var, kernelStartSrc) else (var, src)) bufferWritePositions
+			bufferWritePositionsExcludingNull = filter (\(var, src) -> src /= nullSrcSpan) bufferWritePositionsKernelStart
+
+			bufferWritesBeforeSrc = filter (\(var, src) -> src == kernelStartSrc) bufferWritePositionsExcludingNull 
+			bufferWritesAfterSrc = filter (\(var, src) -> src /= kernelStartSrc) bufferWritePositionsExcludingNull 
+
+--	TO DO
+--		Find out where the loops start when calls to kernels appear in loops, use that as starting src
+--		Find all reads in range, using VarAccessAnalysis (same way as above)
+--		Get earliest srcs for all of them. Where srcs are before the end of the kernel (and not in the kernel src range), do reads just after kernel range.
+generateBufferReadPositions :: [VarName Anno] -> Program Anno -> SrcSpan -> SrcSpan -> VarAccessAnalysis -> ([(VarName Anno, SrcSpan)], [(VarName Anno, SrcSpan)])
+generateBufferReadPositions finalReads mainAst kernelStartSrc kernelEndSrc varAccessAnalysis = ([], [])
+
+findWriteConsiderationRange :: SrcLoc -> Fortran Anno ->  SrcLoc
 findWriteConsiderationRange targetSrcLoc (For  _ src _ _ _ _ fortran) = findWriteConsiderationRange (snd src) fortran
-findWriteConsiderationRange targetSrcLoc codeSeg 	|	reachedTarget = src
-													|	otherwise = fromMaybe (error "findWriteConsiderationRange") (getLatestSrcSpan recursiveResult)
+findWriteConsiderationRange targetSrcLoc codeSeg 	|	reachedTarget = (snd src)
+													|	otherwise = fromMaybe (nullSrcLoc) (getEarliestSrcLoc recursiveResult)
 		where
 			src = srcSpan codeSeg
-			reachedTarget = checkSrcLocBefore targetSrcLoc (snd src)
+			reachedTarget = checkSrcLocEqualLines targetSrcLoc (snd src)
 
-			recursiveResult = gmapQ (mkQ nullSrcSpan (findWriteConsiderationRange targetSrcLoc)) codeSeg
+			recursiveResult = filter (/= nullSrcLoc) (gmapQ (mkQ nullSrcLoc (findWriteConsiderationRange targetSrcLoc)) codeSeg)
 
 
 replaceSubroutineAppearences :: SubroutineTable -> [Program Anno] -> [Program Anno]
@@ -268,33 +293,134 @@ insertBufferReads_fortran varsOnDevice afterSrc codeSeg 	| 	rightLocation = gmap
 			bufferReadFortran = buildBufferReadFortran readVarNamesOnDevice codeSeg
 			newVarsOnDevice = listSubtract varsOnDevice readVarNamesOnDevice
 
-insertBufferWrites mainAst writtenVars openCLendSrc = everywhere (mkT (insertBufferWrites_block writtenVars openCLendSrc)) mainAst
+insertBufferWritesAfter varSrcPairs ast = everywhere (mkT (insertFortranAfter_block fortranSrcPairs)) ast
+		where 
+			fortranSrcPairs = map (\(var, src) -> (OpenCLBufferWrite nullAnno src var, src)) varSrcPairs
 
-insertBufferWrites_block :: [VarName Anno] -> SrcSpan -> Block Anno -> Block Anno
-insertBufferWrites_block writtenVars beforeSrc inputBlock = gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) inputBlock
+insertBufferWritesBefore varSrcPairs ast = everywhere (mkT (insertFortranBefore_block fortranSrcPairs)) ast
+		where 
+			fortranSrcPairs = map (\(var, src) -> (OpenCLBufferWrite nullAnno src var, src)) varSrcPairs
 
-insertBufferWrites_fortran :: [VarName Anno] -> SrcSpan -> Fortran Anno -> Fortran Anno
-insertBufferWrites_fortran writtenVars beforeSrc (FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) fortran2) 	| 	rightLocation = gmapT (mkT (insertBufferWrites_fortran newVarsToInitialise beforeSrc)) bufferWriteFortran
-																														|	otherwise = 	gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) codeSeg
+insertFortranAfter_block :: [(Fortran Anno, SrcSpan)] -> Block Anno -> Block Anno
+insertFortranAfter_block fortranSrcPairs (Block anno useBlock imp src decl fortran) = Block anno useBlock imp src decl (insertFortranAfter_fortran fortranSrcPairs fortran)
+
+insertFortranBefore_block :: [(Fortran Anno, SrcSpan)] -> Block Anno -> Block Anno
+insertFortranBefore_block fortranSrcPairs (Block anno useBlock imp src decl fortran) = Block anno useBlock imp src decl (insertFortranBefore_fortran fortranSrcPairs fortran)
+
+insertFortranAfter_fortran :: [(Fortran Anno, SrcSpan)] -> Fortran Anno -> Fortran Anno
+insertFortranAfter_fortran fortranSrcPairs ast = foldl (\astAccum (fort, src) -> insertAfterSrc fort src astAccum) ast fortranSrcPairs
+
+insertFortranBefore_fortran :: [(Fortran Anno, SrcSpan)] -> Fortran Anno -> Fortran Anno
+insertFortranBefore_fortran fortranSrcPairs ast = foldl (\astAccum (fort, src) -> insertBeforeSrc fort src astAccum) ast fortranSrcPairs
+
+-- insertBufferWrites_block :: [(VarName Anno, SrcSpan)] -> Block Anno -> Block Anno
+-- insertBufferWrites_block varSrcPairs (Block anno useBlock imp src decl fortran) = Block anno useBlock imp src decl (insertBufferWrites_fortran varSrcPairs fortran)
+
+-- insertBufferWrites_fortran :: [(VarName Anno, SrcSpan)] -> Fortran Anno -> Fortran Anno
+-- insertBufferWrites_fortran varSrcPairs ast = foldl (\ast (var, src) -> insertBufferWrite var src ast) ast varSrcPairs
+
+-- insertBufferWrite :: VarName Anno -> SrcSpan -> Fortran Anno -> Fortran Anno
+-- insertBufferWrite varname src ast = insertAfterSrc bufferWrite src ast
+-- 		where
+-- 			bufferWrite = OpenCLBufferWrite nullAnno src varname
+
+insertAfterSrc :: Fortran Anno -> SrcSpan -> Fortran Anno -> Fortran Anno
+insertAfterSrc newFortran src ast = insertFortranAfterSrc newFortran src ast
+
+insertBeforeSrc :: Fortran Anno -> SrcSpan -> Fortran Anno -> Fortran Anno
+insertBeforeSrc newFortran src ast = insertFortranBeforeSrc newFortran src ast
+
+insertFortranAfterSrc :: Fortran Anno -> SrcSpan -> Fortran Anno -> Fortran Anno
+insertFortranAfterSrc newFortran src (FSeq fseqAnno fseqSrc fortran1 fortran2) 	|	correctPosition = (FSeq fseqAnno fseqSrc fortran1 (FSeq nullAnno nullSrcSpan newFortran fortran2))
+																				|	otherwise = FSeq fseqAnno fseqSrc updateFortran1 updateFortran2
 		where
-			codeSeg = (FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) fortran2)
-			rightLocation = checkSrcSpanBefore assgSrc beforeSrc
-			readVarNames = listRemoveDuplications ((extractAllVarNames expr2) ++ (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars expr1)))
-			varNamesToInitialise = listIntersection writtenVars readVarNames
-
-			bufferWriteFortran = buildBufferWriteFortran varNamesToInitialise codeSeg
-
-			newVarsToInitialise = listSubtract writtenVars varNamesToInitialise
-insertBufferWrites_fortran writtenVars beforeSrc codeSeg 	| 	rightLocation = gmapT (mkT (insertBufferWrites_fortran newVarsToInitialise beforeSrc)) bufferWriteFortran
-															|	otherwise = 	gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) codeSeg
+			((SrcLoc _ startLine _), (SrcLoc _ endLine _)) = src
+			((SrcLoc _ f1LineStart _), (SrcLoc _ f1LineEnd _)) = srcSpan fortran1
+			correctPosition = src == srcSpan fortran1
+			updateFortran1 = insertFortranAfterSrc newFortran src fortran1
+			updateFortran2 = if (updateFortran1 == fortran1) then insertFortranAfterSrc newFortran src fortran2 else fortran2
+insertFortranAfterSrc newFortran src codeSeg 	|	correctPosition = FSeq nullAnno nullSrcSpan codeSeg newFortran
+												|	otherwise = gmapT (mkT (insertFortranAfterSrc newFortran src)) codeSeg
 		where
-			-- exprs = foldl (++) [] (gmapQ (mkQ [] extractExpr_list) codeSeg)
-			rightLocation = checkSrcSpanBefore beforeSrc (srcSpan codeSeg)
-			readVarNames = listRemoveDuplications (extractAllVarNames codeSeg)
-			varNamesToInitialise = listIntersection writtenVars readVarNames
+			((SrcLoc _ startLine _), _) = src
+			((SrcLoc _ codeSegLineStart _), _) = srcSpan codeSeg
+			correctPosition = src == srcSpan codeSeg
 
-			bufferWriteFortran = buildBufferWriteFortran varNamesToInitialise codeSeg
-			newVarsToInitialise = listSubtract writtenVars varNamesToInitialise
+insertFortranBeforeSrc :: Fortran Anno -> SrcSpan -> Fortran Anno -> Fortran Anno
+insertFortranBeforeSrc newFortran src (FSeq fseqAnno fseqSrc fortran1 fortran2) 	|	correctPosition = FSeq nullAnno nullSrcSpan newFortran ((FSeq fseqAnno fseqSrc fortran1 fortran2)) -- (FSeq fseqAnno fseqSrc fortran1 (FSeq nullAnno nullSrcSpan newFortran fortran2))
+																					|	otherwise = FSeq fseqAnno fseqSrc updateFortran1 updateFortran2
+		where
+			((SrcLoc _ startLine _), (SrcLoc _ endLine _)) = src
+			((SrcLoc _ f1LineStart _), (SrcLoc _ f1LineEnd _)) = srcSpan fortran1
+			correctPosition = src == srcSpan fortran1
+			updateFortran1 = insertFortranBeforeSrc newFortran src fortran1
+			updateFortran2 = if (updateFortran1 == fortran1) then insertFortranBeforeSrc newFortran src fortran2 else fortran2
+insertFortranBeforeSrc newFortran src codeSeg 	|	correctPosition = FSeq nullAnno nullSrcSpan newFortran codeSeg
+												|	otherwise = gmapT (mkT (insertFortranBeforeSrc newFortran src)) codeSeg
+		where
+			((SrcLoc _ startLine _), _) = src
+			((SrcLoc _ codeSegLineStart _), _) = srcSpan codeSeg
+			correctPosition = src == srcSpan codeSeg
+-- insertBufferWritesAfter mainAst writtenVars openCLStartSrc = everywhere (mkT (insertBufferWrites_block (listRemoveDuplications writtenVars) openCLStartSrc)) mainAst
+
+-- insertBufferWrites_block :: [VarName Anno] -> SrcSpan -> Block Anno -> Block Anno
+-- insertBufferWrites_block writtenVars beforeSrc inputBlock = gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) inputBlock
+
+-- insertBufferWrites_fortran :: [VarName Anno] -> SrcSpan -> Fortran Anno -> Fortran Anno
+-- insertBufferWrites_fortran writtenVars beforeSrc (FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) fortran2) 	|	rightLocation = error "(FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) fortran2)\t|\trightLocation" -- bufferWriteFortran
+-- 																														|	otherwise = (FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) (insertBufferWrites_fortran writtenVars beforeSrc fortran2))
+-- 																														-- | 	rightLocation = gmapT (mkT (insertBufferWrites_fortran newVarsToInitialise beforeSrc)) bufferWriteFortran
+-- 																														-- |	otherwise = 	gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) codeSeg
+-- 		where
+-- 			codeSeg = (FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) fortran2)
+-- 			rightLocation = checkSrcSpanContainsSrcSpan beforeSrc assgSrc 
+-- 			-- rightLocation = checkSrcSpanBefore assgSrc beforeSrc
+-- 			writtenVarNames = listRemoveDuplications ((extractAllVarNames expr2) ++ (foldl (\accum item -> accum ++ extractVarNames item) [] (extractContainedVars expr1)))
+-- 			varNamesToInitialise = listIntersection writtenVars writtenVarNames
+-- 			newVarsToInitialise = listSubtract writtenVars varNamesToInitialise
+
+-- 			fortran2Update = insertBufferWrites_fortran newVarsToInitialise beforeSrc fortran2
+-- 			followingFortran = (FSeq fseqAnno fseqSrc (Assg assgAnno assgSrc expr1 expr2) fortran2Update)
+
+-- 			bufferWriteFortran = buildBufferWriteFortran varNamesToInitialise followingFortran
+
+-- insertBufferWrites_fortran writtenVars beforeSrc (FSeq fseqAnno fseqSrc fortran1 fortran2) 	| 	rightLocation = error "(FSeq fseqAnno fseqSrc fortran1 fortran2)\t|\trightLocation" -- bufferWriteFortran
+-- 																							|	otherwise = (FSeq fseqAnno fseqSrc fortran1 (insertBufferWrites_fortran writtenVars beforeSrc fortran2))
+-- 		where
+-- 			rightLocation = checkSrcSpanContainsSrcSpan beforeSrc (srcSpan fortran1) 
+-- 			writtenVarNames = listRemoveDuplications (extractAllVarNames fortran1)
+-- 			varNamesToInitialise = listIntersection writtenVars writtenVarNames
+-- 			newVarsToInitialise = listSubtract writtenVars varNamesToInitialise
+
+-- 			fortran2Update = insertBufferWrites_fortran newVarsToInitialise beforeSrc fortran2
+-- 			followingFortran =  (FSeq fseqAnno fseqSrc fortran1 fortran2Update)
+
+-- 			bufferWriteFortran = buildBufferWriteFortran varNamesToInitialise followingFortran
+-- insertBufferWrites_fortran writtenVars beforeSrc codeSeg 	| 	rightLocation = error "codeSeg\t|\trightLocation" -- gmapT (mkT (insertBufferWrites_fortran newVarsToInitialise beforeSrc)) bufferWriteFortran
+-- 															|	otherwise = gmapT (mkT (insertBufferWrites_fortran [] beforeSrc)) codeSeg
+-- 		where
+-- 			rightLocation = checkSrcSpanContainsSrcSpan beforeSrc (srcSpan codeSeg) 
+-- 			writtenVarNames = listRemoveDuplications (extractAllVarNames codeSeg)
+-- 			varNamesToInitialise = listIntersection writtenVars writtenVarNames
+-- 			newVarsToInitialise = listSubtract writtenVars varNamesToInitialise
+
+-- 			bufferWriteFortran = buildBufferWriteFortran varNamesToInitialise codeSeg
+-- insertBufferWrites_fortran writtenVars beforeSrc codeSeg 	| 	rightLocation = gmapT (mkT (insertBufferWrites_fortran newVarsToInitialise beforeSrc)) bufferWriteFortran
+-- 																				-- error ("codeSeg: " ++ (show codeSeg)
+-- 																				-- 	++ "\n\nwrittenVarNames: " ++ (show writtenVarNames)
+-- 																				-- 	++ "\n\nvarNamesToInitialise: " ++ (show varNamesToInitialise)
+-- 																				-- 	++ "\n\nnewVarsToInitialise: " ++ (show newVarsToInitialise))
+-- 															|	otherwise = 	gmapT (mkT (insertBufferWrites_fortran [] beforeSrc)) codeSeg
+-- 															-- |	otherwise = 	gmapT (mkT (insertBufferWrites_fortran writtenVars beforeSrc)) codeSeg
+-- 		where
+-- 			-- exprs = foldl (++) [] (gmapQ (mkQ [] extractExpr_list) codeSeg)
+-- 			rightLocation = checkSrcSpanContainsSrcSpan beforeSrc (srcSpan codeSeg) 
+-- 			-- rightLocation = checkSrcSpanBefore assgSrc beforeSrc
+-- 			writtenVarNames = listRemoveDuplications (extractAllVarNames codeSeg)
+-- 			varNamesToInitialise = listIntersection writtenVars writtenVarNames
+
+-- 			bufferWriteFortran = buildBufferWriteFortran varNamesToInitialise codeSeg
+-- 			newVarsToInitialise = [] -- listSubtract writtenVars varNamesToInitialise
 
 buildBufferReadFortran :: [VarName Anno] -> Fortran Anno -> Fortran Anno
 buildBufferReadFortran [] followingFortran = followingFortran
@@ -332,13 +458,15 @@ extractSubroutineFinalBufferReads ast = snd (foldl (\(accum_r, accum_w) (item_r,
 			reads = reverse $ map extractKernelReads kernels
 			writes = reverse $ map extractKernelWrites kernels
 
-generateKernelCallSrcRange :: SubroutineTable -> Program Anno -> SrcSpan
+generateKernelCallSrcRange :: SubroutineTable -> Program Anno -> (SrcSpan, SrcSpan)
 generateKernelCallSrcRange subTable ast = (kernelsStart, kernelsEnd)
 		where
 			callsAndStrings = everything (++) (mkQ [] extractCallsWithStrings) ast
 			callSrcs = map (\(callCode, callString) -> srcSpan callCode) (filter (\(callCode, callString) -> elem callString (DMap.keys subTable)) callsAndStrings)
-			kernelsStart = fst (fromMaybe (error "generateKernelCallSrcRange") (getEarliestSrcSpan callSrcs))
-			kernelsEnd = snd (fromMaybe (error "generateKernelCallSrcRange") (getLatestSrcSpan callSrcs))
+			kernelsStart = (fromMaybe (error "generateKernelCallSrcRange") (getEarliestSrcSpan callSrcs))
+			kernelsEnd = (fromMaybe (error "generateKernelCallSrcRange") (getLatestSrcSpan callSrcs))
+			-- kernelsStart = fst (fromMaybe (error "generateKernelCallSrcRange") (getEarliestSrcSpan callSrcs))
+			-- kernelsEnd = snd (fromMaybe (error "generateKernelCallSrcRange") (getLatestSrcSpan callSrcs))
 
 --	Taking a subroutine table and a set of kernel pairs (old, new), replace the entries of the 'old' kernels with with their associated 'new' kernels, using the same
 --	subroutine names and filenames.
