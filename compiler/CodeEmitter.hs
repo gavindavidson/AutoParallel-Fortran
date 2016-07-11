@@ -28,8 +28,8 @@ initTearDownModuleName = "OpenCLInitAndTearDown"
 type KernelArgsIndexMap = DMap.Map (VarName Anno) Int
 
 emit :: String -> [String] -> Bool -> [(Program Anno, String)] -> [(Program Anno, String)] -> ArgumentTranslationSubroutines -> (Program Anno, String) -> [VarName Anno] -> [VarName Anno] -> IO [()]
-emit specified cppDFlags fixedForm' programs_verboseArgs programs_optimisedBuffers argTranslations (mainAst, mainFilename) initWrites tearDownReads = do
-				let fixedForm = False
+emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffers argTranslations (mainAst, mainFilename) initWrites tearDownReads = do
+				-- let fixedForm = False
 
 				kernels_code <- mapM (emitKernels cppDFlags fixedForm) programs_verboseArgs
 				let allKernels = foldl (++) [] kernels_code
@@ -59,17 +59,34 @@ fixedFormFormat inputStr = foldl (\accum item -> accum ++ "\n" ++ (fixedFormForm
 
 fixedFormFormat_line :: String -> String
 fixedFormFormat_line "" = ""
-fixedFormFormat_line inputLine = addedLeadingWhiteSpace ++  (take lineLength_contAndWhiteSpace (removeCarridgeReturns inputLine)) ++ "||" ++ (drop lineLength_contAndWhiteSpace (removeCarridgeReturns inputLine)) ++ "! " ++ (show inputLine) ++ "\n" --(if nextLineExists then " &\n" else "\n") ++ fixedFormFormat_line (drop lineLength_contAndWhiteSpace inputLine)
---(fixedFormFormat_line (drop lineLength_contAndWhiteSpace inputLine))
+fixedFormFormat_line inputLine 	|	fixedFormFormat_isComment inputLine = inputLine
+								|	otherwise =  addedLeadingWhiteSpace ++ thisLine
+								++ if nextLineExists then lineCont ++ "\n" ++ (if nextLineNotContinue then nextLine else "") else ""
 		where
+			thisLine = (take lineLength_contAndWhiteSpace (inputLine))
+			nextLine = (fixedFormFormat_line (drop lineLength_contAndWhiteSpace (inputLine)))
+
 			whiteSpaceCount = fixedFormFormat_leadingWhiteSpaceCount inputLine
-			addedLeadingWhiteSpace = foldl (\accum item -> accum ++ "-") "" [whiteSpaceCount + 1 .. desiredLeadingWhiteSpace]
+			addedLeadingWhiteSpace = foldl (\accum item -> accum ++ " ") "" [whiteSpaceCount + 1 .. desiredLeadingWhiteSpace]
+			lineCont = " &"
 			desiredLeadingWhiteSpace = 6
 			desiredLineLength = 72
-			lineLength_contAndWhiteSpace = desiredLineLength - 2 - (desiredLeadingWhiteSpace - whiteSpaceCount)
+			lineLength_contAndWhiteSpace = (desiredLineLength - (length lineCont)) - (max 0 (desiredLeadingWhiteSpace - whiteSpaceCount))
 
-			nextLineExists = (drop lineLength_contAndWhiteSpace inputLine) /= ""
-			removeCarridgeReturns = (\x -> filter (/= '\r') x)
+			nextLineNotContinue = (not $ fixedFormFormat_containsOnlyContinuation nextLine)
+			nextLineExists = nextLine /= ""
+
+fixedFormFormat_containsOnlyContinuation :: String -> Bool
+fixedFormFormat_containsOnlyContinuation (char:str) 	|	char == '&' = fixedFormFormat_containsOnlyContinuation str
+										|	isSpace char = fixedFormFormat_containsOnlyContinuation str
+										|	otherwise = False
+fixedFormFormat_containsOnlyContinuation [] = True
+
+fixedFormFormat_isComment :: String -> Bool
+fixedFormFormat_isComment (char:str) 	|	char == '!' = True
+										|	isSpace char = fixedFormFormat_containsOnlyContinuation str
+										|	otherwise = False
+fixedFormFormat_containsOnlyContinuation [] = True
 
 fixedFormFormat_leadingWhiteSpaceCount :: String -> Int
 fixedFormFormat_leadingWhiteSpaceCount (char:str) 	|	isSpace char = 1 + fixedFormFormat_leadingWhiteSpaceCount str

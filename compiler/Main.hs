@@ -27,8 +27,8 @@ main = do
 
 	putStr "\nConcerns:"
 	-- putStr ("\n" 	++ outputTab ++ "- Consider called subroutines when parallelising.")
-	putStr ("\n" 	++ outputTab ++ "- Initialisation location must consider loops, not just accesses before\n" 
-					++ outputTab ++ "position")
+	-- putStr ("\n" 	++ outputTab ++ "- Initialisation location must consider loops, not just accesses before\n" 
+	-- 				++ outputTab ++ "position")
 	putStr ("\n" 	++ outputTab ++ "- Improve naming conventions")
 	putStr ("\n" 	++ outputTab ++ "- SELECT CASE statements are no longer supported? Seems a rollback has\n" 
 					++ outputTab ++ "happened sometime")
@@ -36,13 +36,14 @@ main = do
 	-- putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
 	-- 				++ outputTab ++ "are read back from buffers.")
 	-- putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
-	putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments\n"
-					++ outputTab ++ "(Input can now be fixed form, output functionality almost there)") -- -ffixed-form
-	putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use")
+	-- putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments\n"
+	-- 				++ outputTab ++ "(Input can now be fixed form, output functionality almost there)")
+	-- putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use")
 	-- putStr ("\n" 	++ outputTab ++ "- Translate buffer numbers between subroutines. As in, the same buffer being\n"
 	-- 				++ outputTab ++ "represented by many variable names across subroutines")
-
-
+	putStr ("\n" 	++ outputTab ++ "- Consider the possibility of a call to a host subroutine happening after a\n"
+					++ outputTab ++ "call to an OpenCL kernel inside a small loop. The vars that are written by the\n"
+					++ outputTab ++ "host must therefore be rewritten to buffers at the start of the loop")
 	-- putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
 	putStr "\n\n"
 
@@ -75,8 +76,10 @@ main = do
 
 	let cppDFlags = DMap.findWithDefault [] cppDefineFlag argMap
 
+	-- parsedPrograms <- mapM (parseFile cppDFlags False) filenames
 	parsedPrograms <- mapM (parseFile cppDFlags fixedForm) filenames
 
+	-- parsedMain <- parseFile cppDFlags False mainFilename
 	parsedMain <- parseFile cppDFlags fixedForm mainFilename
 	let parsedSubroutines = constructSubroutineTable (zip parsedPrograms filenames)
 

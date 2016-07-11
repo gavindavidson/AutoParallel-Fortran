@@ -44,6 +44,6 @@ semiColonFix :: String -> String
 semiColonFix input = caseInsensitive_strReplace ";" "\n" input
 
 fixedForm :: String -> String
-fixedForm  inputStr = foldl (\accum item -> accum ++ (take 72 item) ++ "\n\r") "" allLines
+fixedForm  inputStr = foldl (\accum item -> accum ++ (take 72 item) ++ "\n") "" allLines
 		where
 			allLines = lines inputStr

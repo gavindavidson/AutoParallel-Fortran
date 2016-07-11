@@ -28,6 +28,7 @@ The optional command line flags are are follows:
 - *-lfb* defines a value for the loop fusion bound. That is, the difference in iterator end value that is allowed for two loops to be fused. Not including this argument results in there not being a bound for loop fusion, and therefore all pairs of loops that meet the other conditions are fused.
 - *-D* defines a list of c preprocessor (cpp) macros that are to be defined.
 - *-v* enables verbose mode in which obstacles to parallelisation are reported to the user.
+- *-ffixed-form* enforces that input lines must be no more than 72 characters long. Output is also formatted as fixed for (6 leading spaces on each line and no more than 72 characters per line).
 
 ## Modification
 
