@@ -80,6 +80,9 @@ main = do
 	parsedMain <- parseFile cppDFlags fixedForm mainFilename
 	let parsedSubroutines = constructSubroutineTable (zip parsedPrograms filenames)
 
+	-- putStr "\n\nMAIN AST\n\n"
+	-- putStr (show parsedMain)
+
 	let subroutineNames = DMap.keys parsedSubroutines
 	let subroutineList = foldl (\accum item -> accum ++ [[DMap.findWithDefault (error "main:subroutineList") item parsedSubroutines]]) [] (subroutineNames)
 
