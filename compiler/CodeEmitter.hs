@@ -86,11 +86,51 @@ fixedFormFormat_isComment :: String -> Bool
 fixedFormFormat_isComment (char:str) 	|	char == '!' = True
 										|	isSpace char = fixedFormFormat_containsOnlyContinuation str
 										|	otherwise = False
-fixedFormFormat_containsOnlyContinuation [] = True
+fixedFormFormat_isComment [] = True
 
 fixedFormFormat_leadingWhiteSpaceCount :: String -> Int
 fixedFormFormat_leadingWhiteSpaceCount (char:str) 	|	isSpace char = 1 + fixedFormFormat_leadingWhiteSpaceCount str
 													|	otherwise = 0
+
+-- extractBufferReadClusters :: Program Anno -> (Program Anno, [[VarName Anno]])
+-- extractBufferReadClusters ast =  (newAst, varClusters)
+-- 		where 
+-- 			clusterInfoList = everything (++) (mkQ [] (extractBufferReadClusters_fortran )) ast
+-- 			varClusters = map (\(_, _, x) -> x) clusterInfoList
+
+-- 			newAst = foldl (repalceBufferClusterWithCall "readBuffers") ast clusterInfoList
+
+-- repalceBufferClusterWithCall :: String -> Program Anno -> (Fortran Anno, Fortran Anno, [VarName Anno]) -> Program Anno
+-- repalceBufferClusterWithCall comment ast (clusterStartFortran, fortranFollowingCluster, vars) = newAst
+-- 		where
+-- 			subroutineNameStr = foldl (\accum item -> accum ++ "_" ++ (varNameStr item)) comment vars
+-- 			subroutineNameVar = generateVar (VarName nullAnno subroutineNameStr)
+-- 			argList = generateArgList vars
+-- 			callNode =  Call nullAnno nullSrcSpan subroutineNameVar argList
+-- 			fseqReplacement = FSeq nullAnno nullSrcSpan callNode fortranFollowingCluster
+
+-- 			newAst = replaceFortran ast clusterStartFortran fseqReplacement
+
+generateArgList :: [VarName Anno] -> ArgList Anno
+generateArgList [] = ArgList nullAnno (NullExpr nullAnno nullSrcSpan)
+generateArgList vars = ArgList nullAnno (generateESeq vars)
+
+generateESeq :: [VarName Anno] -> Expr Anno
+generateESeq (var:[]) = generateVar var
+generateESeq (var:vars) = ESeq nullAnno nullSrcSpan (generateESeq vars) (generateVar var)
+
+extractBufferReadClusters_fortran :: Fortran Anno -> [(Fortran Anno, Fortran Anno, [VarName Anno])]
+extractBufferReadClusters_fortran codeSeg = case codeSeg of
+												(FSeq _ _ (OpenCLBufferRead _ _ _) fortran2) -> [(codeSeg, fortranFollowingCluster, clusterVarNames)]
+													where
+														(fortranFollowingCluster, clusterVarNames) = extractBufferReadClusters_fortranAfterReadCluster fortran2
+												_ -> []
+
+extractBufferReadClusters_fortranAfterReadCluster :: Fortran Anno -> (Fortran Anno, [VarName Anno])
+extractBufferReadClusters_fortranAfterReadCluster (FSeq _ _ (OpenCLBufferRead _ _ var) fortran2) = (recurseFortran, var:recurseVarNames)
+		where
+			(recurseFortran, recurseVarNames) = extractBufferReadClusters_fortranAfterReadCluster fortran2
+extractBufferReadClusters_fortranAfterReadCluster codeSeg = (codeSeg, [])
 
 synthesiseInitAndTearDownModule :: KernelArgsIndexMap -> Program Anno -> [VarName Anno] -> [VarName Anno] -> String
 synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads = moduleHeader
@@ -280,9 +320,9 @@ produceCode_prog allKernelArgsMap argTranslation cppDFlags fixedForm kernelModul
 					return result
 
 produceCode_progUnit :: KernelArgsIndexMap -> ArgumentTranslationSubroutines -> (Program Anno, String) -> String -> [String] -> ProgUnit Anno -> String
-produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines (Main _ src _ _ block progUnits) =	
+produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines (Main _ src _ _ block progUnits) =	
 																																nonGeneratedHeaderCode
-																															++ 	everything (++) (mkQ "" (produceCodeBlock argTranslation prog nonGeneratedBlockCode_indent originalLines)) block
+																															++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap emptyArgumentTranslation prog nonGeneratedBlockCode_indent originalLines)) block
 																															++	containedProgUnitCode
 																															++	nonGeneratedFooterCode
 		where
@@ -296,10 +336,10 @@ produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName origi
 			((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
 			nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls..nonGeneratedFooter_le-1]
 
-			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines item)) "" progUnits
+			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines item)) "" progUnits
 			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(block_ls-1))
 
-produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines (Module _ src _ _ _ _ progUnits) = 	nonGeneratedHeaderCode 
+produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines (Module _ src _ _ _ _ progUnits) = 	nonGeneratedHeaderCode 
 																																++ 	containedProgUnitCode
 																																++	nonGeneratedFooterCode
 		where
@@ -313,15 +353,12 @@ produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName origi
 			((SrcLoc _ nonGeneratedFooter_ls _), (SrcLoc _ nonGeneratedFooter_le _)) = nonGeneratedFooterSrc
 			nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls..nonGeneratedFooter_le-1]
 
-			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines item)) "" progUnits
-produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines (Sub _ src _ (SubName _ subroutineName) _ block) =  nonGeneratedHeaderCode 
-												 ++ nonGeneratedBlockCode_indent ++ "use " ++ kernelModuleName ++ "\n" 
-												 ++	nonGeneratedBlockCode_indent ++ "real (kind=4) :: exectime\n"
-												 ++ nonGeneratedBlockCode 
-												 ++ shapeStatements ++ "\n"
-												 ++ bufferStatements ++ "\n"
-												 ++ everything (++) (mkQ "" (produceCodeBlock argTranslation prog nonGeneratedBlockCode_indent originalLines)) block
-												 ++ nonGeneratedFooterCode	
+			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines item)) "" progUnits
+produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines (Sub _ src _ (SubName _ subroutineName) _ block) =  nonGeneratedHeaderCode 
+												++ 	nonGeneratedBlockCode_indent ++ "use " ++ kernelModuleName ++ "\n" 
+												++	nonGeneratedBlockCode_indent ++ "real (kind=4) :: exectime\n"
+												++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap argTranslation prog nonGeneratedBlockCode_indent originalLines)) block
+												++ 	nonGeneratedFooterCode	
 		where
 			firstFortranSrc = head (everything (++) (mkQ [] (getFirstFortranSrc)) block)
 			blockSrc = srcSpan block
@@ -339,11 +376,9 @@ produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName origi
 
 			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
 
-			argTranslationSubroutine = getSubroutineArgumentTranslation argTranslation subroutineName
+			argTranslation = getSubroutineArgumentTranslation argTranslationSubroutines subroutineName
 
-			shapeStatements = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
-			bufferStatements = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslationSubroutine block
-produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines progunit = foldl (++) "" (gmapQ (mkQ "" (produceCode_progUnit allKernelArgsMap argTranslation prog kernelModuleName originalLines)) progunit)
+produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines progunit = foldl (++) "" (gmapQ (mkQ "" (produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines)) progunit)
 
 synthesiseSizeStatements :: String -> [VarName Anno] -> String
 synthesiseSizeStatements tabs vars = foldl (\accum (varName, sizeVarName) -> accum ++ tabs ++ (varNameStr sizeVarName) ++ " = shape(" ++ (varNameStr varName) ++ ")\n") "" kernelSizeVars_pairs
@@ -351,10 +386,17 @@ synthesiseSizeStatements tabs vars = foldl (\accum (varName, sizeVarName) -> acc
 			kernelSizeVars_pairs = map (\x -> (x, varSizeVarName x)) vars
 
 synthesiseSizeStatements_kernel :: String -> Program Anno -> String
-synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs kernelArgs
+synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs allBufferAccesses
 		where
 			kernels = extractKernels ast
+			bufferReads = extractBufferReads ast
+			bufferWrites = extractBufferWrites ast
+			
 			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels) -- map (extractKernelArguments) kernels
+			bufferReadVars = map (\(OpenCLBufferRead _ _ var) -> var) bufferReads
+			bufferWrittenVars = map (\(OpenCLBufferWrite _ _ var) -> var) bufferWrites
+			
+			allBufferAccesses = listRemoveDuplications (kernelArgs ++ bufferWrittenVars ++ bufferReadVars)
 
 synthesiseBufferDeclatations :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> String
 synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation vars = foldl (\accum (var, index) -> accum ++ tabs ++ "call oclLoadBuffer(" ++ (show index) ++ ", " ++ (varNameStr var) ++ ")" ++  "\n") "" kernelBufferIndices
@@ -362,12 +404,18 @@ synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation vars = foldl (
 			translatedVars = translateArguments argTranslation vars
 			kernelBufferIndices = zip vars (map (\x -> DMap.findWithDefault (-1) x allKernelArgsMap) translatedVars)
 
-
 synthesiseBufferDeclatations_kernel :: String -> KernelArgsIndexMap -> ArgumentTranslation -> Block Anno -> String
-synthesiseBufferDeclatations_kernel tabs allKernelArgsMap argTranslation ast = synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation kernelArgs
+synthesiseBufferDeclatations_kernel tabs allKernelArgsMap argTranslation ast = synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation allBufferAccesses
 		where
 			kernels = extractKernels ast
+			bufferReads = extractBufferReads ast
+			bufferWrites = extractBufferWrites ast
+			
 			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels)
+			bufferReadVars = map (\(OpenCLBufferRead _ _ var) -> var) bufferReads
+			bufferWrittenVars = map (\(OpenCLBufferWrite _ _ var) -> var) bufferWrites
+
+			allBufferAccesses = listRemoveDuplications (kernelArgs ++ bufferWrittenVars ++ bufferReadVars)
 
 --	Function is used (along with "getFirstBlockSrc") by "produceCode_progUnit" to determine which lines of the original
 --	source can be taken as is. It is used to determine where the first Fortran nodes of the AST appear in the source
@@ -378,13 +426,16 @@ getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
 getFirstBlockSrc :: Block Anno -> [SrcSpan]
 getFirstBlockSrc codeSeg = [srcSpan codeSeg]
 
-produceCodeBlock :: ArgumentTranslationSubroutines -> (Program Anno, String) -> String -> [String] -> Block Anno -> String
-produceCodeBlock argTranslation prog tabs originalLines (Block _ _ _ src decl fort) |	nonGeneratedHeader_ls < 1 = error "produceCodeBlock: nonGeneratedHeader_ls < 1"
-																					|	nonGeneratedFooter_ls < 1 = error "produceCodeBlock: nonGeneratedFooter_ls < 1"
-																					|	otherwise =	nonGeneratedHeaderCode
-																					++ 	produceCode_fortran prog tabs originalLines fort
-																					++	nonGeneratedFooterCode
+produceCodeBlock :: KernelArgsIndexMap -> ArgumentTranslation -> (Program Anno, String) -> String -> [String] -> Block Anno -> String
+produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block anno useBlock imp src decl fort) 	|	nonGeneratedHeader_ls < 1 = error "produceCodeBlock: nonGeneratedHeader_ls < 1"
+																													|	nonGeneratedFooter_ls < 1 = error "produceCodeBlock: nonGeneratedFooter_ls < 1"
+																													|	otherwise =	nonGeneratedHeaderCode
+																														++	shapeStatements ++ "\n"
+																														++	bufferStatements ++ "\n"
+																														++ 	produceCode_fortran prog tabs originalLines fort
+																														++	nonGeneratedFooterCode
 		where
+			block = Block anno useBlock imp src decl fort
 			fortranSrc = srcSpan fort
 			((SrcLoc _ fortran_ls _), _) = fortranSrc
 			(nonGeneratedHeaderSrc, nonGeneratedFooterSrc) = getSrcSpanNonIntersection src fortranSrc
@@ -396,6 +447,10 @@ produceCodeBlock argTranslation prog tabs originalLines (Block _ _ _ src decl fo
 			nonGeneratedFooterCode = foldl (\accum item -> accum ++ (originalLines!!(item-1)) ++ "\n") "" [nonGeneratedFooter_ls..nonGeneratedFooter_le-1]
 
 			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
+
+			shapeStatements = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
+			bufferStatements = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslation block
+
 -- produceCodeBlock argTranslation prog tabs originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog tabs originalLines)) block)
 
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions

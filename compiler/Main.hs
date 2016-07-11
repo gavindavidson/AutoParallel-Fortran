@@ -191,12 +191,3 @@ insertCallAtSrcSpan_transformation targetSrc callName args (FSeq anno src fortra
 			sameLine = targetLineNumber == fortran1LineNumber
 			betweenLines = targetLineNumber > fortran1LineNumber && targetLineNumber < fortran2LineNumber 
 insertCallAtSrcSpan_transformation _ _ _ codeSeg = codeSeg
-
-
-generateArgList :: [VarName Anno] -> ArgList Anno
-generateArgList [] = ArgList nullAnno (NullExpr nullAnno nullSrcSpan)
-generateArgList vars = ArgList nullAnno (generateESeq vars)
-
-generateESeq :: [VarName Anno] -> Expr Anno
-generateESeq (var:[]) = generateVar var
-generateESeq (var:vars) = ESeq nullAnno nullSrcSpan (generateESeq vars) (generateVar var)

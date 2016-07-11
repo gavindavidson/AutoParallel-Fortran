@@ -128,6 +128,20 @@ extractKernels' codeSeg = case codeSeg of
 							OpenCLReduce _ _ _ _ _ _ _ -> [codeSeg]
 							_ -> []
 
+extractBufferWrites ast = everything (++) (mkQ [] (extractBufferWrites')) ast
+
+extractBufferWrites' :: Fortran Anno -> [Fortran Anno]
+extractBufferWrites' codeSeg = case codeSeg of
+							OpenCLBufferWrite _ _ _ -> [codeSeg]
+							_ -> []
+
+extractBufferReads ast = everything (++) (mkQ [] (extractBufferReads')) ast
+
+extractBufferReads' :: Fortran Anno -> [Fortran Anno]
+extractBufferReads' codeSeg = case codeSeg of
+							OpenCLBufferRead _ _ _ -> [codeSeg]
+							_ -> []
+
 --	Used to break down a tree of expressions that might form a calculation into a list of expressions for analysis.
 extractOperands :: (Typeable p, Data p) => Expr p -> [Expr p]
 extractOperands (Bin _ _ _ expr1 expr2) = extractOperands expr1 ++ extractOperands expr2
@@ -390,6 +404,12 @@ varNameListStr :: [VarName Anno] -> String
 varNameListStr [] =  ""
 varNameListStr (var:[]) = varNameStr var
 varNameListStr (var:vars) = (varNameStr var) ++ "," ++ (varNameListStr vars)
+
+-- replaceFortran progAst oldFortran newFortran = everywhere (mkT (replaceFortran' oldFortran newFortran)) progAst
+
+-- replaceFortran' :: Fortran Anno -> Fortran Anno -> Fortran Anno -> Fortran Anno
+-- replaceFortran' oldFortran newFortran currentFortran 	|	(applyGeneratedSrcSpans oldFortran) == (applyGeneratedSrcSpans currentFortran) = normaliseSrcSpan currentFortran newFortran
+-- 														|	otherwise = currentFortran
 
 --	Takes two ASTs and appends one onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran Anno -> Fortran Anno -> Fortran Anno
