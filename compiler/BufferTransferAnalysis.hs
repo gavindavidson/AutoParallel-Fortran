@@ -45,7 +45,8 @@ emptyArgumentTranslation = DMap.empty
 --		-	Finally, replace the kernels in the original subroutine table with the new kernels that use far less read/write arguments. Return the new
 --			subroutine table along with the SrcSpans that indicate where initialisation should happen and where the OpenCL portion of the main ends.
 optimiseBufferTransfers :: SubroutineTable -> ArgumentTranslationSubroutines -> Program Anno -> (SubroutineTable, Program Anno)
-optimiseBufferTransfers subTable argTranslations mainAst = (newSubTable, 
+optimiseBufferTransfers subTable argTranslations mainAst = -- error ("kernels_optimisedBetween: " ++ (show kernels_optimisedBetween))
+															(newSubTable, 
 														 		newMainAst_withReadsWrites)
 		where
 			flattenedAst = flattenSubroutineAppearences subTable argTranslations mainAst
@@ -318,7 +319,6 @@ insertBufferReadsAfter varSrcPairs ast = everywhere (mkT (insertFortranAfter_blo
 insertBufferReadsBefore varSrcPairs ast = everywhere (mkT (insertFortranBefore_block fortranSrcPairs)) ast
 		where 
 			fortranSrcPairs = map (\(var, src) -> (OpenCLBufferRead nullAnno src var, src)) varSrcPairs
-
 
 insertBufferWritesAfter varSrcPairs ast = everywhere (mkT (insertFortranAfter_block fortranSrcPairs)) ast
 		where 

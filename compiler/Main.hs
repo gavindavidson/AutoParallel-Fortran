@@ -25,7 +25,7 @@ import CodeEmitter (emit, initSubroutineName)
 -- main :: IO [()]
 main = do
 
-	putStr "\nConcerns:"
+	putStr "\nConcerns/To do:"
 	-- putStr ("\n" 	++ outputTab ++ "- Consider called subroutines when parallelising.")
 	-- putStr ("\n" 	++ outputTab ++ "- Initialisation location must consider loops, not just accesses before\n" 
 	-- 				++ outputTab ++ "position")
@@ -33,6 +33,7 @@ main = do
 	putStr ("\n" 	++ outputTab ++ "- SELECT CASE statements are no longer supported? Seems a rollback has\n" 
 					++ outputTab ++ "happened sometime")
 	putStr ("\n" 	++ outputTab ++ "- Document high level steps including function names")
+	putStr ("\n" 	++ outputTab ++ "- Convert clusters of buffer reads/writes to subroutine calls")
 	-- putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
 	-- 				++ outputTab ++ "are read back from buffers.")
 	-- putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
@@ -104,8 +105,8 @@ main = do
 	-- let fileCoordinated_optimisedBufferMap = foldl (\dmap (ast, filename) -> appendToMap filename ast dmap) DMap.empty optimisedBufferTransfersSubroutineList
 	-- let fileCoordinated_optimisedBufferList = map (\x -> (DMap.findWithDefault (error "fileCoordinated_optimisedBufferList") x fileCoordinated_optimisedBufferMap, x)) filenames
 
-	let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences combinedKernelSubroutines parsedPrograms) filenames
-	-- let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences optimisedBufferTransfersSubroutines parsedPrograms) filenames
+	-- let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences combinedKernelSubroutines parsedPrograms) filenames
+	let fileCoordinated_bufferOptimisedPrograms = zip (replaceSubroutineAppearences optimisedBufferTransfersSubroutines parsedPrograms) filenames
 	-- let ((initWrites, initSrc), (tearDownReads, tearDownSrc)) = initTearDownInfo
 	-- let initArgList = generateArgList initWrites
 	-- let tearDownArgList = generateArgList tearDownReads

@@ -399,7 +399,7 @@ synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs allBuff
 			allBufferAccesses = listRemoveDuplications (kernelArgs ++ bufferWrittenVars ++ bufferReadVars)
 
 synthesiseBufferDeclatations :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> String
-synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation vars = foldl (\accum (var, index) -> accum ++ tabs ++ "call oclLoadBuffer(" ++ (show index) ++ ", " ++ (varNameStr var) ++ ")" ++  "\n") "" kernelBufferIndices
+synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation vars = foldl (\accum (var, index) -> accum ++ tabs ++ "call oclLoadBuffer(" ++ (show index) ++ ", " ++ (varNameStr (varBufVarName var)) ++ ")" ++  "\n") "" kernelBufferIndices
 		where
 			translatedVars = translateArguments argTranslation vars
 			kernelBufferIndices = zip vars (map (\x -> DMap.findWithDefault (-1) x allKernelArgsMap) translatedVars)
