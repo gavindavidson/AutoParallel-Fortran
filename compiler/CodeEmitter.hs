@@ -12,7 +12,6 @@ import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
 import Data.List
-import Data.List.Split
 import System.IO
 import System.Process
 import Data.Maybe
@@ -904,7 +903,15 @@ generateImplicitDecl var = Decl nullAnno nullSrcSpan [(generateVar var, (NullExp
 
 --	The following functions are used to define names for output files from the input files' names.
 getModuleName :: String -> String
-getModuleName filename = head (splitOn "." (last (splitOn "/" filename)))
+getModuleName filename = head (splitOnChar '.' (last (splitOnChar '/' filename)))
+
+splitOnChar :: Char -> String -> [String]
+splitOnChar char str = splitOnChar' char "" str
+
+splitOnChar' :: Char -> String -> String -> [String]
+splitOnChar' char current (x:xs) 	|	char == x = current:(splitOnChar' char "" xs)
+									|	otherwise = splitOnChar' char (current ++ [x]) xs
+splitOnChar' _ current []			=	[current]
 
 generateKernelName :: String -> SrcSpan -> [VarName Anno] -> String
 generateKernelName identifier src varnames = (getModuleName filename) ++ "_" ++ identifier
