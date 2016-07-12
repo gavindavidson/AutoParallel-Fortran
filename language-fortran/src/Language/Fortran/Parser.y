@@ -94,7 +94,7 @@ import qualified Data.Map as DMap
  BACKSPACE    { Key "backspace" }
  BLOCK      { Key "block" }
  CALL       { Key "call" }
--- CASE     { Key "case" }
+ CASE     { Key "case" }
  CHARACTER    { Key "character" }
  CLOSE      { Key "close" }
  COMMON     { Key "common" }
@@ -104,7 +104,7 @@ import qualified Data.Map as DMap
  CYCLE      { Key "cycle" }
  DATA       { Key "data" }
  DEALLOCATE     { Key "deallocate" }
--- DEFAULT    { Key "default" }
+ DEFAULT    { Key "default" }
  DIMENSION    { Key "dimension" }
  DO       { Key "do" }
 -- DOUBLE     { Key "double" }
@@ -166,7 +166,7 @@ import qualified Data.Map as DMap
  RETURN     { Key "return" }
  REWIND     { Key "rewind" }
  SAVE       { Key "save" }
--- SELECT     { Key "select" }
+ SELECT     { Key "select" }
  SEQUENCE     { Key "sequence" }
 -- SIZE     { Key "size" }
  SOMETYPE               { Key "sometype" }
@@ -1185,7 +1185,34 @@ executable_constructP
 :   do_construct                                  { $1 }
   | if_construct                                  { $1 }
   | action_stmt                                   { $1 }
+  | select_construct                              { $1 }  -- GAV ADDED
 
+select_construct :: { Fortran A0 }                        -- GAV ADDED
+select_construct
+:   srcloc select_stmt case_list default_case_stmt end_select_stmt
+                {% getSrcSpan $1 >>= (\s -> return $ SelectStmt (DMap.empty) s $2 $3 $4) }
+
+select_stmt :: { Expr A0 }                                -- GAV ADDED
+select_stmt
+  : SELECT case_stmt                              { $2 }
+
+end_select_stmt :: {}                                     -- GAV ADDED
+end_select_stmt
+  : END SELECT                                    {}
+
+case_list :: { [(Expr A0, Fortran A0)] }                  -- GAV ADDED
+case_list
+  : case_list case_stmt block                     { $1++[($2,$3)] }
+  | {- empty -}                                   { [] }
+
+case_stmt :: { Expr A0 }                                  -- GAV ADDED
+case_stmt
+  : CASE '(' expr ')' newline                     { $3 }
+
+default_case_stmt :: { Maybe(Fortran A0)}                 -- GAV ADDED
+default_case_stmt
+  : CASE DEFAULT newline block                    { Just($4) }
+  | {- empty -}                                   { Nothing }
  
 equivalence_stmt :: { Decl A0 }
 equivalence_stmt 

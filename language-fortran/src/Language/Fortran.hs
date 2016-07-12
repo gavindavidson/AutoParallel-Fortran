@@ -215,7 +215,7 @@ data Fortran  p = Assg p SrcSpan (Expr p) (Expr p)
                 | TextStmt p SrcSpan String     -- cpp switches to carry over
                 | NullStmt p SrcSpan
 
-                | SelectStmt p SrcSpan (Expr p) [((Expr p), (Fortran p))]   -- GAV ADDED
+                | SelectStmt p SrcSpan (Expr p) [((Expr p), (Fortran p))] (Maybe (Fortran p)) -- GAV ADDED
                 | OpenCLMap p SrcSpan                   -- Node to represent the data needed for an OpenCL map kernel
                   [VarName p]                           -- List of arguments to kernel that are READ
                   [VarName p]                           -- List of arguments to kernel that are WRITTEN
@@ -387,11 +387,11 @@ instance Span (Fortran a) where
     srcSpan (ReadS x sp s e)         = sp
     srcSpan (TextStmt x sp s)        = sp
     srcSpan (NullStmt x sp)          = sp
-    srcSpan (SelectStmt x sp e fes)  = sp          -- GAV ADDED
-    srcSpan (OpenCLMap x sp e1 e2 _ f2) = sp       -- GAV ADDED
-    srcSpan (OpenCLReduce x sp e1 e2 _ e3 f2) = sp -- GAV ADDED
-    srcSpan (OpenCLBufferRead _ sp _) = sp         -- GAV ADDED
-    srcSpan (OpenCLBufferWrite _ sp _) = sp        -- GAV ADDED
+    srcSpan (SelectStmt x sp e fes _)         = sp        -- GAV ADDED
+    srcSpan (OpenCLMap x sp e1 e2 _ f2)       = sp        -- GAV ADDED
+    srcSpan (OpenCLReduce x sp e1 e2 _ e3 f2) = sp        -- GAV ADDED
+    srcSpan (OpenCLBufferRead _ sp _)         = sp        -- GAV ADDED
+    srcSpan (OpenCLBufferWrite _ sp _)        = sp        -- GAV ADDED
 
 -- Extract the tag 
 
@@ -516,10 +516,10 @@ instance Tagged Fortran where
     tag (ReadS x sp s e)        = x
     tag (TextStmt x sp s)       = x
     tag (NullStmt x sp)         = x
-    tag (SelectStmt x sp e fes)  = x          -- GAV ADDED
-    tag (OpenCLMap x sp e1 e2 _ f2) = x       -- GAV ADDED
-    tag (OpenCLReduce x sp e1 e2 _ e3 f2) = x -- GAV ADDED
-    tag (OpenCLBufferRead x _ _) = x          -- GAV ADDED
+    tag (SelectStmt x sp e fes _)         = x   -- GAV ADDED
+    tag (OpenCLMap x sp e1 e2 _ f2)       = x   -- GAV ADDED
+    tag (OpenCLReduce x sp e1 e2 _ e3 f2) = x   -- GAV ADDED
+    tag (OpenCLBufferRead x _ _)          = x   -- GAV ADDED
 
 
 instance Tagged Expr where
