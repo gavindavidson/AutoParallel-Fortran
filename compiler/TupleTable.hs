@@ -1,7 +1,7 @@
 module TupleTable where 
 
 import Data.Maybe
-import qualified Data.Map.Strict as DMap
+import qualified Data.Map as DMap
 
 import LanguageFortranTools
 

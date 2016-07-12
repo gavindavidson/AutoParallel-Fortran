@@ -38,7 +38,9 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
 				let moduleName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
 				let moduleFilename = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
+				-- let newMainFilename = specified ++ "/" ++ (getModuleName mainFilename) ++ "_host.f95"
 				let newMainFilename = specified ++ "/" ++ (getModuleName mainFilename) ++ "_host.f95"
+
 				let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
 				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
 

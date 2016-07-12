@@ -51,7 +51,7 @@ optimiseBufferTransfers subTable argTranslations mainAst = -- error ("kernels_op
 		where
 			flattenedAst = flattenSubroutineAppearences subTable argTranslations mainAst
 			flattenedVarAccessAnalysis = analyseAllVarAccess flattenedAst
-			optimisedFlattenedAst = optimseBufferTransfers_kernel flattenedVarAccessAnalysis flattenedAst
+			optimisedFlattenedAst = optimseBufferTransfers_program flattenedVarAccessAnalysis flattenedAst
 
 			varAccessAnalysis = analyseAllVarAccess mainAst
 			kernels_optimisedBetween = extractKernels optimisedFlattenedAst
@@ -437,8 +437,8 @@ replaceKernels_foldl kernelPairs subTable subName = DMap.insert subName (newAst,
 replaceKernels :: [(Fortran Anno, Fortran Anno)] -> ProgUnit Anno -> ProgUnit Anno
 replaceKernels kernelPairs subroutine = foldl (\accumSub (old, optim) -> replaceFortran accumSub old optim) subroutine kernelPairs
 
-optimseBufferTransfers_kernel :: VarAccessAnalysis -> Program Anno -> Program Anno
-optimseBufferTransfers_kernel varAccessAnalysis ast = ast_optimisedBetweenKernels
+optimseBufferTransfers_program :: VarAccessAnalysis -> Program Anno -> Program Anno
+optimseBufferTransfers_program varAccessAnalysis ast = ast_optimisedBetweenKernels
 		where
 			ast_optimisedBetweenKernels = compareKernelsInOrder varAccessAnalysis kernels ast
 			kernels = extractKernels ast

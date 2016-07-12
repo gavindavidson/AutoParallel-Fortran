@@ -12,7 +12,7 @@ import Language.Fortran
 import Data.Char
 import Data.List
 import Data.Maybe
-import qualified Data.Map.Strict as DMap
+import qualified Data.Map as DMap
 
 import LanguageFortranTools
 import VarAccessAnalysis

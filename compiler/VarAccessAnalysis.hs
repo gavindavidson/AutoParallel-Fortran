@@ -13,7 +13,7 @@ import Language.Fortran
 import Data.Char
 import Data.List
 import LanguageFortranTools
-import qualified Data.Map.Strict as DMap
+import qualified Data.Map as DMap
 
 --	Type used to colate data on variable accesses throughout a program.
 --						All reads 	All writes

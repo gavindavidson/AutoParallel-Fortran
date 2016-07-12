@@ -12,15 +12,15 @@ module Main where
 --	-	Output parallelisation errors and information about kernel fusion
 --	-	Emit final code listings.
 
-import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
+import Data.Generics 			(Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 import System.Environment
 import qualified Data.Map as DMap 
 
-import Transformer (paralleliseProgUnit_foldl, combineKernelProgUnit_foldl)
-import BufferTransferAnalysis (extractArgumentTranslationSubroutines, optimiseBufferTransfers, replaceSubroutineAppearences, insertBufferReads, constructSubroutineTable)
-import LanguageFortranTools (appendToMap, errorLocationFormatting, nullAnno, nullSrcSpan, generateVar, outputTab, parseFile, compilerName, Anno)
-import CodeEmitter (emit, initSubroutineName)
+import Transformer 				(paralleliseProgUnit_foldl, combineKernelProgUnit_foldl)
+import BufferTransferAnalysis 	(extractArgumentTranslationSubroutines, optimiseBufferTransfers, replaceSubroutineAppearences, insertBufferReads, constructSubroutineTable)
+import LanguageFortranTools 	(appendToMap, errorLocationFormatting, nullAnno, nullSrcSpan, generateVar, outputTab, parseFile, compilerName, Anno)
+import CodeEmitter 				(emit, initSubroutineName)
 
 -- main :: IO [()]
 main = do
@@ -30,10 +30,11 @@ main = do
 	-- putStr ("\n" 	++ outputTab ++ "- Initialisation location must consider loops, not just accesses before\n" 
 	-- 				++ outputTab ++ "position")
 	putStr ("\n" 	++ outputTab ++ "- Improve naming conventions")
-	putStr ("\n" 	++ outputTab ++ "- SELECT CASE statements are no longer supported? Seems a rollback has\n" 
-					++ outputTab ++ "happened sometime")
+	-- putStr ("\n" 	++ outputTab ++ "- SELECT CASE statements are no longer supported? Seems a rollback has\n" 
+	-- 				++ outputTab ++ "happened sometime")
 	putStr ("\n" 	++ outputTab ++ "- Document high level steps including function names")
 	putStr ("\n" 	++ outputTab ++ "- Convert clusters of buffer reads/writes to subroutine calls")
+	putStr ("\n" 	++ outputTab ++ "- Make sure installation instructions are correct")
 	-- putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
 	-- 				++ outputTab ++ "are read back from buffers.")
 	-- putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
