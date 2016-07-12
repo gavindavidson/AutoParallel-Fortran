@@ -14,11 +14,11 @@ make
 
 ## Use
 
-The compiler is a purely command line tool and offers no graphical interface. There are a number of command line arguments that may be provided but only one is necessary: the path to the target file(s). For example, to run the compiler on a file named `target.f95`, located in the same directory as the compiler itself:
+The compiler is a purely command line tool and offers no graphical interface. There are a number of command line arguments, but most are optional. For example, to run the compiler on a codebase whose main program is in 'main.f95' with subroutines located in 'subroutines.f95', located in the same directory as the compiler itself:
 
 ```bash
 cd compiler
-./AutoParallel-Fortran target.f95
+./AutoParallel-Fortran -main main.f95 -modules subroutines.f95
 ```
 
 The `target.f95` could be replaced with an absolute or relative path if the file was located elsewhere. Supplying more than one filename to the compiler as arguments will cause it to consider both as part of the same program and produce a super kernel style program, combining the kernels that would be produced by each source file into one super kernel.
