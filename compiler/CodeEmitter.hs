@@ -1,4 +1,6 @@
-module CodeEmitter where
+module CodeEmitter 						(emit)
+
+where
 
 --	Code in this file handles the final emission of code. The function 'emit' is called against an AST that has been transformed and has had kernels fused.
 --	Trys to make as much use as it can of code that is the same as it was in the original source file. Otherwise, it uses mostly simple functions to generate
@@ -10,7 +12,7 @@ module CodeEmitter where
 --	-	"generate.." functions tend to make new AST nodes
 
 import Control.Monad
-import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
+import Data.Generics 					(Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
 import Language.Fortran.Parser
 import Language.Fortran
@@ -25,9 +27,9 @@ import LanguageFortranTools
 import SubroutineTable 					(ArgumentTranslation, ArgumentTranslationSubroutines, emptyArgumentTranslation, getSubroutineArgumentTranslation, translateArguments,
 										extractSubroutines, extractProgUnitName)
 
-initSubroutineName = "initialiseOpenCL"
-tearDownSubroutineName = "tearDownOpenCL"
-initTearDownModuleName = "OpenCLInitAndTearDown"
+-- initSubroutineName = "initialiseOpenCL"
+-- tearDownSubroutineName = "tearDownOpenCL"
+-- initTearDownModuleName = "OpenCLInitAndTearDown"
 
 type KernelArgsIndexMap = DMap.Map (VarName Anno) Int
 
@@ -43,17 +45,17 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 				let moduleFilename = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
 				let newMainFilename = specified ++ "/" ++ (getModuleName mainFilename) ++ "_host.f95"
 
-				let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
+				-- let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
 				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
 
 				host_code <- mapM (produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm moduleName) programs_optimisedBuffers
-				main_code <- produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm initTearDownModuleName (mainAst, mainFilename)
-				let initAndTearDownCode = synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads
+				main_code <- produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm "" (mainAst, mainFilename)
+				-- let initAndTearDownCode = synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
 
 				writeFile moduleFilename (if fixedForm then fixedFormFormat superKernel_module else superKernel_module)
 				writeFile newMainFilename (if fixedForm then fixedFormFormat main_code else main_code)
-				writeFile initTearDownFilename (if fixedForm then fixedFormFormat initAndTearDownCode else initAndTearDownCode)
+				-- writeFile initTearDownFilename (if fixedForm then fixedFormFormat initAndTearDownCode else initAndTearDownCode)
 				mapM (\(code, filename) -> writeFile filename code) host_programs
 
 fixedFormFormat :: String -> String
@@ -117,30 +119,30 @@ extractBufferReadClusters_fortranAfterReadCluster (FSeq _ _ (OpenCLBufferRead _ 
 			(recurseFortran, recurseVarNames) = extractBufferReadClusters_fortranAfterReadCluster fortran2
 extractBufferReadClusters_fortranAfterReadCluster codeSeg = (codeSeg, [])
 
-synthesiseInitAndTearDownModule :: KernelArgsIndexMap -> Program Anno -> [VarName Anno] -> [VarName Anno] -> String
-synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads = moduleHeader
-																			++ initSubroutineHeader
-																			++ initSubroutineBody
-																			++ initSubroutineFooter
-		where
-			oneIndent = outputTab
-			twoIndent = oneIndent ++ outputTab
-			moduleHeader = "module " ++ initTearDownModuleName ++ "\n\ncontains\n\n"
+-- synthesiseInitAndTearDownModule :: KernelArgsIndexMap -> Program Anno -> [VarName Anno] -> [VarName Anno] -> String
+-- synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads = moduleHeader
+-- 																			++ initSubroutineHeader
+-- 																			++ initSubroutineBody
+-- 																			++ initSubroutineFooter
+-- 		where
+-- 			oneIndent = outputTab
+-- 			twoIndent = oneIndent ++ outputTab
+-- 			moduleHeader = "module " ++ initTearDownModuleName ++ "\n\ncontains\n\n"
 
-			initSubroutineHeader = oneIndent ++ "subroutine " ++ initSubroutineName ++ "(" ++ (varNameListStr initWrites) ++  ")\n"
-			initSubroutineBody = 		readDeclStr ++ "\n"
-										++ readSizeStatement ++ "\n"
-										++ readBufferStatements ++ "\n"
-										++ bufferWrites ++ "\n"
-			initSubroutineFooter = oneIndent ++ "end subroutine " ++ initSubroutineName ++ "\n"
+-- 			initSubroutineHeader = oneIndent ++ "subroutine " ++ initSubroutineName ++ "(" ++ (varNameListStr initWrites) ++  ")\n"
+-- 			initSubroutineBody = 		readDeclStr ++ "\n"
+-- 										++ readSizeStatement ++ "\n"
+-- 										++ readBufferStatements ++ "\n"
+-- 										++ bufferWrites ++ "\n"
+-- 			initSubroutineFooter = oneIndent ++ "end subroutine " ++ initSubroutineName ++ "\n"
 
-			moduleFooter = "end module " ++ initTearDownModuleName
+-- 			moduleFooter = "end module " ++ initTearDownModuleName
 
-			readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) mainAst)) initWrites
-			readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (twoIndent) item) "" (readDecls)
-			readBufferStatements = synthesiseBufferDeclatations twoIndent allKernelArgsMap DMap.empty initWrites
-			readSizeStatement = synthesiseSizeStatements twoIndent initWrites
-			bufferWrites = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls))
+-- 			readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) mainAst)) initWrites
+-- 			readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (twoIndent) item) "" (readDecls)
+-- 			readBufferStatements = synthesiseBufferDeclatations twoIndent allKernelArgsMap DMap.empty initWrites
+-- 			readSizeStatement = synthesiseSizeStatements twoIndent initWrites
+-- 			bufferWrites = foldl (\accum item -> accum ++ "\n" ++ twoIndent ++ item) "" (map (synthesiseBufferAccess "Write") (readDecls))
 
 emitKernels :: [String] -> Bool -> (Program Anno, String) -> IO [(String, String)]
 emitKernels cppDFlags fixedForm (ast, filename) = do

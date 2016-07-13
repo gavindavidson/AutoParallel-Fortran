@@ -37,7 +37,7 @@ import Transformer 				(paralleliseProgUnit_foldl, combineKernelProgUnit_foldl)
 import BufferTransferAnalysis 	(optimiseBufferTransfers, replaceSubroutineAppearences)
 import SubroutineTable 			(constructSubroutineTable, extractArgumentTranslationSubroutines)
 import LanguageFortranTools 	(Anno, appendToMap, errorLocationFormatting, nullAnno, nullSrcSpan, generateVar, outputTab, parseFile, compilerName)
-import CodeEmitter 				(emit, initSubroutineName)
+import CodeEmitter 				(emit)
 
 -- main :: IO [()]
 main = do
