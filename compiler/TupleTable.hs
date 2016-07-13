@@ -1,9 +1,12 @@
-module TupleTable where 
+module TupleTable 					(TupleTable (..), getMostTuple, getLeastTuple, insertIntoTupleTable, lookupTupleTable, collapseIterTable, 
+									tupleTableElementGreaterThan, tupleTableNotEmpty)
+
+where 
 
 import Data.Maybe
 import qualified Data.Map as DMap
 
-import LanguageFortranTools
+import LanguageFortranTools 		(listConcatUnique)
 
 --	The TupleTable data structure is used to represent a tree like structure of tuples. it is a trie (https://en.wikipedia.org/wiki/Trie) that has all
 --	its leaf nodes at the same depth. It is used by the compiler to represent combinations of loop iterator values without incuring an explosion of
@@ -56,34 +59,6 @@ insertIfNotRepresented key newItem Empty = LoopIterRecord (DMap.insert key newIt
 insertIfNotRepresented key newItem (LoopIterRecord table) = if not (elem newItem representedItems) then LoopIterRecord (DMap.insert key newItem table) else LoopIterRecord table
 			where
 				representedItems = map (\x -> DMap.findWithDefault Empty x table) (DMap.keys table)
-
-joinTupleTable :: TupleTable -> TupleTable -> TupleTable
-joinTupleTable Empty Empty = Empty
-joinTupleTable table1 table2 = foldl (joinTupleTable_foldl table1 table2) newTable allowedValues
-			where
-				allowedValues = case table1 of
-									LoopIterRecord a -> case table2 of 
-															Empty -> DMap.keys a
-															LoopIterRecord b -> listConcatUnique (DMap.keys a) (DMap.keys b)
-									Empty -> 			case table2 of 
-															Empty -> []
-															LoopIterRecord b -> DMap.keys b
-				newTable = LoopIterRecord DMap.empty
-
-joinTupleTable_foldl :: TupleTable -> TupleTable -> TupleTable -> Int -> TupleTable
-joinTupleTable_foldl (LoopIterRecord table1) (LoopIterRecord table2) (LoopIterRecord newTable) value = LoopIterRecord (DMap.insert value joinedTable newTable)
-			where
-				subTable1 = DMap.findWithDefault Empty value table1
-				subTable2 = DMap.findWithDefault Empty value table2
-				joinedTable = joinTupleTable subTable1 subTable2
-joinTupleTable_foldl (LoopIterRecord table1) Empty (LoopIterRecord newTable) value = LoopIterRecord (DMap.insert value (subTable1) newTable)
-			where
-				subTable1 = DMap.findWithDefault Empty value table1
-joinTupleTable_foldl Empty (LoopIterRecord table2) (LoopIterRecord newTable) value = LoopIterRecord (DMap.insert value (subTable2) newTable)
-			where
-				subTable2 = DMap.findWithDefault Empty value table2
-joinTupleTable_foldl Empty Empty (LoopIterRecord newTable) value = LoopIterRecord (DMap.insert value Empty newTable)
-
 
 createTupleTable :: [Int] -> TupleTable
 createTupleTable [] = Empty

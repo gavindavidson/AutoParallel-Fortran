@@ -1,4 +1,8 @@
-module VarAccessAnalysis where
+module VarAccessAnalysis 			(VarAccessAnalysis, analyseAllVarAccess, analyseAllVarAccess_progUnit, getPrexistingVars, getValueAtSrcSpan, 
+									getNonTempVars,getAccessLocationsInsideSrcSpan, isFunctionCall, getAccessesBetweenSrcSpans, getAccessLocationsBeforeSrcSpan, 
+									getAccessLocationsAfterSrcSpan, getAccessesBetweenSrcSpansIgnore)
+
+where
 
 --	The code in this file is used to analyse which variables are read and written and where in a certain
 --	program. This information is then used to determine whether or not a variable in a loop can be deemed
@@ -7,7 +11,7 @@ module VarAccessAnalysis where
 --	able to assign an initial value to reduction variables. Finally, data from this analysis phase is used
 --	to differentiate between function calls and array accesses in the input source.
 
-import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
+import Data.Generics 				(Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char

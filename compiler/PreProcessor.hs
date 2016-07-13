@@ -1,4 +1,6 @@
-module PreProcessor where
+module PreProcessor (preProcess)
+
+where
 
 --	Simple preprocessor used to circumvent some issues with Language-Fortran parser.
 

@@ -1,6 +1,8 @@
-module ConstantFolding where
+module ConstantFolding 				(foldConstants)
 
-import Data.Generics (mkQ, mkT, gmapQ, gmapT, everything, everywhere)
+where
+
+import Data.Generics 				(mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 import Data.Char
 import Data.List

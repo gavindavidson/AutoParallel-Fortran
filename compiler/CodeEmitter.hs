@@ -5,6 +5,10 @@ module CodeEmitter where
 --	code segments. Things get more complex when generating reduction kernels as a number of changes to the original source are needed to take full advantage
 --	of parallel hardware.
 
+--	NAMING CONVENTIONS:
+--	-	"synthesize.." functions tend to take an AST and translate it into a string of fortran code
+--	-	"generate.." functions tend to make new AST nodes
+
 import Control.Monad
 import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
@@ -18,7 +22,8 @@ import Data.Maybe
 import qualified Data.Map as DMap 
 
 import LanguageFortranTools
-import BufferTransferAnalysis
+import SubroutineTable 					(ArgumentTranslation, ArgumentTranslationSubroutines, emptyArgumentTranslation, getSubroutineArgumentTranslation, translateArguments,
+										extractSubroutines, extractProgUnitName)
 
 initSubroutineName = "initialiseOpenCL"
 tearDownSubroutineName = "tearDownOpenCL"
@@ -28,7 +33,6 @@ type KernelArgsIndexMap = DMap.Map (VarName Anno) Int
 
 emit :: String -> [String] -> Bool -> [(Program Anno, String)] -> [(Program Anno, String)] -> ArgumentTranslationSubroutines -> (Program Anno, String) -> [VarName Anno] -> [VarName Anno] -> IO [()]
 emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffers argTranslations (mainAst, mainFilename) initWrites tearDownReads = do
-				-- let fixedForm = False
 
 				kernels_code <- mapM (emitKernels cppDFlags fixedForm) programs_verboseArgs
 				let allKernels = foldl (++) [] kernels_code
@@ -37,7 +41,6 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
 				let moduleName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
 				let moduleFilename = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
-				-- let newMainFilename = specified ++ "/" ++ (getModuleName mainFilename) ++ "_host.f95"
 				let newMainFilename = specified ++ "/" ++ (getModuleName mainFilename) ++ "_host.f95"
 
 				let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
@@ -92,25 +95,6 @@ fixedFormFormat_isComment [] = True
 fixedFormFormat_leadingWhiteSpaceCount :: String -> Int
 fixedFormFormat_leadingWhiteSpaceCount (char:str) 	|	isSpace char = 1 + fixedFormFormat_leadingWhiteSpaceCount str
 													|	otherwise = 0
-
--- extractBufferReadClusters :: Program Anno -> (Program Anno, [[VarName Anno]])
--- extractBufferReadClusters ast =  (newAst, varClusters)
--- 		where 
--- 			clusterInfoList = everything (++) (mkQ [] (extractBufferReadClusters_fortran )) ast
--- 			varClusters = map (\(_, _, x) -> x) clusterInfoList
-
--- 			newAst = foldl (repalceBufferClusterWithCall "readBuffers") ast clusterInfoList
-
--- repalceBufferClusterWithCall :: String -> Program Anno -> (Fortran Anno, Fortran Anno, [VarName Anno]) -> Program Anno
--- repalceBufferClusterWithCall comment ast (clusterStartFortran, fortranFollowingCluster, vars) = newAst
--- 		where
--- 			subroutineNameStr = foldl (\accum item -> accum ++ "_" ++ (varNameStr item)) comment vars
--- 			subroutineNameVar = generateVar (VarName nullAnno subroutineNameStr)
--- 			argList = generateArgList vars
--- 			callNode =  Call nullAnno nullSrcSpan subroutineNameVar argList
--- 			fseqReplacement = FSeq nullAnno nullSrcSpan callNode fortranFollowingCluster
-
--- 			newAst = replaceFortran ast clusterStartFortran fseqReplacement
 
 generateArgList :: [VarName Anno] -> ArgList Anno
 generateArgList [] = ArgList nullAnno (NullExpr nullAnno nullSrcSpan)
@@ -183,7 +167,6 @@ synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader +
 					(superKernelCode, allKernelArgsMap) = synthesiseSuperKernel outputTab moduleName programs kernels
 
 					stateNames = map (generateStateName) kernelNames
-					-- states = foldl (\accum item -> accum ++ [(DMap.findWithDefault "" item stateMap)]) [] (DMap.keys stateMap)
 					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
 
 generateStateName :: String -> String
@@ -195,7 +178,7 @@ synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "integer, paramete
 
 synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
 synthesiseSuperKernel tabs name programs [] = ("", DMap.empty)
-synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else (superKernel, allKernelArgsMap) -- error $ show allKernelArgs -- superKernel
+synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else (superKernel, allKernelArgsMap)
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
@@ -278,7 +261,6 @@ readOriginalFileLines cppDFlags fixedForm filename = do
 				let contentLines = lines content
 				return contentLines
 
--- synthesiseKernels :: [String] -> Program Anno -> Fortran Anno -> String
 synthesiseKernels :: [String] -> (Program Anno, String) -> Fortran Anno -> [(String, String)]
 synthesiseKernels originalLines prog codeSeg = case codeSeg of
 				OpenCLMap _ src _ w _ _ -> [(synthesiseOpenCLMap "" originalLines prog codeSeg, generateKernelName "map" src w)]
@@ -452,8 +434,6 @@ produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block 
 			shapeStatements = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
 			bufferStatements = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslation block
 
--- produceCodeBlock argTranslation prog tabs originalLines block = foldl (++) "" (gmapQ (mkQ "" (produceCode_fortran prog tabs originalLines)) block)
-
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
 --	is a 'generated' node to determine whether or not code from the original file can be used.
@@ -480,8 +460,7 @@ produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
 									False -> extractOriginalCode tabs originalLines (srcSpan codeSeg)
 
 synthesiseCall :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
-synthesiseCall prog tabs originalLines (Call anno src expr args)	 	-- tabs ++ "! generated call: " ++ (outputExprFormatting expr) ++ "at " ++ (errorLocationFormatting src) ++ "\n"
-																	|	partialGenerated = prefix ++ tabs ++ "call " ++ (outputExprFormatting expr) ++ (synthesiseArgList args) ++ suffix ++ "\n"
+synthesiseCall prog tabs originalLines (Call anno src expr args)	|	partialGenerated = prefix ++ tabs ++ "call " ++ (outputExprFormatting expr) ++ (synthesiseArgList args) ++ suffix ++ "\n"
 																	|	otherwise = prefix ++ (extractOriginalCode tabs originalLines src) ++ suffix
 		where
 			partialGenerated = anyChildGenerated codeSeg || isGenerated codeSeg
@@ -775,9 +754,6 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 												readVarNames = listSubtract r w
 												writtenVarNames = listSubtract w r
 												generalVarNames = listIntersection w r
-												-- readVarNames = listSubtract (listSubtract r w) reductionVarNames
-												-- writtenVarNames = listSubtract (listSubtract w r) reductionVarNames
-												-- generalVarNames = listSubtract (listIntersection w r) reductionVarNames
 
 												localIdVar = generateVar (VarName nullAnno "local_id")
 												localIdFortranVar = generateVar (VarName nullAnno "local_id_fortran")
@@ -930,8 +906,7 @@ determineSubroutineName ast src 	|	length matchingSubroutineNamesSrcs > 1 = erro
 
 --	Function used during host code generation to produce call to OpenCL kernel.
 generateKernelCall :: (Program Anno, String) -> String -> Fortran Anno -> String
-generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = -- if allArguments == [] then error "generateKernelCall" else 	-- "! Global work items: " ++ outputExprFormatting globalWorkItems ++ "\n"
-														(commentSeparator ("BEGIN " ++ kernelName))
+generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = (commentSeparator ("BEGIN " ++ kernelName))
 														++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting globalWorkItems ++ "\n"
 														++ tabs ++ (varNameStr statePtrVarName) ++ "(1) = " ++ stateName ++ "\n"
 														++ tabs ++ bufferWrites ++ "\n"
@@ -960,8 +935,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) =
 				
 
 
-generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = -- if allArguments == [] then error "generateKernelCall" else	-- "\n! Global work items: " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
-															(commentSeparator ("BEGIN " ++ kernelName))
+generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = (commentSeparator ("BEGIN " ++ kernelName))
 															++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
 															++ tabs ++ "oclLocalRange = " ++ outputExprFormatting nthVar ++ "\n"
 															++ tabs ++ "ngroups = " ++ outputExprFormatting nunitsVar ++ "\n"

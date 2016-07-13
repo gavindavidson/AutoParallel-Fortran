@@ -1,15 +1,17 @@
-module CombineKernels where
+module CombineKernels 			(combineKernelsProgUnit)
+
+where
 
 --	This file contains code that handles combining adjacent and nested kernels. The intention is that the top level 'combineKernels' function will be called
 --	against an AST that has already been transformed with parallel kernels applied. When calling the 'combineKernels' function, a Maybe(Float) is supplied
 --	that represents a the loop fusion bound (the limit of how different the end values for two loops can be for them to be fused). If this input is 'Nothing'
 --	then no bound is enforced and all loops that meet the other fusion criteria are fused.
 
-import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
+import Data.Generics 			(Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran
 
 import LanguageFortranTools
-import VarDependencyAnalysis
+import VarDependencyAnalysis 	(loopCarriedDependencyCheck)
 
 
 combineKernelsProgUnit bound codeSeg = everywhere (mkT (combineKernelsBlock bound)) codeSeg

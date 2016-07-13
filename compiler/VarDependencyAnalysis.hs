@@ -1,4 +1,6 @@
-module VarDependencyAnalysis where
+module VarDependencyAnalysis 			(VarDependencyAnalysis, analyseDependencies, loopCarriedDependencyCheck_reductionWithIteration, loopCarriedDependencyCheck, isIndirectlyDependentOn)
+
+where
 
 --	The code in this file is used to perform dependency analysis for a block of code. A call to 'analyseDependencies'
 --	will produce a set of direct dependencies between variables. A direct dependency is formed when one variable is used in the 
@@ -6,7 +8,7 @@ module VarDependencyAnalysis where
 --	fact is ued by Transformer.hs when looking to determine whether or not a loop represnets a reduction. This module also contains
 --	functions to get indirect dependencies and determine whether or not loops exhibit loop carried dependencies.
 
-import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
+import Data.Generics 					(Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Language.Fortran.Parser
 import Language.Fortran
 import Data.Char
@@ -15,8 +17,8 @@ import Data.Maybe
 import qualified Data.Map as DMap
 
 import LanguageFortranTools
-import VarAccessAnalysis
-import TupleTable
+import TupleTable 						(TupleTable (..), getMostTuple, getLeastTuple, tupleTableElementGreaterThan, tupleTableNotEmpty, lookupTupleTable,
+										insertIntoTupleTable, collapseIterTable)
 
 -- 	STRATEGY FOR NEW LOOP CARRIED DEPENDENCY CHECK
 -- 	Looking to build up a table of all of the possible combinations of loopVar/loop iterator values. This will only be really useful
@@ -151,8 +153,8 @@ loopCarriedDependencyCheck codeSeg 	|	simpleFailure = case inDepthFailure of
 --	parallel loops that are nested in iterative loops and require values for loop iterator(s) of the outer loop(s). Works in the same way as above,
 --	except only reads/writes in the parallel loop(s) are considered but loop iterator values for the iterating loops are included during the
 --	analysis.
-loopCarriedDependencyCheck_iterative :: Fortran Anno ->  Fortran Anno -> (Bool, Bool, [(Expr Anno, Expr Anno)])
-loopCarriedDependencyCheck_iterative iteratingCodeSeg parallelCodeSeg 	|	simpleFailure = case inDepthFailure of 
+loopCarriedDependencyCheck_reductionWithIteration :: Fortran Anno ->  Fortran Anno -> (Bool, Bool, [(Expr Anno, Expr Anno)])
+loopCarriedDependencyCheck_reductionWithIteration iteratingCodeSeg parallelCodeSeg 	|	simpleFailure = case inDepthFailure of 
 																				True -> (True, loopIterTable_successfull, if loopIterTable_successfull then offendingExprs ++ simpleOffenders else simpleOffenders)
 																				False -> (False, loopIterTable_successfull, [])
 																		|	otherwise = (False, loopIterTable_successfull, []) 

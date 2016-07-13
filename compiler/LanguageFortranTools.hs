@@ -2,7 +2,7 @@ module LanguageFortranTools where
 
 --	This module contains a set of functions that are used all over the source for the compiler. Essentially a utility module.
 
-import Data.Generics (Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
+import Data.Generics 					(Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
 import Data.Typeable
 import Language.Fortran.Parser
 import Language.Fortran
@@ -14,7 +14,7 @@ import System.Directory
 import Text.Read
 import qualified Data.Map as DMap
 
-import PreProcessor
+import PreProcessor 					(preProcess)
 
 type Anno = DMap.Map (String) [String]
 
@@ -405,11 +405,17 @@ varNameListStr [] =  ""
 varNameListStr (var:[]) = varNameStr var
 varNameListStr (var:vars) = (varNameStr var) ++ "," ++ (varNameListStr vars)
 
--- replaceFortran progAst oldFortran newFortran = everywhere (mkT (replaceFortran' oldFortran newFortran)) progAst
+replaceFortran progAst oldFortran newFortran = everywhere (mkT (replaceFortran' oldFortran newFortran)) progAst
 
--- replaceFortran' :: Fortran Anno -> Fortran Anno -> Fortran Anno -> Fortran Anno
--- replaceFortran' oldFortran newFortran currentFortran 	|	(applyGeneratedSrcSpans oldFortran) == (applyGeneratedSrcSpans currentFortran) = normaliseSrcSpan currentFortran newFortran
--- 														|	otherwise = currentFortran
+replaceFortran' :: Fortran Anno -> Fortran Anno -> Fortran Anno -> Fortran Anno
+replaceFortran' oldFortran newFortran currentFortran 	|	(applyGeneratedSrcSpans oldFortran) == (applyGeneratedSrcSpans currentFortran) = normaliseSrcSpan currentFortran newFortran
+														|	otherwise = currentFortran
+
+replaceProgUnit ast oldProgUnit newProgUnit = everywhere (mkT (replaceProgUnit' oldProgUnit newProgUnit)) ast 
+
+replaceProgUnit' :: ProgUnit Anno -> ProgUnit Anno -> ProgUnit Anno -> ProgUnit Anno
+replaceProgUnit' oldProgUnit newProgUnit currentProgUnit 	| 	(applyGeneratedSrcSpans oldProgUnit) == (applyGeneratedSrcSpans currentProgUnit) = normaliseSrcSpan currentProgUnit newProgUnit
+															|	otherwise = currentProgUnit
 
 --	Takes two ASTs and appends one onto the other so that the resulting AST is in the correct format
 appendFortran_recursive :: Fortran Anno -> Fortran Anno -> Fortran Anno

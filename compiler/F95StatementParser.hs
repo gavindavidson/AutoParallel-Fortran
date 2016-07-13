@@ -1,4 +1,6 @@
-module F95StatementParser  ( parseF95Statement ) where
+module F95StatementParser  (parseF95Statement) 
+
+where
 
 -- import whatever you need
 import Language.Fortran.Parser
