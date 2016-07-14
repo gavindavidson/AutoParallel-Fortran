@@ -41,14 +41,15 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 				let kernelNames = map (snd) allKernels
 
 				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
-				let moduleName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
-				let moduleFilename = specified ++ "/" ++ "module_" ++ moduleName ++ ".f95"
+				let moduleBaseName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
+				let moduleName = "module_" ++ moduleBaseName
+				let moduleFilename = specified ++ "/" ++ moduleName ++ ".f95"
 				let newMainFilename = specified ++ "/" ++ (getModuleName mainFilename) ++ "_host.f95"
 
 				-- let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
-				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName programs_verboseArgs allKernels
+				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName moduleBaseName programs_verboseArgs allKernels
 
-				host_code <- mapM (produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm moduleName) programs_optimisedBuffers
+				host_code <- mapM (produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm moduleBaseName) programs_optimisedBuffers
 				main_code <- produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm "" (mainAst, mainFilename)
 				-- let initAndTearDownCode = synthesiseInitAndTearDownModule allKernelArgsMap mainAst initWrites tearDownReads
 				let host_programs = zip host_code (map (\x -> specified ++ "/" ++ x ++ "_host.f95") originalFilenames)
@@ -154,8 +155,8 @@ emitKernels cppDFlags fixedForm (ast, filename) = do
 				let kernels_renamed = map (\(code, kernelname) -> (code, kernelname)) kernels_code
 				return kernels_renamed
 
-synthesiseSuperKernelModule :: String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
-synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader ++ stateDefinitions ++ contains 
+synthesiseSuperKernelModule :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
+synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kernelModuleHeader ++ stateDefinitions ++ contains 
 																++ (foldl (++) "" kernelCode) ++ superKernelCode ++ kernelModuleFooter,
 															allKernelArgsMap)
 				where
@@ -166,7 +167,7 @@ synthesiseSuperKernelModule moduleName programs kernels =  (kernelModuleHeader +
 					contains = "\n" ++ tabInc ++ "contains\n\n"
 					kernelModuleFooter = "end module " ++ moduleName
 
-					(superKernelCode, allKernelArgsMap) = synthesiseSuperKernel outputTab moduleName programs kernels
+					(superKernelCode, allKernelArgsMap) = synthesiseSuperKernel outputTab superKernelName programs kernels
 
 					stateNames = map (generateStateName) kernelNames
 					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
@@ -307,6 +308,7 @@ produceCode_prog allKernelArgsMap argTranslation cppDFlags fixedForm kernelModul
 produceCode_progUnit :: KernelArgsIndexMap -> ArgumentTranslationSubroutines -> (Program Anno, String) -> String -> [String] -> ProgUnit Anno -> String
 produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines (Main _ src _ _ block progUnits) =	
 																																nonGeneratedHeaderCode
+																															++ 	nonGeneratedBlockCode_indent ++ "use oclWrapper\n" 
 																															++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap emptyArgumentTranslation prog nonGeneratedBlockCode_indent originalLines)) block
 																															++	containedProgUnitCode
 																															++	nonGeneratedFooterCode
@@ -341,6 +343,7 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModul
 			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines item)) "" progUnits
 produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName originalLines (Sub _ src _ (SubName _ subroutineName) _ block) =  nonGeneratedHeaderCode 
 												++ 	nonGeneratedBlockCode_indent ++ "use " ++ kernelModuleName ++ "\n" 
+												++ 	nonGeneratedBlockCode_indent ++ "use oclWrapper\n" 
 												++	nonGeneratedBlockCode_indent ++ "real (kind=4) :: exectime\n"
 												++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap argTranslation prog nonGeneratedBlockCode_indent originalLines)) block
 												++ 	nonGeneratedFooterCode	
