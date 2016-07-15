@@ -240,6 +240,10 @@ insertBufferReads_fortran varsOnDevice afterSrc codeSeg 	| 	rightLocation = gmap
 			bufferReadFortran = buildBufferReadFortran readVarNamesOnDevice codeSeg
 			newVarsOnDevice = listSubtract varsOnDevice readVarNamesOnDevice
 
+--	This following 4 functions allow for buffer reads and writes to be inserted at certain line numbers within the file.
+--	All 4 are given an AST and a list of (varName, srcSpan (read: line number)) pairs. The differences between the '..before'
+--	and '..after' functions are that the 'before' functions insert the buffer access BEFORE the supplied srcSpan and the
+--	'after' functions place the buffer access AFTER the srcSpan. 
 insertBufferReadsAfter varSrcPairs ast = everywhere (mkT (insertFortranAfter_block fortranSrcPairs)) ast
 		where 
 			fortranSrcPairs = map (\(var, src) -> (OpenCLBufferRead nullAnno src var, src)) varSrcPairs

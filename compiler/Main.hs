@@ -52,6 +52,8 @@ main = do
 	putStr ("\n" 	++ outputTab ++ "- Document high level steps including function names")
 	putStr ("\n" 	++ outputTab ++ "- Convert clusters of buffer reads/writes to subroutine calls")
 	putStr ("\n" 	++ outputTab ++ "- Make sure installation instructions are correct")
+	-- putStr ("\n" 	++ outputTab ++ "- kernels are not yet being initialised with source code")
+	putStr ("\n" 	++ outputTab ++ "- State pointer and buffer are not declared in host files")
 	-- putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
 	-- 				++ outputTab ++ "are read back from buffers.")
 	-- putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
