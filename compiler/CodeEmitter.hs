@@ -374,12 +374,16 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModul
 
 produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName superKernelName originalLines progunit = foldl (++) "" (gmapQ (mkQ "" (produceCode_progUnit allKernelArgsMap argTranslationSubroutines prog kernelModuleName superKernelName originalLines)) progunit)
 
-synthesiseSizeStatements :: String -> [VarName Anno] -> String
-synthesiseSizeStatements tabs vars = foldl (\accum (varName, sizeVarName) -> accum ++ tabs ++ (varNameStr sizeVarName) ++ " = shape(" ++ (varNameStr varName) ++ ")\n") "" kernelSizeVars_pairs
+synthesiseSizeStatements :: String -> [VarName Anno] -> (String, String)
+synthesiseSizeStatements tabs vars = (sizeDeclarations, shapeStatements)
 		where
-			kernelSizeVars_pairs = map (\x -> (x, varSizeVarName x)) vars
+			shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" vars
+			-- shapeStatements = foldl (\accum (varName, sizeVarName) -> accum ++ tabs ++ (varNameStr sizeVarName) ++ " = shape(" ++ (varNameStr varName) ++ ")\n") "" kernelSizeVars_pairs
+			sizeDeclarations = foldl (\accum varname -> accum ++ tabs ++ "integer :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" vars
 
-synthesiseSizeStatements_kernel :: String -> Program Anno -> String
+			-- kernelSizeVars_pairs = map (\x -> (x, varSizeVarName x)) vars
+
+synthesiseSizeStatements_kernel :: String -> Program Anno -> (String, String)
 synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs allBufferAccesses
 		where
 			kernels = extractKernels ast
@@ -427,7 +431,8 @@ produceCodeBlock :: KernelArgsIndexMap -> ArgumentTranslation -> (Program Anno, 
 produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block anno useBlock imp src decl fort) 	|	nonGeneratedHeader_ls < 1 = error "produceCodeBlock: nonGeneratedHeader_ls < 1"
 																													|	nonGeneratedFooter_ls < 1 = error "produceCodeBlock: nonGeneratedFooter_ls < 1"
 																													|	otherwise =	nonGeneratedHeaderCode
-																														++	declarationStatements ++ "\n"
+																														++	bufferDeclarationStatements ++ "\n"
+																														++	sizeDeclarations ++ "\n"
 																														++	shapeStatements ++ "\n"
 																														++	loadBufferStatements ++ "\n"
 																														++ 	produceCode_fortran prog tabs originalLines fort
@@ -446,8 +451,8 @@ produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block 
 
 			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
 
-			shapeStatements = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
-			(declarationStatements, loadBufferStatements) = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslation block
+			(sizeDeclarations, shapeStatements) = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
+			(bufferDeclarationStatements, loadBufferStatements) = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslation block
 
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
