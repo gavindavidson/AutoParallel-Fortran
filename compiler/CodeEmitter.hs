@@ -379,7 +379,7 @@ synthesiseSizeStatements tabs vars = (sizeDeclarations, shapeStatements)
 		where
 			shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" vars
 			-- shapeStatements = foldl (\accum (varName, sizeVarName) -> accum ++ tabs ++ (varNameStr sizeVarName) ++ " = shape(" ++ (varNameStr varName) ++ ")\n") "" kernelSizeVars_pairs
-			sizeDeclarations = foldl (\accum varname -> accum ++ tabs ++ "integer :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" vars
+			sizeDeclarations = foldl (\accum varname -> accum ++ tabs ++ "integer, dimension(1) :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" vars
 
 			-- kernelSizeVars_pairs = map (\x -> (x, varSizeVarName x)) vars
 
@@ -432,6 +432,7 @@ produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block 
 																													|	nonGeneratedFooter_ls < 1 = error "produceCodeBlock: nonGeneratedFooter_ls < 1"
 																													|	otherwise =	nonGeneratedHeaderCode
 																														++	bufferDeclarationStatements ++ "\n"
+																														++	statePtrDeclStr ++ "\n"
 																														++	sizeDeclarations ++ "\n"
 																														++	shapeStatements ++ "\n"
 																														++	loadBufferStatements ++ "\n"
@@ -453,6 +454,7 @@ produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block 
 
 			(sizeDeclarations, shapeStatements) = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
 			(bufferDeclarationStatements, loadBufferStatements) = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslation block
+			statePtrDeclStr = synthesiseDecl tabs statePtrDecl
 
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
