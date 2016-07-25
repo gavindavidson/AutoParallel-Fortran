@@ -119,6 +119,17 @@ extractArgName codeSeg = case codeSeg of
 							ArgName _ _ -> [codeSeg]
 							_ -> []
 
+extractReductionVarNames :: Fortran Anno -> [VarName Anno]
+extractReductionVarNames (OpenCLReduce _ _ _ _ _ redVars _) = map (fst) redVars
+extractReductionVarNames _ = []
+
+extractOpenCLReduces ast = everything (++) (mkQ [] (extractOpenCLReduces')) ast
+
+extractOpenCLReduces' :: Fortran Anno -> [Fortran Anno]
+extractOpenCLReduces' codeSeg = case codeSeg of
+							OpenCLReduce _ _ _ _ _ _ _ -> [codeSeg]
+							_ -> []
+
 -- extractKernels :: Program Anno -> [Fortran Anno]
 extractKernels ast = everything (++) (mkQ [] (extractKernels')) ast
 
