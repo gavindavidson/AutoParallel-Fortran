@@ -277,7 +277,7 @@ synthesiseKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, wr
 synthesiseKernelDeclarations prog (OpenCLBufferRead _ _ varName) = (readDecls, [], [])
 				where
 					readDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) varName]
-synthesiseKernelDeclarations prog (OpenCLBufferWrite _ _ varName) = (writtenDecls, [], [])
+synthesiseKernelDeclarations prog (OpenCLBufferWrite _ _ varName) = ([], writtenDecls, [])
 				where
 					writtenDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) varName]
 
@@ -367,7 +367,8 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename
 			reductionVarNames = foldl (\accum item -> listConcatUnique accum (extractReductionVarNames item)) [] reduceKernels
 
 			global_reductionArraysDecls = map (\x -> declareGlobalReductionArray x (nunitsVar) (fst progWithFilename)) reductionVarNames
-			global_reductionArraysDeclStr = synthesiseDecls nonGeneratedBlockCode_indent global_reductionArraysDecls
+			global_reductionArraysDeclsWithoutIntent = map (removeIntentFromDecl) global_reductionArraysDecls
+			global_reductionArraysDeclStr = synthesiseDecls nonGeneratedBlockCode_indent global_reductionArraysDeclsWithoutIntent
 
 			-- blockWithReductionArrayDecls = gmapT (mkT (insertDecls global_reductionArraysDecls)) block
 
@@ -376,10 +377,10 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename
 synthesiseSizeStatements :: String -> [VarName Anno] -> Program Anno -> (String, String)
 synthesiseSizeStatements tabs vars ast = (sizeDeclarations, shapeStatements)
 		where
-			shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" vars
-			-- shapeStatements = foldl (\accum (varName, sizeVarName) -> accum ++ tabs ++ (varNameStr sizeVarName) ++ " = shape(" ++ (varNameStr varName) ++ ")\n") "" kernelSizeVars_pairs
-			sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ tabs ++ "integer, dimension(" ++ (show (max rank 1)) ++ ") :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" varsWithRanks
-			-- sizeDeclarations = foldl (\accum varname -> accum ++ tabs ++ "integer, dimension(1) :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" vars
+			shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" vars_arrays
+			-- shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" vars
+			sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ tabs ++ "integer, dimension(" ++ (show rank) ++ ") :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" varsWithRanks_arrays
+			-- sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ tabs ++ "integer, dimension(" ++ (show rank) ++ ") :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" varsWithRanks
 
 			reduceKernels = extractOpenCLReduces ast
 			reductionVarNames = foldl (\accum item -> listConcatUnique accum (extractReductionVarNames item)) [] reduceKernels
@@ -393,6 +394,8 @@ synthesiseSizeStatements tabs vars ast = (sizeDeclarations, shapeStatements)
 			dimensionRanks = map (getDeclRank) (decl_list ++ global_reductionArraysDecls)
 			-- varsWithRanks = (zip allVars dimensionRanks)
 			varsWithRanks = (statePtrVarName, 1):(zip allVars dimensionRanks)
+			varsWithRanks_arrays = filter (\(_, rank) -> rank > 0) varsWithRanks
+			vars_arrays = map (fst) varsWithRanks_arrays
 
 			-- kernelSizeVars_pairs = map (\x -> (x, varSizeVarName x)) vars
 
@@ -447,6 +450,7 @@ produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block 
 																														++	bufferDeclarationStatements ++ "\n"
 																														++	statePtrDeclStr ++ "\n"
 																														++	sizeDeclarations ++ "\n"
+																														++	(if openCLReducePresent then nonGeneratedBlockCode_indent ++ reductionIteratorDecl ++ "\n" else "")
 																														++	shapeStatements ++ "\n"
 																														++	loadBufferStatements ++ "\n"
 																														++ 	produceCode_fortran prog tabs originalLines fort
@@ -471,6 +475,8 @@ produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block 
 			(bufferDeclarationStatements, loadBufferStatements) = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslation block
 			statePtrDeclStr = synthesiseDecl tabs statePtrDecl
 
+			openCLReducePresent = (extractOpenCLReduces block) /= []
+
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
 --	is a 'generated' node to determine whether or not code from the original file can be used.
@@ -482,12 +488,13 @@ produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
 						NullStmt _ _ -> ""
 						OpenCLBufferRead _ _ _ -> synthesiseOpenCLBufferRead prog tabs originalLines codeSeg
 						OpenCLBufferWrite _ _ _ -> synthesiseOpenCLBufferWrite prog tabs originalLines codeSeg
-						OpenCLMap _ _ _ _ _ _ -> (generateKernelCall prog tabs codeSeg) ++ (commentSeparator "END")
-						OpenCLReduce _ _ _ _ _ rv f -> (generateKernelCall prog tabs codeSeg)
+						OpenCLMap _ _ _ _ _ _ -> (synthesiseKernelCall prog tabs codeSeg) ++ (commentSeparator "END")
+						OpenCLReduce _ _ _ _ _ rv f -> (synthesiseKernelCall prog tabs codeSeg)
 																++ (mkQ "" (produceCode_fortran prog tabs originalLines) hostReductionLoop) ++ "\n" ++ (commentSeparator "END")
 								where 
 									reductionVarNames = map (\(varname, expr) -> varname) rv
-									r_iter = generateReductionIterator reductionVarNames
+									r_iter = generateReductionIterator
+									-- r_iter = generateReductionIterator reductionVarNames
 									hostReduction = generateFinalHostReduction reductionVarNames r_iter f
 									hostReductionLoop = generateLoop r_iter (generateIntConstant 1) nunitsVar hostReduction
 						Call _ _ _ _ -> synthesiseCall prog tabs originalLines codeSeg
@@ -521,7 +528,7 @@ synthesiseOpenCLBufferWrite :: (Program Anno, String) -> String -> [String] -> F
 synthesiseOpenCLBufferWrite (progAst, filename) tabs originalLines (OpenCLBufferWrite anno src varName) = tabs ++ bufferRead ++ "\n"
 		where
 			bufferRead = synthesiseBufferAccess "Write" writeDecl
-			(writeDecl:_, _, _) = synthesiseKernelDeclarations progAst (OpenCLBufferWrite anno src varName)
+			(_, writeDecl:_, _) = synthesiseKernelDeclarations progAst (OpenCLBufferWrite anno src varName)
 
 synthesiseOpenCLBufferRead :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
 synthesiseOpenCLBufferRead (progAst, filename) tabs originalLines (OpenCLBufferRead anno src varName) = tabs ++ bufferRead ++ "\n"
@@ -568,13 +575,6 @@ synthesisElses :: (Program Anno, String) -> String -> [String] -> String -> (Exp
 synthesisElses prog tabs originalLines accum (expr, fortran) = accum ++ tabs ++ "else if(" ++ outputExprFormatting expr ++ ") then\n" 
 																++ (mkQ "" (produceCode_fortran prog (tabs ++ tabInc) originalLines) fortran)
 																++ "\n"
-
-getDeclRank :: Decl Anno -> Int
-getDeclRank decl 	|	extractedDimensions == [] = 1
-					|	otherwise = max dimensionRank 1
-		where
-			extractedDimensions = everything (++) (mkQ [] extractDimensionAttr) decl
-			dimensionRank = length (getDimensionExprs (head extractedDimensions))
 
 getDimensionExprs :: Attr Anno -> [(Expr Anno, Expr Anno)]
 getDimensionExprs (Dimension _ exprs) = exprs
@@ -870,7 +870,8 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 												startPosition_str = (outputExprFormatting startPosition) ++ " = " ++ (outputExprFormatting localChunkSize) ++
 													" * " ++ (outputExprFormatting globalIdVar) ++ "\n"
 
-												reductionIterator = generateReductionIterator (r ++ w ++ (map (\(x,_,_,_) -> x) l) ++ reductionVarNames)
+												reductionIterator = generateReductionIterator
+												-- reductionIterator = generateReductionIterator (r ++ w ++ (map (\(x,_,_,_) -> x) l) ++ reductionVarNames)
 												workItem_loopEnd = generateSubtractionExpr (generateAdditionExpr startPosition localChunkSize) (generateIntConstant 1)
 												workItem_loopCode = appendFortran_recursive workItem_reductionCode workItem_loopInitialiserCode 
 												workItem_loop = generateLoop reductionIterator startPosition workItem_loopEnd workItem_loopCode
@@ -970,8 +971,8 @@ determineSubroutineName ast src 	|	length matchingSubroutineNamesSrcs > 1 = erro
 			matchingSubroutineNamesSrcs = filter (\(_, s) -> checkSrcSpanContainsSrcSpan s src) subroutineNamesSrcs
 
 --	Function used during host code generation to produce call to OpenCL kernel.
-generateKernelCall :: (Program Anno, String) -> String -> Fortran Anno -> String
-generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = (commentSeparator ("BEGIN " ++ kernelName))
+synthesiseKernelCall :: (Program Anno, String) -> String -> Fortran Anno -> String
+synthesiseKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) = (commentSeparator ("BEGIN " ++ kernelName))
 														++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting globalWorkItems ++ "\n"
 														++ tabs ++ (varNameStr statePtrVarName) ++ "(1) = " ++ stateName ++ "\n"
 														++ tabs ++ bufferWrites ++ "\n"
@@ -997,7 +998,7 @@ generateKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran) =
 				bufferReads = foldl (\accum item -> accum ++ "\n" ++ tabs ++ item) "" (map (synthesiseBufferAccess "Read") (writtenDecls ++ generalDecls))
 
 				(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations progAst (OpenCLMap anno src r w l fortran)
-generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = (commentSeparator ("BEGIN " ++ kernelName))
+synthesiseKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = (commentSeparator ("BEGIN " ++ kernelName))
 															++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
 															++ tabs ++ "oclLocalRange = " ++ outputExprFormatting nthVar ++ "\n"
 															++ tabs ++ "ngroups = " ++ outputExprFormatting nunitsVar ++ "\n"
@@ -1038,6 +1039,8 @@ generateKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fort
 
 				global_reductionArraysDecls = map (\x -> declareGlobalReductionArray x (nunitsVar) progAst) reductionVarNames
 
+--	Produce code for a buffer read or write. If a scalar variable declaration is supplied, it is automatically converted to an array to be
+--	used in the buffer access.
 synthesiseBufferAccess :: String -> Decl Anno -> String
 synthesiseBufferAccess method (Decl anno src lst typ) = case baseType of
 														Integer _ -> prefix ++ "Int" ++ suffix
@@ -1045,22 +1048,26 @@ synthesiseBufferAccess method (Decl anno src lst typ) = case baseType of
 														_ -> ""
 			where
 				assignee = extractAssigneeFromDecl (Decl anno src lst typ)
-				varStr = varNameStr assignee
-				varSzStr = varNameStr (varSizeVarName assignee)
 				varBufStr = varNameStr (varBufVarName assignee)
 
 				baseType = extractBaseType typ
-				dimensionList = (everything (++) (mkQ [] extractDimensionAttr) (Decl anno src lst typ))
-				dimensions = case dimensionList of
-									[] -> 1
-									_ -> dimensionSize $ head dimensionList
+				declRank = getDeclRank (Decl anno src lst typ)
+
+				isScalar = declRank == 0
+				dimensions = if isScalar then 1 else declRank
+				varSzStr = if isScalar then "1" else varNameStr (varSizeVarName assignee)
+				varStr = if isScalar then "(/ " ++ varNameStr assignee ++ " /)" else varNameStr assignee
+
 				prefix = "call ocl" ++ method ++ (show dimensions) ++ "D"
-				suffix = "ArrayBuffer(" ++ varBufStr ++ "," ++ varSzStr ++ "," ++ varStr ++ ")"
+				suffix = "ArrayBuffer(" ++ varBufStr ++ "," ++ varSzStr ++ "," ++ varStr ++ ")" ++ (if isScalar then "! Automatic conversion to array" else "")
 synthesiseBufferAccess _ _ = error "synthesiseBufferAccess"
 
-dimensionSize :: Attr Anno -> Int
-dimensionSize (Dimension _ lst) = length lst
-dimensionSize _ = 0
+getDeclRank :: Decl Anno -> Int
+getDeclRank decl 	|	extractedDimensions == [] = 0
+					|	otherwise = dimensionRank
+		where
+			extractedDimensions = everything (++) (mkQ [] extractDimensionAttr) decl
+			dimensionRank = length (getDimensionExprs (head extractedDimensions))
 
 generateLoopIterationsExpr :: (VarName Anno, Expr Anno, Expr Anno, Expr Anno) -> Expr Anno
 generateLoopIterationsExpr (var, (Con _ _ "1"), end, (Con _ _ "1")) = end
@@ -1173,6 +1180,24 @@ extractintentAttrs intentAttr = [intentAttr]
 
 replaceIntent :: IntentAttr Anno -> IntentAttr Anno -> IntentAttr Anno
 replaceIntent newIntent oldIntent = newIntent
+
+removeIntentFromDecl :: Decl Anno -> Decl Anno
+removeIntentFromDecl decl = gmapT (mkT removeIntentFromType) decl
+
+removeIntentFromType :: Type Anno -> Type Anno
+removeIntentFromType (BaseType anno btype attrList expr1 expr2) = (BaseType anno btype newAttrList expr1 expr2)
+		where
+			newAttrList = filter (\x -> not (isIntent x)) attrList
+removeIntentFromType (ArrayT  anno exprList btype attrList expr1 expr2) = (ArrayT  anno exprList btype newAttrList expr1 expr2)
+		where
+			newAttrList = filter (\x -> not (isIntent x)) attrList
+
+isIntent :: Attr Anno -> Bool
+isIntent (Intent _ _) = True
+isIntent _ = False
+
+-- data Type     p = BaseType p                    (BaseType p) [Attr p] (Expr p) (Expr p)
+--                 | ArrayT   p [(Expr p, Expr p)] (BaseType p) [Attr p] (Expr p) (Expr p)
 
 addIntent :: IntentAttr Anno -> [Attr Anno] -> [Attr Anno]
 addIntent intent [] = [Intent nullAnno intent]
@@ -1365,13 +1390,21 @@ getLocalSize localSizeVar = Var nullAnno nullSrcSpan [(VarName nullAnno "get_loc
 getLocalId :: Expr Anno -> Expr Anno
 getLocalId localIdVar = Var nullAnno nullSrcSpan [(VarName nullAnno "get_local_id", [localIdVar, Con nullAnno nullSrcSpan "0"])]
 
-generateReductionIterator :: [VarName Anno] -> VarName Anno
-generateReductionIterator usedNames = VarName nullAnno choice
-			where
-				possibles = ["reduction_iterator", "reduction_iter", "r_iter"]
-				choice = case possibles of
-						[] -> error "generateReductionIterator: choice - empty list"
-						_ -> foldl1 (\accum item -> if not (elem (VarName nullAnno item) usedNames) then item else accum) possibles
+-- Formally, this function produced a varname that had not been used in a supplied list of varnames, to ensure that the iterator
+-- variable didn't clash. This feature has been scrapped for the time being as it causes complications. 
+generateReductionIterator :: VarName Anno
+generateReductionIterator = VarName nullAnno "r_iter"
+
+reductionIteratorDecl :: String
+reductionIteratorDecl = "Integer :: " ++ (varNameStr generateReductionIterator)
+
+-- generateReductionIterator :: [VarName Anno] -> VarName Anno
+-- generateReductionIterator usedNames = VarName nullAnno choice
+			-- where
+			-- 	possibles = ["reduction_iterator", "reduction_iter", "r_iter"]
+			-- 	choice = case possibles of
+			-- 			[] -> error "generateReductionIterator: choice - empty list"
+			-- 			_ -> foldl1 (\accum item -> if not (elem (VarName nullAnno item) usedNames) then item else accum) possibles
 
 tabInc :: String
 tabInc = "    "
