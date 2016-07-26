@@ -378,22 +378,24 @@ synthesiseSizeStatements :: String -> [VarName Anno] -> Program Anno -> (String,
 synthesiseSizeStatements tabs vars ast = (sizeDeclarations, shapeStatements)
 		where
 			shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" vars_arrays
-			-- shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" vars
+			-- shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" allVars
 			sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ tabs ++ "integer, dimension(" ++ (show rank) ++ ") :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" varsWithRanks_arrays
 			-- sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ tabs ++ "integer, dimension(" ++ (show rank) ++ ") :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" varsWithRanks
 
 			reduceKernels = extractOpenCLReduces ast
-			reductionVarNames = foldl (\accum item -> listConcatUnique accum (extractReductionVarNames item)) [] reduceKernels
+			reductionVarNames = foldl (\accum item -> accum ++ (extractReductionVarNames item)) [] reduceKernels
+			-- reductionVarNames = foldl (\accum item -> listConcatUnique accum (extractReductionVarNames item)) [] reduceKernels
 			global_reductionArraysDecls = map (\x -> declareGlobalReductionArray x (nunitsVar) ast) reductionVarNames
 			global_reductionArrayNames = map (generateGlobalReductionArray) reductionVarNames
 
-			allVars = vars ++ global_reductionArrayNames
+			allVars = (listSubtract vars global_reductionArrayNames) ++ global_reductionArrayNames -- Odd code means that allVars has varNames in the correct order
 
 			decl_list = foldl (\accum item -> accum ++ extractDeclaration_varname item ast) [] vars
 			-- dimensionRanks = map (\decl -> length (everything (++) (mkQ [] extractDimensionAttr) decl)) (decl_list)
 			dimensionRanks = map (getDeclRank) (decl_list ++ global_reductionArraysDecls)
 			-- varsWithRanks = (zip allVars dimensionRanks)
 			varsWithRanks = (statePtrVarName, 1):(zip allVars dimensionRanks)
+			
 			varsWithRanks_arrays = filter (\(_, rank) -> rank > 0) varsWithRanks
 			vars_arrays = map (fst) varsWithRanks_arrays
 
@@ -409,7 +411,7 @@ synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs allBuff
 			kernelArgs = listRemoveDuplications (foldl (\accum item -> accum ++ (extractKernelArguments item)) [] kernels) -- map (extractKernelArguments) kernels
 			bufferReadVars = map (\(OpenCLBufferRead _ _ var) -> var) bufferReads
 			bufferWrittenVars = map (\(OpenCLBufferWrite _ _ var) -> var) bufferWrites
-			
+		
 			allBufferAccesses = listRemoveDuplications (kernelArgs ++ bufferWrittenVars ++ bufferReadVars)
 
 synthesiseBufferDeclatations :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> (String, String)
@@ -637,8 +639,8 @@ synthesiseAttrList attrList = if attrStrList == [] then error "synthesiseAttrLis
 					attrStrs = foldl (\accum item -> accum ++ ", " ++ item) (head attrStrList) (tail attrStrList)
 
 synthesiseAttr :: Attr Anno -> String
-synthesiseAttr (Dimension _ exprList) = "Dimension(" ++ synthesiseRangeExpr exprList ++ ")"
-synthesiseAttr (Intent _ intentAttr) = "Intent(" ++ intentStr ++ ")"
+synthesiseAttr (Dimension _ exprList) = "dimension(" ++ synthesiseRangeExpr exprList ++ ")"
+synthesiseAttr (Intent _ intentAttr) = "intent(" ++ intentStr ++ ")"
 					where 
 						intentStr = case intentAttr of
 							In _ -> "In"
@@ -1055,7 +1057,7 @@ synthesiseBufferAccess method (Decl anno src lst typ) = case baseType of
 
 				isScalar = declRank == 0
 				dimensions = if isScalar then 1 else declRank
-				varSzStr = if isScalar then "1" else varNameStr (varSizeVarName assignee)
+				varSzStr = if isScalar then "(/ 1 /)" else varNameStr (varSizeVarName assignee)
 				varStr = if isScalar then "(/ " ++ varNameStr assignee ++ " /)" else varNameStr assignee
 
 				prefix = "call ocl" ++ method ++ (show dimensions) ++ "D"
