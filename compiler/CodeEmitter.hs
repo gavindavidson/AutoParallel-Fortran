@@ -41,11 +41,11 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 				let moduleName = "module_" ++ superkernelName
 				let moduleFilename = specified ++ "/" ++ moduleName ++ ".f95"
 				let newMainFilename = specified ++ "/" ++ (hostModuleName (getModuleName mainFilename)) ++ ".f95"
-				let stateModuleFilename = specified ++ "/" ++ (stateModuleName moduleName) ++ ".f95"
+				let initModuleFilename = specified ++ "/" ++ (initModuleName moduleName) ++ ".f95"
 
 				-- let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
 				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName superkernelName programs_verboseArgs allKernels
-				let stateModule = synthesiseStateModule moduleName allKernels
+				let initModule = synthesiseInitModule moduleName superkernelName (mainAst, mainFilename) allKernelArgsMap allKernels
 
 				host_code <- mapM (produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm moduleName superkernelName) programs_optimisedBuffers
 				main_code <- produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm moduleName superkernelName (mainAst, mainFilename)
@@ -54,7 +54,7 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 
 				writeFile moduleFilename (if fixedForm then fixedFormFormat superKernel_module else superKernel_module)
 				writeFile newMainFilename (if fixedForm then fixedFormFormat main_code else main_code)
-				writeFile stateModuleFilename (if fixedForm then fixedFormFormat stateModule else stateModule)
+				writeFile initModuleFilename (if fixedForm then fixedFormFormat initModule else initModule)
 				-- writeFile initTearDownFilename (if fixedForm then fixedFormFormat initAndTearDownCode else initAndTearDownCode)
 				mapM (\(code, filename) -> writeFile filename (if fixedForm then fixedFormFormat code else code)) host_programs
 
@@ -129,16 +129,44 @@ emitKernels cppDFlags fixedForm (ast, filename) = do
 				let kernels_renamed = map (\(code, kernelname) -> (code, kernelname)) kernels_code
 				return kernels_renamed
 
-synthesiseStateModule :: String -> [(String, String)] -> String
-synthesiseStateModule moduleName kernels = kernelModuleHeader ++ stateDefinitions ++ kernelModuleFooter
+synthesiseInitModule :: String -> String -> (Program Anno, String) -> KernelArgsIndexMap -> [(String, String)] -> String
+synthesiseInitModule moduleName superKernelName (ast, filename) allKernelArgsMap kernels = 	initModuleHeader 
+										++ 	stateDefinitions 
+										++	"\ncontains\n\n"
+										++	oneTab ++ initSubroutineHeader
+											++	kernelInitialisationStrs
+											++	bufferDeclarationStatements
+											++	makeBufferStatementStr ++ "\n"
+				 							++	produceCode_fortran (ast, filename) twoTab [] oclInitCall
+										++	oneTab ++ initSubroutineFooter
+										++ 	initModuleFooter
 				where
 					kernelNames = map (snd) kernels
 
-					kernelModuleHeader = "module " ++ (stateModuleName moduleName) ++ "\n\n"
-					kernelModuleFooter = "\nend module " ++ (stateModuleName moduleName)
+					initModuleHeader = "module " ++ (initModuleName moduleName) ++ "\n\n"
+					initModuleFooter = "\nend module " ++ (initModuleName moduleName)
+
+					initSubroutineHeader = "subroutine " ++ (initModuleName superKernelName) ++ "()\n\n"
+					initSubroutineFooter = "\nend subroutine " ++ (initModuleName superKernelName)
 
 					stateNames = map (generateStateName) kernelNames
 					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
+
+					kernelInitialisationStrs = 	twoTab ++ "character(len=*), parameter :: srcstr = \"" ++ moduleName ++".cl\"\n"
+     										++	twoTab ++ "character(len=*), parameter :: kstr   = \"" ++ superKernelName ++ "\"\n"
+
+					oclInitCall = Call nullAnno nullSrcSpan (generateVar (VarName nullAnno "oclInit")) (generateArgList [VarName nullAnno "kstr", VarName nullAnno "srcstr"])
+
+					kernelArgs = DMap.keys allKernelArgsMap
+
+					decl_list = foldl (\accum item -> accum ++ extractDeclaration_varname item ast) [] kernelArgs
+					makeBuffers = map (synthesiseBufferMake twoTab) decl_list
+					makeBufferStatementStr = foldl (\accum item -> accum ++ "\n" ++ item) "" makeBuffers
+
+					bufferDeclarationStatements = foldl (\accum var -> accum ++ twoTab ++ "integer(8) :: " ++ (varNameStr (varBufVarName var)) ++ "\n") "" kernelArgs
+
+					oneTab = tabInc
+					twoTab = oneTab ++ tabInc
 
 synthesiseSuperKernelModule :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
 synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kernelModuleHeader ++ useStatements ++ contains 
@@ -149,7 +177,7 @@ synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kern
 					kernelNames = map (snd) kernels
 					
 					kernelModuleHeader = "module " ++ moduleName ++ "\n\n"
-					useStatements = "use " ++ stateModuleName moduleName ++ "\n"
+					useStatements = "use " ++ initModuleName moduleName ++ "\n"
 					contains = "\n" ++ tabInc ++ "contains\n\n"
 					kernelModuleFooter = "end module " ++ moduleName
 
@@ -292,7 +320,8 @@ produceCode_progUnit :: KernelArgsIndexMap -> ArgumentTranslationSubroutines -> 
 produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename kernelModuleName superKernelName originalLines (Main _ src _ _ block progUnits) =	
 																																nonGeneratedHeaderCode
 																															++ 	nonGeneratedBlockCode_indent ++ "use oclWrapper\n" 
-																														 	++ 	kernelInitialisationStrs
+																															++ 	nonGeneratedBlockCode_indent ++ "use " ++ (initModuleName kernelModuleName) ++ "\n" 
+																														 	-- ++ 	kernelInitialisationStrs
 																														 	-- ++	produceCode_fortran progWithFilename nonGeneratedBlockCode_indent originalLines oclInitCall
 																															-- ++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap emptyArgumentTranslation progWithFilename nonGeneratedBlockCode_indent originalLines)) blockWithInit
 																															++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap emptyArgumentTranslation progWithFilename nonGeneratedBlockCode_indent originalLines maybeOclInitCall)) block
@@ -313,10 +342,7 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename
 			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename kernelModuleName superKernelName originalLines item)) "" progUnits
 			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(block_ls-1))
 
-			kernelInitialisationStrs = 	nonGeneratedBlockCode_indent ++ "character(len=*), parameter :: srcstr = \"" ++ kernelModuleName ++".cl\"\n"
-     								++	nonGeneratedBlockCode_indent ++ "character(len=*), parameter :: kstr   = \"" ++ superKernelName ++ "\"\n"
-
-			maybeOclInitCall = Just (Call nullAnno nullSrcSpan (generateVar (VarName nullAnno "oclInit")) (generateArgList [VarName nullAnno "kstr", VarName nullAnno "srcstr"]))
+			maybeOclInitCall = Just (Call nullAnno nullSrcSpan (generateVar (VarName nullAnno ((initModuleName superKernelName)))) (ArgList nullAnno (NullExpr nullAnno nullSrcSpan)))
 			-- blockFortranWithInit = FSeq nullAnno (srcSpan blockFortran) oclInitCall blockFortran
 			-- blockWithInit = Block blockAnno useBlock implicit blockSrc blockDecl blockFortranWithInit
 
@@ -336,7 +362,7 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename
 
 			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename kernelModuleName superKernelName originalLines item)) "" progUnits
 produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename kernelModuleName superKernelName originalLines (Sub _ src _ (SubName _ subroutineName) _ block) =  nonGeneratedHeaderCode 
-												++ 	nonGeneratedBlockCode_indent ++ "use " ++ (stateModuleName kernelModuleName) ++ "\n" 
+												++ 	nonGeneratedBlockCode_indent ++ "use " ++ (initModuleName kernelModuleName) ++ "\n" 
 												++ 	nonGeneratedBlockCode_indent ++ "use oclWrapper\n" 
 												++	nonGeneratedBlockCode_indent ++ "real (kind=4) :: exectime\n"
 												++	global_reductionArraysDeclStr
@@ -423,8 +449,8 @@ synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs allBuff
 		
 			allBufferAccesses = listRemoveDuplications (kernelArgs ++ bufferWrittenVars ++ bufferReadVars)
 
-synthesiseBufferDeclatations :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> (String, String)
-synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation vars = (declarationStatements, loadBufferStatements)
+synthesiseBufferLoads :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> (String, String)
+synthesiseBufferLoads tabs allKernelArgsMap argTranslation vars = (declarationStatements, loadBufferStatements)
 		where
 			loadBufferStatements = foldl (\accum (var, index) -> accum ++ tabs ++ "call oclLoadBuffer(" ++ (show index) ++ ", " ++ (varNameStr (varBufVarName var)) ++ ")" ++  "\n") "" kernelBufferIndices
 			declarationStatements = foldl (\accum var -> accum ++ tabs ++ "integer(8) :: " ++ (varNameStr (varBufVarName var)) ++ "\n") "" translatedVars
@@ -432,8 +458,8 @@ synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation vars = (declar
 			translatedVars = translateArguments argTranslation vars
 			kernelBufferIndices = zip vars (map (\x -> DMap.findWithDefault (-1) x allKernelArgsMap) translatedVars)
 
-synthesiseBufferDeclatations_kernel :: String -> KernelArgsIndexMap -> ArgumentTranslation -> Block Anno -> (String, String)
-synthesiseBufferDeclatations_kernel tabs allKernelArgsMap argTranslation ast = synthesiseBufferDeclatations tabs allKernelArgsMap argTranslation allBufferAccesses
+synthesiseBufferLoads_kernel :: String -> KernelArgsIndexMap -> ArgumentTranslation -> Block Anno -> (String, String)
+synthesiseBufferLoads_kernel tabs allKernelArgsMap argTranslation ast = synthesiseBufferLoads tabs allKernelArgsMap argTranslation allBufferAccesses
 		where
 			kernels = extractKernels ast
 			bufferReads = extractBufferReads ast
@@ -485,7 +511,7 @@ produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines maybePr
 			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(fortran_ls-1))
 
 			(sizeDeclarations, shapeStatements) = synthesiseSizeStatements_kernel nonGeneratedBlockCode_indent (fst prog)
-			(bufferDeclarationStatements, loadBufferStatements) = synthesiseBufferDeclatations_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslation block
+			(bufferDeclarationStatements, loadBufferStatements) = synthesiseBufferLoads_kernel nonGeneratedBlockCode_indent allKernelArgsMap argTranslation block
 			statePtrDeclStr = synthesiseDecl tabs statePtrDecl
 
 			openCLReducePresent = (extractOpenCLReduces block) /= []
@@ -933,7 +959,7 @@ statePtrDecl = Decl nullAnno nullSrcSpan
 							[(generateIntConstant 1, generateIntConstant 256)])]
 						(NullExpr nullAnno nullSrcSpan) 
 						(NullExpr nullAnno nullSrcSpan))
-stateModuleName moduleName = moduleName ++ "_states"
+initModuleName moduleName = moduleName ++ "_init"
 hostModuleName moduleName = moduleName ++ "_host"
 
 scalarPointerVar :: VarName Anno -> Expr Anno
@@ -1087,6 +1113,34 @@ synthesiseBufferAccess tabs method (Decl anno src lst typ) = case baseType of
 				prefix = scalarPointerConversion ++ tabs ++ "call ocl" ++ method ++ (show dimensions) ++ "D"
 				suffix = "ArrayBuffer(" ++ varBufStr ++ "," ++ varSzStr ++ "," ++ bufferAccessSubjectVarStr ++ ")" ++ (if isScalar then "! Automatic conversion to array" else "")
 synthesiseBufferAccess _ _ _ = error "synthesiseBufferAccess"
+
+      -- 	call oclMake1DFloatArrayReadWriteBuffer(ro_buf, ro_ptr_sz, ro_ptr)
+-- 			call oclWrite1DFloatArrayBuffer(ro_buf,ro_ptr_sz,ro_ptr)
+
+synthesiseBufferMake :: String -> Decl Anno -> String
+synthesiseBufferMake tabs (Decl anno src lst typ) = case baseType of
+														Integer _ -> prefix ++ "Int" ++ suffix
+														Real _ -> prefix ++ "Float" ++ suffix
+														_ -> ""
+			where
+				assignee = extractAssigneeFromDecl (Decl anno src lst typ)
+				varStr = varNameStr assignee
+				varBufStr = varNameStr (varBufVarName assignee)
+
+				baseType = extractBaseType typ
+				declRank = getDeclRank (Decl anno src lst typ)
+
+				isScalar = declRank == 0
+				dimensions = if isScalar then 1 else declRank
+				scalarPointerConversion = -- if isScalar then tabs ++ (varNameStr (scalarPointerVarName assignee)) ++ "(1) = " ++  varStr ++ "\n" else 
+											""
+				varSzStr = if isScalar then (varNameStr (varSizeVarName (scalarPointerVarName assignee))) else varNameStr (varSizeVarName assignee)
+				bufferAccessSubjectVarStr = if isScalar then (varNameStr (scalarPointerVarName assignee)) else varStr
+				
+
+				prefix = scalarPointerConversion ++ tabs ++ "call oclMake" ++ (show dimensions) ++ "D"
+				suffix = "ArrayReadWriteBuffer(" ++ varBufStr ++ "," ++ varSzStr ++ "," ++ bufferAccessSubjectVarStr ++ ")" ++ (if isScalar then "! Automatic conversion to array" else "")
+synthesiseBufferMake _ _ = error "synthesiseBufferMake"
 
 getDeclRank :: Decl Anno -> Int
 getDeclRank decl 	|	extractedDimensions == [] = 0
