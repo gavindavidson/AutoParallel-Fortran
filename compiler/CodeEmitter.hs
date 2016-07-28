@@ -37,7 +37,7 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 				let kernelNames = map (snd) allKernels
 
 				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
-				let superkernelName = (foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel"
+				let superkernelName = map (toLower) ((foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel")
 				let moduleName = "module_" ++ superkernelName
 				let moduleFilename = specified ++ "/" ++ moduleName ++ ".f95"
 				let newMainFilename = specified ++ "/" ++ (hostModuleName (getModuleName mainFilename)) ++ ".f95"
@@ -134,8 +134,8 @@ synthesiseStateModule moduleName kernels = kernelModuleHeader ++ stateDefinition
 				where
 					kernelNames = map (snd) kernels
 
-					kernelModuleHeader = "module " ++ moduleName ++ "_states\n\n"
-					kernelModuleFooter = "\nend module " ++ stateModuleName moduleName
+					kernelModuleHeader = "module " ++ (stateModuleName moduleName) ++ "\n\n"
+					kernelModuleFooter = "\nend module " ++ (stateModuleName moduleName)
 
 					stateNames = map (generateStateName) kernelNames
 					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
@@ -293,8 +293,9 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename
 																																nonGeneratedHeaderCode
 																															++ 	nonGeneratedBlockCode_indent ++ "use oclWrapper\n" 
 																														 	++ 	kernelInitialisationStrs
-																															++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap emptyArgumentTranslation progWithFilename nonGeneratedBlockCode_indent originalLines)) blockWithInit
-																															-- ++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap emptyArgumentTranslation progWithFilename nonGeneratedBlockCode_indent originalLines)) block
+																														 	-- ++	produceCode_fortran progWithFilename nonGeneratedBlockCode_indent originalLines oclInitCall
+																															-- ++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap emptyArgumentTranslation progWithFilename nonGeneratedBlockCode_indent originalLines)) blockWithInit
+																															++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap emptyArgumentTranslation progWithFilename nonGeneratedBlockCode_indent originalLines maybeOclInitCall)) block
 																															++	containedProgUnitCode
 																															++	nonGeneratedFooterCode
 		where
@@ -312,12 +313,12 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename
 			containedProgUnitCode = foldl (\accum item -> accum ++ (produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename kernelModuleName superKernelName originalLines item)) "" progUnits
 			nonGeneratedBlockCode_indent = extractIndent (originalLines!!(block_ls-1))
 
-			kernelInitialisationStrs = 	nonGeneratedBlockCode_indent ++ "character(len=*), parameter :: srcstr = \"" ++ kernelModuleName ++".c\"\n"
+			kernelInitialisationStrs = 	nonGeneratedBlockCode_indent ++ "character(len=*), parameter :: srcstr = \"" ++ kernelModuleName ++".cl\"\n"
      								++	nonGeneratedBlockCode_indent ++ "character(len=*), parameter :: kstr   = \"" ++ superKernelName ++ "\"\n"
 
-			oclInitCall = Call nullAnno nullSrcSpan (generateVar (VarName nullAnno "oclInit")) (generateArgList [VarName nullAnno "kstr", VarName nullAnno "srcstr"])
-			blockFortranWithInit = FSeq nullAnno (srcSpan blockFortran) oclInitCall blockFortran
-			blockWithInit = Block blockAnno useBlock implicit blockSrc blockDecl blockFortranWithInit
+			maybeOclInitCall = Just (Call nullAnno nullSrcSpan (generateVar (VarName nullAnno "oclInit")) (generateArgList [VarName nullAnno "kstr", VarName nullAnno "srcstr"]))
+			-- blockFortranWithInit = FSeq nullAnno (srcSpan blockFortran) oclInitCall blockFortran
+			-- blockWithInit = Block blockAnno useBlock implicit blockSrc blockDecl blockFortranWithInit
 
 produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename kernelModuleName superKernelName originalLines (Module _ src _ _ _ _ progUnits) = 	nonGeneratedHeaderCode 
 																																++ 	containedProgUnitCode
@@ -340,7 +341,7 @@ produceCode_progUnit allKernelArgsMap argTranslationSubroutines progWithFilename
 												++	nonGeneratedBlockCode_indent ++ "real (kind=4) :: exectime\n"
 												++	global_reductionArraysDeclStr
 												-- ++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap argTranslation progWithFilename nonGeneratedBlockCode_indent originalLines)) blockWithReductionArrayDecls
-												++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap argTranslation progWithFilename nonGeneratedBlockCode_indent originalLines)) block
+												++ 	everything (++) (mkQ "" (produceCodeBlock allKernelArgsMap argTranslation progWithFilename nonGeneratedBlockCode_indent originalLines Nothing)) block
 												-- ++ 	"! Begin progunit footer\n"
 												++ 	nonGeneratedFooterCode	
 												-- ++ 	"! End progunit footer\n"
@@ -453,20 +454,22 @@ getFirstFortranSrc (Block _ _ _ _ _ fortran) = [srcSpan fortran]
 getFirstBlockSrc :: Block Anno -> [SrcSpan]
 getFirstBlockSrc codeSeg = [srcSpan codeSeg]
 
-produceCodeBlock :: KernelArgsIndexMap -> ArgumentTranslation -> (Program Anno, String) -> String -> [String] -> Block Anno -> String
-produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block anno useBlock imp src decl fort) 	|	nonGeneratedHeader_ls < 1 = error "produceCodeBlock: nonGeneratedHeader_ls < 1"
-																													|	nonGeneratedFooter_ls < 1 = error "produceCodeBlock: nonGeneratedFooter_ls < 1"
-																													|	otherwise =	nonGeneratedHeaderCode
-																														++	bufferDeclarationStatements ++ "\n"
-																														++	statePtrDeclStr ++ "\n"
-																														++	sizeDeclarations ++ "\n"
-																														++	(if openCLReducePresent then nonGeneratedBlockCode_indent ++ reductionIteratorDecl ++ "\n" else "")
-																														++	shapeStatements ++ "\n"
-																														++	loadBufferStatements ++ "\n"
-																														++ 	produceCode_fortran prog tabs originalLines fort
-																														-- ++	"! Start of footer\n"
-																														++	nonGeneratedFooterCode
-																														-- ++	"! End of block\n"
+produceCodeBlock :: KernelArgsIndexMap -> ArgumentTranslation -> (Program Anno, String) -> String -> [String] -> Maybe(Fortran Anno) -> Block Anno -> String
+produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines maybePrefix (Block anno useBlock imp src decl fort) 	
+																		|	nonGeneratedHeader_ls < 1 = error "produceCodeBlock: nonGeneratedHeader_ls < 1"
+																		|	nonGeneratedFooter_ls < 1 = error "produceCodeBlock: nonGeneratedFooter_ls < 1"
+																		|	otherwise =	nonGeneratedHeaderCode
+																			++	bufferDeclarationStatements ++ "\n"
+																			++	statePtrDeclStr ++ "\n"
+																			++	sizeDeclarations ++ "\n"
+																			++	(if openCLReducePresent then nonGeneratedBlockCode_indent ++ reductionIteratorDecl ++ "\n" else "")
+																			++	prefixString
+																			++	shapeStatements ++ "\n"
+																			++	loadBufferStatements ++ "\n"
+																			++ 	produceCode_fortran prog tabs originalLines fort
+																			-- ++	"! Start of footer\n"
+																			++	nonGeneratedFooterCode
+																			-- ++	"! End of block\n"
 		where
 			block = Block anno useBlock imp src decl fort
 			fortranSrc = srcSpan fort
@@ -486,6 +489,10 @@ produceCodeBlock allKernelArgsMap argTranslation prog tabs originalLines (Block 
 			statePtrDeclStr = synthesiseDecl tabs statePtrDecl
 
 			openCLReducePresent = (extractOpenCLReduces block) /= []
+
+			prefixString = case maybePrefix of
+								Just fortPrefix -> produceCode_fortran prog tabs originalLines fortPrefix
+								Nothing -> ""
 
 --	This function is called very often. It is the default when producing the body of each of the kernels and calls other functions
 --	based on the node in the AST that it is called against. Each of the 'synthesise...' functions check whether the node in question
@@ -1073,7 +1080,7 @@ synthesiseBufferAccess tabs method (Decl anno src lst typ) = case baseType of
 				isScalar = declRank == 0
 				dimensions = if isScalar then 1 else declRank
 				scalarPointerConversion = if isScalar then tabs ++ (varNameStr (scalarPointerVarName assignee)) ++ "(1) = " ++  varStr ++ "\n" else ""
-				varSzStr = if isScalar then (varNameStr (varSizeVarName (scalarPointerVarName assignee))) else varStr -- varNameStr (varSizeVarName assignee)
+				varSzStr = if isScalar then (varNameStr (varSizeVarName (scalarPointerVarName assignee))) else varNameStr (varSizeVarName assignee)
 				bufferAccessSubjectVarStr = if isScalar then (varNameStr (scalarPointerVarName assignee)) else varStr
 				
 
