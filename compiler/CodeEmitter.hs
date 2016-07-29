@@ -136,6 +136,8 @@ synthesiseInitModule moduleName superKernelName programs allKernelArgsMap kernel
 										++ 	stateDefinitions 
 										++	"\ncontains\n\n"
 										++	oneTab ++ initSubroutineHeader
+											++	twoTab ++ "use oclWrapper\n"
+											++	usesString
 											++	kernelInitialisationStrs
 											++	declarationsStr
 											++	bufferDeclarationStatements
@@ -170,6 +172,9 @@ synthesiseInitModule moduleName superKernelName programs allKernelArgsMap kernel
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
 					kernelAsts = foldl (++) [] (map (\(k_asts, p_ast) -> map (\a -> (a, p_ast)) k_asts) (zip kernelAstLists programAsts))
+
+					extractedUses = foldl (\accum item -> listConcatUnique accum (everything (++) (mkQ [] getUses) item)) [] programAsts
+					usesString = foldl (\accum item -> accum ++ synthesisUses twoTab item) "" extractedUses 
 
 					kernelDeclarations = map (\(kernel_ast, prog_ast) -> generateKernelDeclarations prog_ast kernel_ast) kernelAsts
 					(readDecls, writtenDecls, generalDecls) =  foldl (\(accum_r, accum_w, accum_g) (r, w, g) -> (accum_r ++ r, accum_w ++ w, accum_g ++ g)) ([],[],[]) kernelDeclarations
@@ -348,8 +353,7 @@ generateKernelDeclarations prog (OpenCLMap _ _ r w _ _) = (readDecls, writtenDec
 					readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
 					writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
 					generalDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
-generateKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = -- (readDecls, writtenDecls, generalDecls_withReductions)
-																 ([], [], globalReductionDecls)
+generateKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, writtenDecls, generalDecls_withReductions)
 				where
 					reductionVarNames = map (fst) rv
 
@@ -880,7 +884,8 @@ synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l f
 															[] -> ""
 															args -> foldl (\accum item -> accum ++ "," ++ varNameStr item) (varNameStr (head args)) (tail args)
 												
-												(readDecls, writtenDecls, generalDecls) = generateKernelDeclarations prog (OpenCLMap anno src r w l fortran)
+												(readDecls, writtenDecls, generalDecls) = adaptForScalarArgs (generateKernelDeclarations prog (OpenCLMap anno src r w l fortran))
+												-- (readDecls, writtenDecls, generalDecls) = generateKernelDeclarations prog (OpenCLMap anno src r w l fortran)
 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (writtenDecls)
@@ -893,6 +898,9 @@ synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l f
 												loopInitialiserCode = case loopInitialisers of
 																		[] -> error "synthesiseOpenCLMap: loopInitialiserCode - empty list"
 																		_ -> foldl1 (\accum item -> appendFortran_recursive item accum) loopInitialisers
+
+adaptForScalarArgs :: ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno])
+adaptForScalarArgs (readDecls, writtenDecls, generalDecls) = (readDecls, writtenDecls, generalDecls)
 
 --	Function handles the production of OpenCL reduction kernels. Clearly it is much more complicated the the 'synthesiseOpenCLMap' function because the final reduction
 --	kernel need be smarter than a map.
@@ -935,7 +943,7 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 																			++ "\n"
 																			++ tabs ++ "! Arrays prefixed with \'local_\' should be declared using the \'__local\' modifier in C kernel version\n"
 																			++ workGroup_reductionArraysDeclStr
-																			++ global_reductionArraysDeclStr
+																			-- ++ global_reductionArraysDeclStr
 																			++ local_reductionVarsDeclatationStr
 																			++ "\n"
 																			++ tabs ++ localIdInitialisation
@@ -1046,8 +1054,8 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 												workGroup_loop = generateLoop reductionIterator (generateIntConstant 1) nthVar workGroup_reductionCode
 
 												global_reductionArrays = map (generateGlobalReductionArray) reductionVarNames
-												global_reductionArraysDecl = map (\x -> declareGlobalReductionArray x (nunitsVar) prog) reductionVarNames
-												global_reductionArraysDeclStr = synthesiseDecls tabs global_reductionArraysDecl
+												-- global_reductionArraysDecl = map (\x -> declareGlobalReductionArray x (nunitsVar) prog) reductionVarNames
+												-- global_reductionArraysDeclStr = synthesiseDecls tabs global_reductionArraysDecl
 												global_reductionArraysAssignmentStr = foldl (generateReductionArrayAssignment tabs groupIdFortranVar) "" (zip global_reductionArrays local_reductionVars)
 
 localChunkSize = generateVar (VarName nullAnno "local_chunk_size")
