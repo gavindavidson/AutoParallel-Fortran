@@ -45,7 +45,7 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 
 				-- let initTearDownFilename = specified ++ "/" ++ initTearDownModuleName ++ ".f95"
 				let (superKernel_module, allKernelArgsMap) = synthesiseSuperKernelModule moduleName superkernelName programs_verboseArgs allKernels
-				let initModule = synthesiseInitModule moduleName superkernelName (mainAst, mainFilename) allKernelArgsMap allKernels
+				let initModule = synthesiseInitModule moduleName superkernelName programs_verboseArgs allKernelArgsMap allKernels
 
 				host_code <- mapM (produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm moduleName superkernelName) programs_optimisedBuffers
 				main_code <- produceCode_prog allKernelArgsMap argTranslations cppDFlags fixedForm moduleName superkernelName (mainAst, mainFilename)
@@ -129,25 +129,33 @@ emitKernels cppDFlags fixedForm (ast, filename) = do
 				let kernels_renamed = map (\(code, kernelname) -> (code, kernelname)) kernels_code
 				return kernels_renamed
 
-synthesiseInitModule :: String -> String -> (Program Anno, String) -> KernelArgsIndexMap -> [(String, String)] -> String
-synthesiseInitModule moduleName superKernelName (ast, filename) allKernelArgsMap kernels = 	initModuleHeader 
+synthesiseInitModule :: String -> String ->  [(Program Anno, String)] -> KernelArgsIndexMap -> [(String, String)] -> String
+-- synthesiseInitModule :: String -> String -> (Program Anno, String) -> KernelArgsIndexMap -> [(String, String)] -> String
+synthesiseInitModule moduleName superKernelName programs allKernelArgsMap kernels = 	initModuleHeader 
+-- synthesiseInitModule moduleName superKernelName (ast, filename) allKernelArgsMap kernels = 	initModuleHeader 
 										++ 	stateDefinitions 
 										++	"\ncontains\n\n"
 										++	oneTab ++ initSubroutineHeader
 											++	kernelInitialisationStrs
+											++	declarationsStr
 											++	bufferDeclarationStatements
-											++	makeBufferStatementStr ++ "\n"
-				 							++	produceCode_fortran (ast, filename) twoTab [] oclInitCall
-										++	oneTab ++ initSubroutineFooter
+											++	sizeDeclarations_str ++ "\n"
+
+											++	produceCode_fortran ([], "") twoTab [] oclInitCall
+											++	"\n" ++ shapeStatements_str
+											++	"\n" ++ makeBufferStatementStr
+											++	"\n" ++ oclSetArgStatements_str
+											++	"\n" ++ storeBufferStatements_str ++ "\n"
+				 							
+										++	"\n" ++ oneTab ++ initSubroutineFooter
 										++ 	initModuleFooter
 				where
 					kernelNames = map (snd) kernels
-
 					initModuleHeader = "module " ++ (initModuleName moduleName) ++ "\n\n"
 					initModuleFooter = "\nend module " ++ (initModuleName moduleName)
 
 					initSubroutineHeader = "subroutine " ++ (initModuleName superKernelName) ++ "()\n\n"
-					initSubroutineFooter = "\nend subroutine " ++ (initModuleName superKernelName)
+					initSubroutineFooter = "end subroutine " ++ (initModuleName superKernelName)
 
 					stateNames = map (generateStateName) kernelNames
 					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
@@ -159,11 +167,33 @@ synthesiseInitModule moduleName superKernelName (ast, filename) allKernelArgsMap
 
 					kernelArgs = DMap.keys allKernelArgsMap
 
-					decl_list = foldl (\accum item -> accum ++ extractDeclaration_varname item ast) [] kernelArgs
-					makeBuffers = map (synthesiseBufferMake twoTab) decl_list
-					makeBufferStatementStr = foldl (\accum item -> accum ++ "\n" ++ item) "" makeBuffers
+					programAsts = map (fst) programs
+					kernelAstLists = map (extractKernels) programAsts
+					kernelAsts = foldl (++) [] (map (\(k_asts, p_ast) -> map (\a -> (a, p_ast)) k_asts) (zip kernelAstLists programAsts))
 
-					bufferDeclarationStatements = foldl (\accum var -> accum ++ twoTab ++ "integer(8) :: " ++ (varNameStr (varBufVarName var)) ++ "\n") "" kernelArgs
+					kernelDeclarations = map (\(kernel_ast, prog_ast) -> generateKernelDeclarations prog_ast kernel_ast) kernelAsts
+					(readDecls, writtenDecls, generalDecls) =  foldl (\(accum_r, accum_w, accum_g) (r, w, g) -> (accum_r ++ r, accum_w ++ w, accum_g ++ g)) ([],[],[]) kernelDeclarations
+					declarations = foldl (collectDecls) [] (readDecls ++ writtenDecls ++ generalDecls ++ [statePtrDecl])
+					declarations_noIntent = map (removeIntentFromDecl) declarations
+					declarationsStr = foldl (\accum item -> accum ++ synthesiseDecl twoTab item) "" declarations_noIntent
+
+					makeBuffers = map (synthesiseBufferMake twoTab) declarations
+					makeBufferStatementStr = foldl (\accum item -> accum ++ item ++ "\n") "" makeBuffers
+
+					-- bufferDeclarationStatements = foldl (\accum var -> accum ++ twoTab ++ "integer(8) :: " ++ (varNameStr (varBufVarName var)) ++ "\n") "" kernelArgs
+					-- synthesiseBufferDeclaration
+					bufferDeclarationStatements = foldl (\accum decl -> accum ++ (synthesiseBufferDeclaration twoTab decl) ++ "\n") "" declarations_noIntent
+
+					(sizeDeclarations, shapeStatements) = generateSizeStatements_decls twoTab declarations
+					sizeDeclarations_noIntent = map (removeIntentFromDecl) sizeDeclarations
+					sizeDeclarations_str = foldl (\accum item -> accum ++ (synthesiseDecl twoTab item)) "" sizeDeclarations_noIntent
+					shapeStatements_str = foldl (\accum item -> accum ++ (produceCode_fortran ([], "") twoTab [] item)) "" shapeStatements
+
+					(_, storeBufferStatements_str) = synthesiseBufferStores twoTab allKernelArgsMap emptyArgumentTranslation kernelArgs
+
+					oclSetArgStatements_str = foldl (\accum item -> accum ++ (synthesiseSetOclArg twoTab allKernelArgsMap item) ++ "\n") "" declarations_noIntent
+
+-- synthesiseBufferStores :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> (String, String)
 
 					oneTab = tabInc
 					twoTab = oneTab ++ tabInc
@@ -193,20 +223,27 @@ synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "integer, paramete
 synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
 synthesiseSuperKernel tabs name programs [] = ("", DMap.empty)
 synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else (superKernel, allKernelArgsMap)
+													-- error ("kernelDeclarations: " ++ (show kernelDeclarations)
+													-- 	++ "\n\nreadDecls: " ++ (show readDecls)
+													-- 	++ "\n\nwrittenDecls: " ++ (show writtenDecls)
+													-- 	++ "\n\ngeneralDecls: " ++ (show generalDecls)
+													-- 	)
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
 
 					kernelAsts = foldl (++) [] (map (\(k_asts, p_ast) -> map (\a -> (a, p_ast)) k_asts) (zip kernelAstLists programAsts))
-					kernelArgs = (map (\(x, _) -> listRemoveDuplications (extractKernelArguments x)) kernelAsts)
+					kernelArgs = (map (\(x, _) -> extractKernelArguments x) kernelAsts)
 					allKernelArgs = (listRemoveDuplications (foldl (++) [] kernelArgs)) ++ [statePtrVarName]
 
 					allKernelArgsMap = foldl (\dmap (arg, index) -> DMap.insert arg index dmap) DMap.empty (zip allKernelArgs ([1..(length allKernelArgs)]))
 
-					kernelDeclarations = map (\(kernel_ast, prog_ast) -> synthesiseKernelDeclarations prog_ast kernel_ast) kernelAsts
-					(readDecls, writtenDecls, generalDecls) = foldl (collectSuperKernelDecls) ([],[],[]) kernelDeclarations
+					kernelDeclarations = map (\(kernel_ast, prog_ast) -> generateKernelDeclarations prog_ast kernel_ast) kernelAsts
+					(readDecls, writtenDecls, generalDecls) =  foldl (\(accum_r, accum_w, accum_g) (r, w, g) -> (accum_r ++ r, accum_w ++ w, accum_g ++ g)) ([],[],[]) kernelDeclarations
+					-- (readDecls, writtenDecls, generalDecls) = foldl (collectSuperKernelDecls) ([],[],[]) kernelDeclarations
 
-					declarations = listRemoveDuplications (readDecls ++ writtenDecls ++ generalDecls)
+					-- declarations = listRemoveDuplications (readDecls ++ writtenDecls ++ generalDecls)
+					declarations = foldl (collectDecls) [] (readDecls ++ writtenDecls ++ generalDecls)
 					declarationsStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" declarations
 
 					-- statePointerDeclStr = tabs ++ "integer, dimension(256) :: " ++ (varNameStr stateVarName) ++ "_ptr\n"
@@ -224,26 +261,44 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 					selectCase = outputTab ++ "select case(" ++ (varNameStr stateVarName) ++ ")\n" ++ caseAlternatives ++ outputTab ++ "end select\n"
 
 					superKernel = superKernel_header ++ declarationsStr ++ "\n" ++ statePointerDeclStr ++ stateAssignment ++ superKernel_body ++ superKernel_footer
-					
-collectSuperKernelDecls :: ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno]) 
-collectSuperKernelDecls (accumReads, accumWrites, accumGen) (itemReads, itemWrites, itemGen) = (newReads, newWrites, newGen')
-				where
-					(newReads, newGen) = foldl (collectSuperKernelDecls_singleType (writtenVars, genVars)) (accumReads, accumGen) itemReads
-					(newWrites, newGen') = foldl (collectSuperKernelDecls_singleType (writtenVars, newGenVars)) (accumReads, newGen) itemReads
+				
+collectDecls :: [Decl Anno] -> Decl Anno -> [Decl Anno]
+collectDecls previousDecls currentDecl = mergeDeclWithPrevious_recurse previousDecls currentDecl
 
-					readsVars = map (extractAssigneeFromDecl) accumReads
-					writtenVars = map (extractAssigneeFromDecl) accumWrites
-					genVars = map (extractAssigneeFromDecl) accumGen
-					newGenVars = map (extractAssigneeFromDecl) newGen
+mergeDeclWithPrevious_recurse :: [Decl Anno] -> Decl Anno -> [Decl Anno]
+mergeDeclWithPrevious_recurse (listDecl:decls) currentDecl 	|	matchingVarNames && currentDeclIntentAttrs == listDeclIntentAttrs = currentDecl:decls
+															|	matchingVarNames && currentDeclIntentAttrs /= listDeclIntentAttrs = adaptedIntentDecl:decls
+															|	otherwise = listDecl:(mergeDeclWithPrevious_recurse decls currentDecl)
+			where
+				listDeclName = extractAssigneeFromDecl listDecl
+				currentDeclName = extractAssigneeFromDecl currentDecl
+				matchingVarNames = listDeclName == currentDeclName
 
-collectSuperKernelDecls_singleType :: ([VarName Anno], [VarName Anno]) -> ([Decl Anno], [Decl Anno]) -> Decl Anno -> ([Decl Anno], [Decl Anno])
-collectSuperKernelDecls_singleType (opTypeVars, genVars) (typeDecls, genDecls) item 	|	itemAppears_gen = (removeDeclWithVarName typeDecls itemVar, genDecls)
-																						|	itemAppears_opType = (removeDeclWithVarName typeDecls itemVar, genDecls ++ [applyIntent (InOut nullAnno) item])
-																						|	otherwise = (typeDecls ++ [item], genDecls)
-				where
-					itemVar = extractAssigneeFromDecl item
-					itemAppears_opType = elem itemVar opTypeVars
-					itemAppears_gen = elem itemVar genVars
+				listDeclIntentAttrs = everything (++) (mkQ [] extractintentAttrs) listDecl
+				currentDeclIntentAttrs = everything (++) (mkQ [] extractintentAttrs) currentDecl
+
+				adaptedIntentDecl = applyIntent (InOut nullAnno) listDecl
+mergeDeclWithPrevious_recurse [] currentDecl = [currentDecl]
+
+-- collectSuperKernelDecls :: ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno]) 
+-- collectSuperKernelDecls (accumReads, accumWrites, accumGen) (itemReads, itemWrites, itemGen) = (newReads, newWrites, newGen')
+-- 				where
+-- 					(newReads, newGen) = foldl (collectSuperKernelDecls_singleType (writtenVars, genVars)) (accumReads, accumGen) itemReads
+-- 					(newWrites, newGen') = foldl (collectSuperKernelDecls_singleType (writtenVars, newGenVars)) (accumReads, newGen) itemReads
+
+-- 					readsVars = map (extractAssigneeFromDecl) accumReads
+-- 					writtenVars = map (extractAssigneeFromDecl) accumWrites
+-- 					genVars = map (extractAssigneeFromDecl) accumGen
+-- 					newGenVars = map (extractAssigneeFromDecl) newGen
+
+-- collectSuperKernelDecls_singleType :: ([VarName Anno], [VarName Anno]) -> ([Decl Anno], [Decl Anno]) -> Decl Anno -> ([Decl Anno], [Decl Anno])
+-- collectSuperKernelDecls_singleType (opTypeVars, genVars) (typeDecls, genDecls) item 	|	itemAppears_gen = (removeDeclWithVarName typeDecls itemVar, genDecls)
+-- 																						|	itemAppears_opType = (removeDeclWithVarName typeDecls itemVar, genDecls ++ [applyIntent (InOut nullAnno) item])
+-- 																						|	otherwise = (typeDecls ++ [item], genDecls)
+-- 				where
+-- 					itemVar = extractAssigneeFromDecl item
+-- 					itemAppears_opType = elem itemVar opTypeVars
+-- 					itemAppears_gen = elem itemVar genVars
 
 removeDeclWithVarName :: [Decl Anno] -> VarName Anno -> [Decl Anno]
 removeDeclWithVarName decls var = filter (\x -> (extractAssigneeFromDecl x) /= var) decls
@@ -255,8 +310,10 @@ synthesiseKernelCaseAlternative tabs state kernelName args =  tabs ++ "case (" +
 					argsString = foldl (\accum item -> accum ++ "," ++ (varNameStr item)) (varNameStr $ head args) (tail args)
 
 extractKernelArguments :: Fortran Anno -> [VarName Anno]
-extractKernelArguments (OpenCLMap _ _ r w _ _) = r ++ w
-extractKernelArguments (OpenCLReduce _ _ r w _ rv _) = r ++ w ++ (map (\x -> generateGlobalReductionArray (fst x)) rv)
+extractKernelArguments (OpenCLMap _ _ r w _ _) = listRemoveDuplications (r ++ w)
+extractKernelArguments (OpenCLReduce _ _ r w _ rv _) = listRemoveDuplications ((listSubtract (r ++ w) rvVarNames) ++ (map (\x -> generateGlobalReductionArray (fst x)) rv))
+				where
+					rvVarNames = map (fst) rv
 extractKernelArguments _ = []
 
 defaultFilename :: [String] -> String
@@ -281,8 +338,8 @@ synthesiseKernels originalLines prog codeSeg = case codeSeg of
 				OpenCLReduce _ src _ _ _ rv _ ->  [(synthesiseOpenCLReduce "" originalLines prog codeSeg, generateKernelName "reduce" src (map (\(v, e) -> v) rv))]
 				_ -> []
 
-synthesiseKernelDeclarations :: Program Anno -> Fortran Anno -> ([Decl Anno], [Decl Anno], [Decl Anno])
-synthesiseKernelDeclarations prog (OpenCLMap _ _ r w _ _) = (readDecls, writtenDecls, generalDecls)
+generateKernelDeclarations :: Program Anno -> Fortran Anno -> ([Decl Anno], [Decl Anno], [Decl Anno])
+generateKernelDeclarations prog (OpenCLMap _ _ r w _ _) = (readDecls, writtenDecls, generalDecls)
 				where
 					readArgs = listSubtract r w
 					writtenArgs = listSubtract w r
@@ -291,21 +348,26 @@ synthesiseKernelDeclarations prog (OpenCLMap _ _ r w _ _) = (readDecls, writtenD
 					readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
 					writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
 					generalDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
-synthesiseKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = (readDecls, writtenDecls, generalDecls)
+generateKernelDeclarations prog (OpenCLReduce _ _ r w _ rv _) = -- (readDecls, writtenDecls, generalDecls_withReductions)
+																 ([], [], globalReductionDecls)
 				where
-					reductionVarNames = map (\(varname, expr) -> varname) rv
+					reductionVarNames = map (fst) rv
 
 					readArgs = listSubtract (listSubtract r w) reductionVarNames
 					writtenArgs = listSubtract (listSubtract w r) reductionVarNames
 					generalArgs = listSubtract (listIntersection w r) reductionVarNames
 
-					readDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
-					writtenDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
-					generalDecls = map (\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
-synthesiseKernelDeclarations prog (OpenCLBufferRead _ _ varName) = (readDecls, [], [])
+					readDecls = map (\x -> fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) readArgs
+					writtenDecls = map (\x -> fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) writtenArgs
+					generalDecls = map (\x -> fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (InOut nullAnno) prog)) generalArgs
+
+					globalReductionDecls = (map (\x -> declareGlobalReductionArray x (nunitsVar) (prog)) reductionVarNames)
+
+					generalDecls_withReductions = generalDecls ++ globalReductionDecls
+generateKernelDeclarations prog (OpenCLBufferRead _ _ varName) = (readDecls, [], [])
 				where
 					readDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (In nullAnno) prog)) varName]
-synthesiseKernelDeclarations prog (OpenCLBufferWrite _ _ varName) = ([], writtenDecls, [])
+generateKernelDeclarations prog (OpenCLBufferWrite _ _ varName) = ([], writtenDecls, [])
 				where
 					writtenDecls = [(\x ->fromMaybe (generateImplicitDecl x) (adaptOriginalDeclaration_intent x (Out nullAnno) prog)) varName]
 
@@ -405,36 +467,58 @@ synthesiseSizeStatements :: String -> [VarName Anno] -> Program Anno -> (String,
 synthesiseSizeStatements tabs vars ast = (sizeDeclarations ++ scalarPointerDeclarationStrs, shapeStatements)
 		where
 			shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" vars_onlyArrays
-			-- shapeStatements = foldl (\accum varname -> accum ++ tabs ++ (varNameStr (varSizeVarName varname)) ++ " = shape(" ++ (varNameStr varname) ++ ")\n") "" allVars
 			sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ tabs ++ "integer, dimension(" ++ (show rank) ++ ") :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" varsWithRanks_arrays
-			-- sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ tabs ++ "integer, dimension(" ++ (show rank) ++ ") :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" varsWithRanks_scalarPointer
-			-- sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ tabs ++ "integer, dimension(" ++ (show rank) ++ ") :: " ++ (varNameStr (varSizeVarName varname)) ++ "\n") "" varsWithRanks
 			scalarPointerDeclarationStrs = synthesiseDecls tabs scalarPointerDeclarations
 
 			reduceKernels = extractOpenCLReduces ast
 			reductionVarNames = foldl (\accum item -> accum ++ (extractReductionVarNames item)) [] reduceKernels
-			-- reductionVarNames = foldl (\accum item -> listConcatUnique accum (extractReductionVarNames item)) [] reduceKernels
 			global_reductionArraysDecls = map (\x -> declareGlobalReductionArray x (nunitsVar) ast) reductionVarNames
 			global_reductionArrayNames = map (generateGlobalReductionArray) reductionVarNames
 
 			allVars = (listSubtract vars global_reductionArrayNames) ++ global_reductionArrayNames -- Odd code means that allVars has varNames in the correct order
 
 			decl_list = foldl (\accum item -> accum ++ extractDeclaration_varname item ast) [] vars
-			-- dimensionRanks = map (\decl -> length (everything (++) (mkQ [] extractDimensionAttr) decl)) (decl_list)
 			dimensionRanks = map (getDeclRank) (decl_list ++ global_reductionArraysDecls)
-			-- varsWithRanks = (zip allVars dimensionRanks)
 			varsWithRanks = (statePtrVarName, 1):(zip allVars dimensionRanks)
-			varsWithRanks_scalarPointer = map (\(var, rank) -> (var, max 1 rank)) varsWithRanks
+			-- varsWithRanks_scalarPointer = map (\(var, rank) -> (var, max 1 rank)) varsWithRanks
 			varsWithRanks_arrays = map (\(var, rank) -> if rank == 0 then (scalarPointerVarName var, 1) else (var, rank)) varsWithRanks
 
-			-- varsWithRanks_arrays = filter (\(_, rank) -> rank > 0) varsWithRanks
-			-- vars_arrays = map (fst) varsWithRanks_arrays
-			-- vars_onlyArrays = map (fst) (filter (\(_, rank) -> rank > 0) varsWithRanks)
 			vars_onlyArrays = map (\(var, rank) -> if rank == 0 then scalarPointerVarName var else var) varsWithRanks
 			vars_onlyScalars = listSubtract allVars vars_onlyArrays
 			scalarPointerDeclarations = map (\x -> declareScalarPointer x ast) vars_onlyScalars
 
-			-- kernelSizeVars_pairs = map (\x -> (x, varSizeVarName x)) vars
+generateSizeStatements_decls :: String -> [Decl Anno] -> ([Decl Anno], [Fortran Anno])
+generateSizeStatements_decls tabs decls = (sizeDeclarations ++ scalarPointerDeclarations, shapeStatements)
+		where 
+			shapeStatements = foldl (\accum varname -> accum ++ [generateSizeStatement varname]) [] vars_onlyArrays
+			sizeDeclarations = foldl (\accum (varname, rank) -> accum ++ [generateSizeDecl (varSizeVarName varname) rank]) [] varsWithRanks_arrays
+			scalarPointerDeclarationStrs = synthesiseDecls tabs scalarPointerDeclarations
+
+			allVars = map (extractAssigneeFromDecl) decls 
+
+			dimensionRanks = map (getDeclRank) (decls)
+			varsWithRanks = zip allVars dimensionRanks
+			varsWithRanks_arrays = map (\(var, rank) -> if rank == 0 then (scalarPointerVarName var, 1) else (var, rank)) varsWithRanks
+
+			vars_onlyArrays = map (\(var, rank) -> if rank == 0 then scalarPointerVarName var else var) varsWithRanks
+			
+			scalarDecls = filter (\x -> 0 == getDeclRank x) decls
+			scalarPointerDeclarations = map (declareScalarPointer_decl) scalarDecls
+
+
+generateSizeDecl :: VarName Anno -> Int -> Decl Anno
+generateSizeDecl varname rank = Decl nullAnno nullSrcSpan [(generateVar varname, (NullExpr nullAnno nullSrcSpan), Nothing)] 
+										(BaseType nullAnno (Integer nullAnno) [Dimension nullAnno [(NullExpr nullAnno nullSrcSpan, rankConst)]] (NullExpr nullAnno nullSrcSpan) (eight))
+		where
+			eight = generateIntConstant 8
+			rankConst = generateIntConstant rank
+
+-- Var p SrcSpan  [(VarName p, [Expr p])]
+generateSizeStatement :: VarName Anno -> Fortran Anno
+generateSizeStatement varname = Assg nullAnno nullSrcSpan assignee assignment
+		where
+			assignee = generateVar (varSizeVarName varname)
+			assignment = Var nullAnno nullSrcSpan [(VarName nullAnno "shape", [generateVar varname])]
 
 synthesiseSizeStatements_kernel :: String -> Program Anno -> (String, String)
 synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs allBufferAccesses ast
@@ -448,6 +532,35 @@ synthesiseSizeStatements_kernel tabs ast = synthesiseSizeStatements tabs allBuff
 			bufferWrittenVars = map (\(OpenCLBufferWrite _ _ var) -> var) bufferWrites
 		
 			allBufferAccesses = listRemoveDuplications (kernelArgs ++ bufferWrittenVars ++ bufferReadVars)
+
+
+synthesiseSetOclArg :: String -> KernelArgsIndexMap -> Decl Anno -> String
+synthesiseSetOclArg tabs allKernelArgsMap (Decl anno src lst typ) = case baseType of
+														Integer _ -> prefix ++ "Int" ++ suffix
+														Real _ -> prefix ++ "Float" ++ suffix
+														_ -> ""
+		where
+			assigneeName = extractAssigneeFromDecl (Decl anno src lst typ)
+			kernelArgIndex_C = (DMap.findWithDefault (error "synthesiseSetOclArg: arg doesn't exist in KernelArgsIndexMap") assigneeName allKernelArgsMap) - 1
+
+			baseType = extractBaseType typ
+
+			prefix = tabs ++ "call oclSet"
+			suffix = "ArrayArg(" ++ (show kernelArgIndex_C) ++ ", " ++ (varNameStr (varBufVarName assigneeName)) ++ ")"
+
+synthesiseBufferDeclaration :: String -> Decl Anno -> String
+synthesiseBufferDeclaration tabs decl = tabs ++ "integer(8) :: " ++ (varNameStr (varBufVarName assignee))
+		where
+			assignee = extractAssigneeFromDecl decl
+
+synthesiseBufferStores :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> (String, String)
+synthesiseBufferStores tabs allKernelArgsMap argTranslation vars = (declarationStatements, storeBufferStatements)
+		where
+			storeBufferStatements = foldl (\accum (var, index) -> accum ++ tabs ++ "call oclStoreBuffer(" ++ (show index) ++ ", " ++ (varNameStr (varBufVarName var)) ++ ")" ++  "\n") "" kernelBufferIndices
+			declarationStatements = foldl (\accum var -> accum ++ tabs ++ "integer(8) :: " ++ (varNameStr (varBufVarName var)) ++ "\n") "" translatedVars
+
+			translatedVars = translateArguments argTranslation vars
+			kernelBufferIndices = zip vars (map (\x -> DMap.findWithDefault (-1) x allKernelArgsMap) translatedVars)
 
 synthesiseBufferLoads :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> (String, String)
 synthesiseBufferLoads tabs allKernelArgsMap argTranslation vars = (declarationStatements, loadBufferStatements)
@@ -571,13 +684,13 @@ synthesiseOpenCLBufferWrite :: (Program Anno, String) -> String -> [String] -> F
 synthesiseOpenCLBufferWrite (progAst, filename) tabs originalLines (OpenCLBufferWrite anno src varName) = bufferWrite ++ "\n"
 		where
 			bufferWrite = synthesiseBufferAccess tabs "Write" writeDecl
-			(_, writeDecl:_, _) = synthesiseKernelDeclarations progAst (OpenCLBufferWrite anno src varName)
+			(_, writeDecl:_, _) = generateKernelDeclarations progAst (OpenCLBufferWrite anno src varName)
 
 synthesiseOpenCLBufferRead :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
 synthesiseOpenCLBufferRead (progAst, filename) tabs originalLines (OpenCLBufferRead anno src varName) = bufferRead ++ "\n"
 		where
 			bufferRead = synthesiseBufferAccess tabs "Read" readDecl
-			(readDecl:_, _, _) = synthesiseKernelDeclarations progAst (OpenCLBufferRead anno src varName)
+			(readDecl:_, _, _) = generateKernelDeclarations progAst (OpenCLBufferRead anno src varName)
 
 synthesiseFor :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
 synthesiseFor prog tabs originalLines (For anno src varname expr1 expr2 expr3 fort) 	|	partialGenerated = tabs ++ "do " ++ (varNameStr varname) ++ "=" ++ outputExprFormatting expr1 
@@ -767,7 +880,7 @@ synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l f
 															[] -> ""
 															args -> foldl (\accum item -> accum ++ "," ++ varNameStr item) (varNameStr (head args)) (tail args)
 												
-												(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations prog (OpenCLMap anno src r w l fortran)
+												(readDecls, writtenDecls, generalDecls) = generateKernelDeclarations prog (OpenCLMap anno src r w l fortran)
 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (writtenDecls)
@@ -858,9 +971,9 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 												usesString = foldl (\accum item -> accum ++ synthesisUses tabs item) "" extractedUses 
 
 												reductionVarNames = map (\(varname, expr) -> varname) rv
-												readVarNames = listSubtract r w
-												writtenVarNames = listSubtract w r
-												generalVarNames = listIntersection w r
+												readVarNames = listSubtract (listSubtract r w) reductionVarNames
+												writtenVarNames = listSubtract (listSubtract w r) reductionVarNames
+												generalVarNames = listSubtract (listIntersection w r) reductionVarNames
 
 												localIdVar = generateVar (VarName nullAnno "local_id")
 												localIdFortranVar = generateVar (VarName nullAnno "local_id_fortran")
@@ -890,7 +1003,7 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 															[] -> ""
 															args -> foldl (\accum item -> accum ++ "," ++ varNameStr item) (varNameStr (head args)) (tail args)
 												
-												(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations prog (OpenCLReduce anno src r w l rv fortran)
+												(readDecls, writtenDecls, generalDecls) = generateKernelDeclarations prog (OpenCLReduce anno src r w l rv fortran)
 												
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (writtenDecls)
@@ -948,17 +1061,19 @@ numGroupsVarName = VarName nullAnno "num_groups"
 numGroupsVar = generateVar numGroupsVarName
 stateVarName = VarName nullAnno "state"
 statePtrVarName = VarName nullAnno "state_ptr"
+statePtrDecl = Decl nullAnno nullSrcSpan [(generateVar statePtrVarName, NullExpr nullAnno nullSrcSpan, Nothing)] 
+									(BaseType nullAnno (Integer nullAnno) [Dimension nullAnno [(NullExpr nullAnno nullSrcSpan, generateIntConstant 1)]] (NullExpr nullAnno nullSrcSpan) (NullExpr nullAnno nullSrcSpan))
 stateVar = generateVar stateVarName
 statePtrVar = generateVar statePtrVarName
-statePtrDecl = Decl nullAnno nullSrcSpan 
-					[(statePtrVar, NullExpr nullAnno nullSrcSpan, Nothing)] 
-					(BaseType nullAnno 
-						(Integer nullAnno) 
-						[(Dimension 
-							nullAnno
-							[(generateIntConstant 1, generateIntConstant 256)])]
-						(NullExpr nullAnno nullSrcSpan) 
-						(NullExpr nullAnno nullSrcSpan))
+-- statePtrDecl = Decl nullAnno nullSrcSpan 
+-- 					[(statePtrVar, NullExpr nullAnno nullSrcSpan, Nothing)] 
+-- 					(BaseType nullAnno 
+-- 						(Integer nullAnno) 
+-- 						[(Dimension 
+-- 							nullAnno
+-- 							[(generateIntConstant 1, generateIntConstant 256)])]
+-- 						(NullExpr nullAnno nullSrcSpan) 
+-- 						(NullExpr nullAnno nullSrcSpan))
 initModuleName moduleName = moduleName ++ "_init"
 hostModuleName moduleName = moduleName ++ "_host"
 
@@ -1046,7 +1161,7 @@ synthesiseKernelCall (progAst, filename) tabs (OpenCLMap anno src r w l fortran)
 				bufferWrites = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess tabs "Write") (readDecls ++ generalDecls ++ [statePtrDecl]))
 				bufferReads = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess tabs "Read") (writtenDecls ++ generalDecls))
 
-				(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations progAst (OpenCLMap anno src r w l fortran)
+				(readDecls, writtenDecls, generalDecls) = generateKernelDeclarations progAst (OpenCLMap anno src r w l fortran)
 synthesiseKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fortran) = (commentSeparator ("BEGIN " ++ kernelName))
 															++ tabs ++ "oclGlobalRange = " ++ outputExprFormatting reductionWorkItemsExpr ++ "\n"
 															++ tabs ++ "oclLocalRange = " ++ outputExprFormatting nthVar ++ "\n"
@@ -1084,7 +1199,7 @@ synthesiseKernelCall (progAst, filename) tabs (OpenCLReduce anno src r w l rv fo
 				bufferReads = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess tabs "Read") (writtenDecls ++ generalDecls))
 				bufferReads_rv = foldl (\accum item -> accum ++ "\n" ++ item) "" (map (synthesiseBufferAccess tabs "Read") (global_reductionArraysDecls))
 
-				(readDecls, writtenDecls, generalDecls) = synthesiseKernelDeclarations progAst (OpenCLReduce anno src r w l rv fortran)
+				(readDecls, writtenDecls, generalDecls) = generateKernelDeclarations progAst (OpenCLReduce anno src r w l rv fortran)
 
 				global_reductionArraysDecls = map (\x -> declareGlobalReductionArray x (nunitsVar) progAst) reductionVarNames
 
@@ -1113,9 +1228,6 @@ synthesiseBufferAccess tabs method (Decl anno src lst typ) = case baseType of
 				prefix = scalarPointerConversion ++ tabs ++ "call ocl" ++ method ++ (show dimensions) ++ "D"
 				suffix = "ArrayBuffer(" ++ varBufStr ++ "," ++ varSzStr ++ "," ++ bufferAccessSubjectVarStr ++ ")" ++ (if isScalar then "! Automatic conversion to array" else "")
 synthesiseBufferAccess _ _ _ = error "synthesiseBufferAccess"
-
-      -- 	call oclMake1DFloatArrayReadWriteBuffer(ro_buf, ro_ptr_sz, ro_ptr)
--- 			call oclWrite1DFloatArrayBuffer(ro_buf,ro_ptr_sz,ro_ptr)
 
 synthesiseBufferMake :: String -> Decl Anno -> String
 synthesiseBufferMake tabs (Decl anno src lst typ) = case baseType of
@@ -1182,9 +1294,18 @@ declareScalarPointer varname program = decl
 								[] -> generateImplicitDecl varname
 								_ -> head decl_list
 				one = generateIntConstant 1
-				zero = generateIntConstant 0
+				nullExpr = NullExpr nullAnno nullSrcSpan
 				newVarName = scalarPointerVarName varname
-				decl = replaceAllOccurences_varname (addDimension foundDecl zero one) varname newVarName
+				decl = replaceAllOccurences_varname (addDimension foundDecl nullExpr one) varname newVarName
+
+declareScalarPointer_decl :: Decl Anno -> Decl Anno
+declareScalarPointer_decl decl = resultDecl
+			where
+				one = generateIntConstant 1
+				zero = generateIntConstant 0
+				varname = extractAssigneeFromDecl decl
+				newVarName = scalarPointerVarName varname
+				resultDecl = replaceAllOccurences_varname (addDimension decl zero one) varname newVarName
 
 declareLocalReductionArray :: VarName Anno -> Expr Anno -> Program Anno -> Decl Anno
 declareLocalReductionArray varname arraySize program = decl
