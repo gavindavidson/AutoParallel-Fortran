@@ -1,0 +1,357 @@
+WV_DEBUG = '' # '-DWV_DEBUG'     #UNUSED!
+OCL_DEBUG =  '' # '-DDEBUG'     #UNUSED!
+NO_COMPUTE= '' # '-DNO_COMPUTE'
+#SOR_FLAGS='-DTWINNED_DOUBLE_BUFFER -DBARRIER_OK' # for GPU
+SOR_FLAGS='-DTWINNED_DOUBLE_BUFFER -DFIXED_NTH' # for CPU
+EXTRA_KOPTS=SOR_FLAGS
+
+external_wind_profile = False
+distributed_computation = False
+automatic_kernel_generation = False
+
+import os
+import commands
+import glob
+
+import OclBuilder
+# First build the OclWrapper library
+from OclBuilder import initOcl
+from sys import exit
+# Adding path to includes for kernels
+CWD= os.environ['PWD']
+
+OclBuilder.kopts='-cl-mad-enable -cl-fast-relaxed-math -I'+CWD+'/../OpenCL/Kernels/'
+
+from OclBuilder import getOpt
+
+OclBuilder.opts=Variables()
+
+envF=Environment(useF=1)
+    
+# Then build the rest of the code
+    
+distr = getOpt('distr','Distributed','0')
+if distr  == '1':
+    distributed_computation = True
+
+auto  = getOpt('auto','Automatic kernel generation','0')
+if auto  == '1':
+    automatic_kernel_generation = True
+
+nth = getOpt('nth', 'Number of threads', '-1')
+nunits = getOpt('nunits', 'Number of compute units', '-1')
+if nth == '-1':
+	exit("NTH argument has not been provided! (nth=<somevalue>)")
+if nunits == '-1':
+	exit("NUNITS argument has not been provided! (nunits=<somevalue>)")
+
+
+WITH_OCL=''
+with_ocl= getOpt('ocl','Use OpenCL','1')
+
+print 'OclBuilder.kopts: '+OclBuilder.kopts
+
+OclBuilder.kopts
+if with_ocl == '1':
+    WITH_OCL = '-D_OPENCL_LES_WV'
+    envF=initOcl(envF)
+    kernel_opts = envF['KERNEL_OPTS'] 
+    print "envF['KERNEL_OPTS']: ", kernel_opts 
+    kernel_base_name='LES_combined'
+    if distributed_computation:
+        kernel_base_name += '_halos'
+    if automatic_kernel_generation:
+        kernel_base_name += '_auto'
+    kernel_name = kernel_base_name+'_kernel'
+    wrapper_name = 'module_'+kernel_base_name+'_ocl'
+else:
+    envF['F95']=os.environ['FC']
+    envF['LINK']=os.environ['FC']
+    verbose = getOpt('v','Verbose','0')
+    VERBOSE = ''
+    if verbose == '1':
+        VERBOSE = '-DVERBOSE'
+    other = getOpt('D','Other macro','')
+    TIMINGS=''
+    if other !='':
+        TIMINGS = '-D'+other
+        
+# def genWrappers(macros):
+#     print 'Generating Wrappers ...'
+#     cwd = os.getcwd()
+#     os.chdir( cwd+'/../OpenCL')
+#     templs = glob.glob('WrapperTemplates/*');
+#     for templ in templs:
+#         cmd_gen='./oclgen -o '+templ
+#         os.system(cmd_gen);
+#     macros_str=''
+#     for macro in macros:
+#         macros_str+=' '+macro
+#     print 'Generating Kernel Stub ...'
+#     os.chdir( cwd+'/../OpenCL/KernelStubs')
+#     cmd_cpp_stub = 'cpp -P -DEXT_DEFS '+macros_str+' -Wno-extra-tokens '+kernel_name+'_PreCPP.f95 > '+kernel_name+'.f95'        
+#     status_cpp_stub = os.system(cmd_cpp_stub)
+#     print 'Generating Kernel Wrapper ...'        
+#     os.chdir( cwd+'/../OpenCL')
+#     cmd_cpp = 'cpp -P -I'+CWD+'../OpenCL/Kernels/ -DEXT_DEFS '+macros_str+' -Wno-extra-tokens ./'+wrapper_name+'_TEMPL_V2.f95 > '+wrapper_name+'_TEMPL_V2_PostCPP.f95'         
+#     status_cpp = os.system(cmd_cpp)
+#     cmd_gen_comb='./oclgen '+wrapper_name+'_TEMPL_V2_PostCPP.f95 > Wrappers/'+wrapper_name+'.f95'
+#     status = os.system(cmd_gen_comb)
+#     os.chdir(cwd)
+#     return status
+
+# def genMonolithicKernel(kernel_opts, status):
+#     print 'Generating Monolithic Kernel with options'
+#     cwd = os.getcwd()
+#     print kernel_opts,EXTRA_KOPTS
+#     kernel_opts_str=''
+#     for opt in kernel_opts:
+#         kernel_opts_str+=' '+opt
+#     kernel_opts_str = kernel_opts_str + EXTRA_KOPTS    
+#     cmd_cpp = 'cpp -P -I'+CWD+'../OpenCL/Kernels/ -DEXT_DEFS '+kernel_opts_str+' -Wno-extra-tokens  Kernels/'+kernel_name+'.cl > Kernels/'+kernel_name+'_mono_RAW.cl'
+#     cmd_fix_name = "perl -e 'while(<>) {/^\s*$/ && next;s/"+kernel_name+'/'+kernel_name+"_mono/;print $_;}' < Kernels/"+kernel_name+"_mono_RAW.cl > Kernels/"+kernel_name+"_mono.cl"
+#     os.chdir( cwd+'/../OpenCL')
+#     status_cpp = os.system(cmd_cpp)
+#     status_pl = os.system(cmd_fix_name)
+#     os.chdir(cwd)
+#     return status*status_cpp*status_pl
+
+def configureHostWorkGroupInfo(nunits, nth, hostFiles):
+    print 'Configuing OpenCL host code with appropriate NUNUTS and NTH values'
+    cmd_cpp = 'cpp -P -D NUNITS=' + str(nunits) + ' -D NTH=' + str(nth) + ' '
+
+    hostFiles_cpp = []
+    for filename in hostFiles:
+        filename_cpp = labelNewFilename(filename, '_cpp')
+        hostFiles_cpp += [filename_cpp]
+        cmd_cpp_file = cmd_cpp + filename + ' > ' + filename_cpp
+        os.system(cmd_cpp_file)
+    return hostFiles_cpp
+
+def labelNewFilename(originalFilename, label):
+    (prefix, extension) = splitAtExtension(originalFilename)
+    return prefix + label + extension
+
+def splitAtExtension(originalFilename):
+    splitFilename = originalFilename.split('.')
+    prefix = ""
+    if len(splitFilename) > 2:
+        for section in splitFilename[1:-1]:
+            prefix += '.' + section
+        return (prefix, '.' + splitFilename[-1])
+    elif not hasExtension(originalFilename):
+        return (originalFilename, '')
+    else:
+        return (splitFilename[0], '.' + splitFilename[1])
+
+def configureKernelWorkGroupInfo(nunits, nth, kernelFilename):
+    print 'Configuing OpenCL kernel code with appropriate NUNUTS and NTH values'
+    cmd_cpp = 'cpp -P -D NUNITS=' + str(nunits) + ' -D NTH=' + str(nth) + ' -D nunits=' + str(nunits) + ' -D nth=' + str(nth) + ' '
+    tempFilename = manufactureTempName()
+
+    with open(kernelFilename) as kernelFile:
+        content = kernelFile.readlines()
+    
+    removedDeclsStr = removeIntDeclarations(['nth', 'nunits'], content)
+    removeMaybeDeclsStr = removeMAYBEIdentifiers(removedDeclsStr)
+
+    with open(tempFilename, 'w') as tempFile:
+        tempFile.write(removeMaybeDeclsStr)
+
+    (kernelFilename_prefix, kernelFilename_extension) = splitAtExtension(kernelFilename)
+    newKernelFilename = kernelFilename_prefix + '.cl'
+
+    cmd_cpp_file = cmd_cpp + tempFilename + ' > ' + newKernelFilename
+    os.system(cmd_cpp_file)
+    os.system('rm ' + tempFilename)
+
+    return newKernelFilename
+
+
+def removeIntDeclarations(varnameList, content):
+    contentWithoutOffendingDecls = []
+    for line in content:
+        trimmedLine = line.strip().lower()
+        offenderFound = False
+        for offender in varnameList:
+            if trimmedLine == "int " + offender + ";":
+                offenderFound = True
+                break
+        if not offenderFound:
+            contentWithoutOffendingDecls += [line]
+    
+    finalStr = ""
+    for line in contentWithoutOffendingDecls:
+        finalStr += line
+    return finalStr
+
+def removeMAYBEIdentifiers(content):
+    conentList = content.split('__MAYBE__')
+    numbers = '1234567890'
+    newContent = ""
+    for elem in conentList:
+        for index in range(len(elem)):
+            if elem[index] in numbers:
+                continue
+            elif elem[index] == ' ':
+                newElem = elem[index+1:]
+                break
+            else:
+                newElem = elem[index:]
+                break
+        newContent += newElem
+    return newContent
+
+def hasExtension(filename):
+    forbidden = '/\\'
+    hasExtension = False
+    for char in filename:
+        if char in forbidden:
+            hasExtension = False
+        elif char == '.':
+            hasExtension = True
+    return hasExtension
+
+def manufactureTempName():
+    base = './tempCPP'
+    current = base
+    count = 1
+    while (os.path.exists(current)):
+        current = base + str(count)
+        count += 1
+    return current
+
+TEST_SMALL_DOMAIN = 0
+USE_NETCDF_OUTPUT = 0
+MAX_REL_ERROR = '-DMAX_REL_ERROR=0.001' # UNUSED!
+
+NO_FILE_IO='-DNO_FILE_IO'
+ICAL = '-DICAL=0'
+IFBF='-DIFBF=1'
+IANIME='-DIANIME=0'
+IADAM='-DIADAM=0'
+TIMSERIS_FIXED='' #  '-DTIMSERIS_FIXED'
+
+sor_max_iters = getOpt('nmaxsor','SOR max iters','50') 
+SOR_MAX_ITERS = '-DSOR_MAX_ITERS ='+sor_max_iters
+
+FFLAGS  = [ WITH_OCL, TIMSERIS_FIXED, NO_FILE_IO, NO_COMPUTE, ICAL, IFBF,IANIME, IADAM, SOR_FLAGS] 
+if USE_NETCDF_OUTPUT == 1:
+    FFLAGS  += ['-DUSE_NETCDF_OUTPUT']
+if TEST_SMALL_DOMAIN == 1:
+    FFLAGS  += ['-DTEST_SMALL_DOMAIN']
+if external_wind_profile:
+    FFLAGS  += ['-DEXTERNAL_WIND_PROFILE']
+if distributed_computation:
+    FFLAGS += ['-DHALO_EXCHANGE']
+if automatic_kernel_generation:    
+    FFLAGS += ['-DAUTO_KERNELS']
+
+status=0
+if with_ocl=='1':
+    macros = envF['MACROS']+FFLAGS
+    # status = genWrappers(macros)
+    # status = genMonolithicKernel(kernel_opts, status)    
+envF['STATUS'] = status
+        
+
+if with_ocl == '0':
+    FFLAGS += ['-cpp','-Ofast', '-m64', '-Wall','-ffree-form', '-ffree-line-length-0','-fconvert=big-endian', VERBOSE,TIMINGS]
+if OclBuilder.mcModel == 'm':    
+  FFLAGS += ['-mcmodel=medium']
+elif OclBuilder.mcModel == 'l':    
+  FFLAGS += ['-mcmodel=large']
+    
+csources=[]
+if os.path.exists('./noop.c'):
+    csources=['./noop.c']
+
+envC=Environment(CC='gcc')
+if csources:
+    envC.Library('csubs',csources)
+
+# fsources = ['./anime.f95','./aveflow.f95', './bondFG.f95', './bondv1_host.f95','./boundp.f95','./boundsm.f95','./vel2_host.f95','./velFG_host.f95','./feedbf_host.f95','./feedbfm.f95','./les_host.f95','./grid.f95','./ifdata.f95','./init.f95','./main_host.f95','./set.f95','./timdata.f95','common_sn.f95','params_common_sn.f95']
+# fsources = ['./anime.f95','./aveflow.f95','./bondFG.f95','./bondv1.f95','./boundp.f95','./boundsm.f95','./vel2.f95','./velFG.f95','./feedbf.f95','./feedbfm.f95','./les.f95','./grid.f95','./ifdata.f95','./init.f95','./main_ocl.f95','./set.f95','./timdata.f95','common_sn.f95','params_common_sn.f95']
+hostsources = ['./main_host.f95','./velnw_host.f95','./bondv1_host.f95','./velFG_host.f95','./module_bondv1_velfg_velnw_superkernel_init.f95']
+kernelSource = 'module_bondv1_velfg_velnw_superkernel.c'
+# fsources = ['./main_host.f95','./adam.f95','./anime.f95','./aveflow.f95','./press.f95','./velnw_host.f95','./bondFG.f95','./bondv1_host.f95','./boundp.f95','./boundsm.f95','./vel2.f95','./velFG_host.f95','./feedbf.f95','./feedbfm.f95','./les.f95','./grid.f95','./ifdata.f95','./init.f95','./set.f95','./timdata.f95','common_sn.f95','params_common_sn.f95','./timseris.f95', './module_bondv1_velfg_velnw_superkernel_init.f95']
+fsources = ['./adam.f95','./anime.f95','./aveflow.f95','./press.f95','./bondFG.f95','./boundp.f95','./boundsm.f95','./vel2.f95','./feedbf.f95','./feedbfm.f95','./les.f95','./grid.f95','./ifdata.f95','./init.f95','./set.f95','./timdata.f95','common_sn.f95','params_common_sn.f95','./timseris.f95']
+# fsources += ['./module_adam_bondv1_feedbf_les_press_vel2_velFG_velnw_superkernel.f95']
+# fsources += ['module_bondv1_velFG_velnw_superkernel.f95', 'module_bondv1_velFG_velnw_superkernel_states.f95']
+if external_wind_profile:
+	fsources.append('./initial_wind_profile.f95')
+	
+if TIMSERIS_FIXED != '':
+    fsources.append('./timseris.f95')
+
+if USE_NETCDF_OUTPUT == 1:
+    fsources += ['../OpenCL/module_LES_write_netcdf.f95']
+
+if with_ocl == '1':
+    fsources = fsources+['../OpenCL/module_LES_tests.f95','../OpenCL/module_LES_conversions.f95','../OpenCL/Wrappers/'+wrapper_name+'.f95','./oclWrapper.o']
+else:
+#    fsources = fsources+['./adam_host.f95','./press_host.f95','./velnw_host .f95']
+#    fsources = fsources+['./adam.f95','./press.f95','./velnw_host.f95']
+    if external_wind_profile:
+    	fsources.append('./bondv1_ext_wind_profile.f95')
+
+cwd = os.getcwd()
+
+# Basically, it's Linux unless it's OS X
+if os.uname()[0] == "Darwin":
+        OSX=1
+        OSFLAG='-DOSX'
+else:       
+        OSX=0
+        OSFLAG='-D__LINUX__'
+
+if with_ocl == '1':        
+    # Linker flags for OclWrapper		 
+    OPENCL_DIR=os.environ['OPENCL_DIR']
+    OCL_LDFLAGS =  ['-L.','-L'+OPENCL_DIR+'/OpenCLIntegration']
+else:
+    OCL_LDFLAGS =  []
+
+if OSX == 1:
+    INCLPATH = '/opt/local/include' 
+    LIBPATH = '/opt/local/lib'
+else:    
+# test for devtoolset-2 ... so better use a var $DEVTOOLSETROOT?
+    if os.path.exists('/opt/rh/devtoolset-2'): 
+        INCLPATH = '/opt/rh/devtoolset-2/root/usr/include' 
+        LIBPATH = '/opt/rh/devtoolset-2/root/usr/lib'
+    else:
+# reasonable default ...
+        INCLPATH = '/usr/local/include' 
+        LIBPATH = '/usr/local/lib'
+    
+envF.Append(F95FLAGS=FFLAGS)
+
+
+envF.Append(F95PATH=['.',INCLPATH])
+
+
+envF.Append(LIBS=['m'])
+if USE_NETCDF_OUTPUT == 1:
+    envF.Append(LIBS=['netcdff','netcdf'])
+
+envF.Append(LIBPATH=['.',LIBPATH])
+    
+if with_ocl == '1': 
+    envF.Append(LIBS=['OclWrapperF','stdc++','OclWrapper'])
+    if OSX==1:
+            envF.Append(FRAMEWORKS=['OpenCL'])
+    else:
+            envF.Append(LIBS=['OpenCL'])   
+# def configureHostWorkGroupInfo(nunits, nth, hostFiles):
+kernelFilename = configureKernelWorkGroupInfo(nunits, nth, kernelSource)
+
+fsources_workgroup = configureHostWorkGroupInfo(nunits, nth, hostsources)
+fsources += fsources_workgroup
+
+if csources:
+    envF.Append(LIBS=['csubs'])
+    prog = envF.Program('les_ocl_auto_main',fsources)
+else:
+    prog = envF.Program('les_ocl_auto_main',fsources)
+
