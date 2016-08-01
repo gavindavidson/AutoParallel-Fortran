@@ -205,7 +205,6 @@ synthesiseSuperKernelModule :: String -> String -> [(Program Anno, String)] -> [
 synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kernelModuleHeader
 																			++ useStatements
 																			++ contains
-																			++ stateDefinitions
 																			++ "\n"
 																			++ (foldl (++) "" kernelCode) 
 																			++ superKernelCode 
@@ -213,7 +212,6 @@ synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kern
 															allKernelArgsMap)
 				where
 					kernelCode = map (fst) kernels
-					kernelNames = map (snd) kernels
 					
 					kernelModuleHeader = "module " ++ moduleName ++ "\n\n"
 					useStatements = "use " ++ initModuleName moduleName ++ "\n"
@@ -221,9 +219,6 @@ synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kern
 					kernelModuleFooter = "end module " ++ moduleName
 
 					(superKernelCode, allKernelArgsMap) = synthesiseSuperKernel outputTab superKernelName programs kernels
-
-					stateNames = map (generateStateName) kernelNames
-					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
 
 generateStateName :: String -> String
 generateStateName kernelName = "ST_" ++ (map (toUpper) kernelName)
@@ -243,6 +238,10 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
+
+					kernelNames = map (snd) kernels
+					stateNames = map (generateStateName) kernelNames
+					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
 
 					kernelAsts = foldl (++) [] (map (\(k_asts, p_ast) -> map (\a -> (a, p_ast)) k_asts) (zip kernelAstLists programAsts))
 					kernelArgs = (map (\(x, _) -> extractKernelArguments x) kernelAsts)
@@ -267,13 +266,10 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 					superKernel_footer = "end subroutine " ++ name ++ "\n"
 					superKernel_body = "! SUPERKERNEL BODY\n" ++ selectCase
 
-					kernelNames = map (snd) kernels
-					stateNames = map (generateStateName) kernelNames
-
 					caseAlternatives = foldl (\accum (state, name, args) -> accum ++ synthesiseKernelCaseAlternative (tabs ++ outputTab) state name args) "" (zip3 stateNames kernelNames kernelArgs)
 					selectCase = outputTab ++ "select case(" ++ (varNameStr stateVarName) ++ ")\n" ++ caseAlternatives ++ outputTab ++ "end select\n"
 
-					superKernel = superKernel_header ++ declarationsStr ++ "\n" ++ stateVarDeclStr ++ statePointerDeclStr ++ stateAssignment ++ superKernel_body ++ superKernel_footer
+					superKernel = superKernel_header ++ declarationsStr ++ "\n" ++ stateVarDeclStr ++ statePointerDeclStr ++ stateDefinitions ++ stateAssignment ++ superKernel_body ++ superKernel_footer
 				
 collectDecls :: [Decl Anno] -> Decl Anno -> [Decl Anno]
 collectDecls previousDecls currentDecl = mergeDeclWithPrevious_recurse previousDecls currentDecl

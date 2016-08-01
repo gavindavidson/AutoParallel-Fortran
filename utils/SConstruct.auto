@@ -152,7 +152,9 @@ def configureKernelWorkGroupInfo(nunits, nth, kernelFilename):
     with open(kernelFilename) as kernelFile:
         content = kernelFile.readlines()
     
-    removedDeclsStr = removeIntDeclarations(['nth', 'nunits'], content)
+    # removedDeclsStr = removeIntDeclarations(['nth', 'nunits'], content)
+    badDeclarations = ['int nth;', 'int nunits;', 'float CLK_LOCAL_MEM_FENCE;']
+    removedDeclsStr = removeLines(badDeclarations, content)
     removeMaybeDeclsStr = removeMAYBEIdentifiers(removedDeclsStr)
 
     with open(tempFilename, 'w') as tempFile:
@@ -163,18 +165,18 @@ def configureKernelWorkGroupInfo(nunits, nth, kernelFilename):
 
     cmd_cpp_file = cmd_cpp + tempFilename + ' > ' + newKernelFilename
     os.system(cmd_cpp_file)
+    print cmd_cpp_file
     os.system('rm ' + tempFilename)
 
     return newKernelFilename
 
-
-def removeIntDeclarations(varnameList, content):
+def removeLines(lineList, content):
     contentWithoutOffendingDecls = []
     for line in content:
         trimmedLine = line.strip().lower()
         offenderFound = False
-        for offender in varnameList:
-            if trimmedLine == "int " + offender + ";":
+        for offender in lineList:
+            if trimmedLine == offender.lower():
                 offenderFound = True
                 break
         if not offenderFound:
@@ -194,7 +196,8 @@ def removeMAYBEIdentifiers(content):
             if elem[index] in numbers:
                 continue
             elif elem[index] == ' ':
-                newElem = elem[index+1:]
+                # newElem = elem[index+1:]
+                newElem = "__global " + elem[index+1:]
                 break
             else:
                 newElem = elem[index:]
