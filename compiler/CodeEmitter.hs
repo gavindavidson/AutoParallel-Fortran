@@ -198,14 +198,18 @@ synthesiseInitModule moduleName superKernelName programs allKernelArgsMap kernel
 
 					oclSetArgStatements_str = foldl (\accum item -> accum ++ (synthesiseSetOclArg twoTab allKernelArgsMap item) ++ "\n") "" declarations_noIntent
 
--- synthesiseBufferStores :: String -> KernelArgsIndexMap -> ArgumentTranslation -> [VarName Anno] -> (String, String)
-
 					oneTab = tabInc
 					twoTab = oneTab ++ tabInc
 
 synthesiseSuperKernelModule :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
-synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kernelModuleHeader ++ useStatements ++ contains 
-																++ (foldl (++) "" kernelCode) ++ superKernelCode ++ kernelModuleFooter,
+synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kernelModuleHeader
+																			++ useStatements
+																			++ contains
+																			++ stateDefinitions
+																			++ "\n"
+																			++ (foldl (++) "" kernelCode) 
+																			++ superKernelCode 
+																			++ kernelModuleFooter,
 															allKernelArgsMap)
 				where
 					kernelCode = map (fst) kernels
@@ -217,6 +221,9 @@ synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kern
 					kernelModuleFooter = "end module " ++ moduleName
 
 					(superKernelCode, allKernelArgsMap) = synthesiseSuperKernel outputTab superKernelName programs kernels
+
+					stateNames = map (generateStateName) kernelNames
+					stateDefinitions = synthesiseStateDefinitions (zip kernelNames stateNames) 0
 
 generateStateName :: String -> String
 generateStateName kernelName = "ST_" ++ (map (toUpper) kernelName)
@@ -252,6 +259,7 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 					declarationsStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" declarations
 
 					-- statePointerDeclStr = tabs ++ "integer, dimension(256) :: " ++ (varNameStr stateVarName) ++ "_ptr\n"
+					stateVarDeclStr = synthesiseDecl tabs stateVarDecl
 					statePointerDeclStr = synthesiseDecl tabs statePtrDecl
 					stateAssignment = tabs ++ (varNameStr stateVarName) ++ " = " ++ (varNameStr stateVarName) ++ "_ptr(1)\n"
 
@@ -265,7 +273,7 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 					caseAlternatives = foldl (\accum (state, name, args) -> accum ++ synthesiseKernelCaseAlternative (tabs ++ outputTab) state name args) "" (zip3 stateNames kernelNames kernelArgs)
 					selectCase = outputTab ++ "select case(" ++ (varNameStr stateVarName) ++ ")\n" ++ caseAlternatives ++ outputTab ++ "end select\n"
 
-					superKernel = superKernel_header ++ declarationsStr ++ "\n" ++ statePointerDeclStr ++ stateAssignment ++ superKernel_body ++ superKernel_footer
+					superKernel = superKernel_header ++ declarationsStr ++ "\n" ++ stateVarDeclStr ++ statePointerDeclStr ++ stateAssignment ++ superKernel_body ++ superKernel_footer
 				
 collectDecls :: [Decl Anno] -> Decl Anno -> [Decl Anno]
 collectDecls previousDecls currentDecl = mergeDeclWithPrevious_recurse previousDecls currentDecl
@@ -1069,9 +1077,11 @@ numGroupsVarName = VarName nullAnno "num_groups"
 numGroupsVar = generateVar numGroupsVarName
 stateVarName = VarName nullAnno "state"
 statePtrVarName = VarName nullAnno "state_ptr"
-statePtrDecl = Decl nullAnno nullSrcSpan [(generateVar statePtrVarName, NullExpr nullAnno nullSrcSpan, Nothing)] 
+statePtrDecl = Decl nullAnno nullSrcSpan [(statePtrVar, NullExpr nullAnno nullSrcSpan, Nothing)] 
 									(BaseType nullAnno (Integer nullAnno) [Dimension nullAnno [(NullExpr nullAnno nullSrcSpan, generateIntConstant 1)]] (NullExpr nullAnno nullSrcSpan) (NullExpr nullAnno nullSrcSpan))
 stateVar = generateVar stateVarName
+stateVarDecl = Decl nullAnno nullSrcSpan [(stateVar, NullExpr nullAnno nullSrcSpan, Nothing)] 
+									(BaseType nullAnno (Integer nullAnno) [] (NullExpr nullAnno nullSrcSpan) (NullExpr nullAnno nullSrcSpan))
 statePtrVar = generateVar statePtrVarName
 -- statePtrDecl = Decl nullAnno nullSrcSpan 
 -- 					[(statePtrVar, NullExpr nullAnno nullSrcSpan, Nothing)] 
