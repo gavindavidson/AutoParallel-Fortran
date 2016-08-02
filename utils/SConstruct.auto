@@ -155,10 +155,11 @@ def configureKernelWorkGroupInfo(nunits, nth, kernelFilename):
     # removedDeclsStr = removeIntDeclarations(['nth', 'nunits'], content)
     badDeclarations = ['int nth;', 'int nunits;', 'float CLK_LOCAL_MEM_FENCE;']
     removedDeclsStr = removeLines(badDeclarations, content)
-    removeMaybeDeclsStr = removeMAYBEIdentifiers(removedDeclsStr)
+    removedMaybeDeclsStr = removeMAYBEIdentifiers(removedDeclsStr)
+    removedMaybeDeclsStrExtern = removeExternIdentifiers(removedMaybeDeclsStr)
 
     with open(tempFilename, 'w') as tempFile:
-        tempFile.write(removeMaybeDeclsStr)
+        tempFile.write(removedMaybeDeclsStrExtern)
 
     (kernelFilename_prefix, kernelFilename_extension) = splitAtExtension(kernelFilename)
     newKernelFilename = kernelFilename_prefix + '.cl'
@@ -196,7 +197,6 @@ def removeMAYBEIdentifiers(content):
             if elem[index] in numbers:
                 continue
             elif elem[index] == ' ':
-                # newElem = elem[index+1:]
                 newElem = "__global " + elem[index+1:]
                 break
             else:
@@ -204,6 +204,9 @@ def removeMAYBEIdentifiers(content):
                 break
         newContent += newElem
     return newContent
+
+def removeExternIdentifiers(content):
+    return content.replace("extern ", "")
 
 def hasExtension(filename):
     forbidden = '/\\'

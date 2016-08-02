@@ -254,7 +254,7 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 					-- (readDecls, writtenDecls, generalDecls) = foldl (collectSuperKernelDecls) ([],[],[]) kernelDeclarations
 
 					-- declarations = listRemoveDuplications (readDecls ++ writtenDecls ++ generalDecls)
-					declarations = foldl (collectDecls) [] (readDecls ++ writtenDecls ++ generalDecls)
+					declarations = map (convertScalarToOneDimArray) (foldl (collectDecls) [] (readDecls ++ writtenDecls ++ generalDecls))
 					declarationsStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" declarations
 
 					-- statePointerDeclStr = tabs ++ "integer, dimension(256) :: " ++ (varNameStr stateVarName) ++ "_ptr\n"
@@ -851,7 +851,7 @@ synthesiseOpenCLMap :: String -> [String] -> (Program Anno, String) -> Fortran A
 synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l fortran) =
 																	inTabs ++ "subroutine " ++ kernelName
 																	++"(" 
-																					++ allArgsStr ++ ")\n"
+																					++ allArgs_ptrAdaptionStr ++ ")\n"
 																	++ usesString
 																	++ "\n"
 																	++ readDeclStr
@@ -859,6 +859,7 @@ synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l f
 																	++ generalDeclStr
 																	++ tabs ++ globalIdDeclaration
 																	++ tabs ++ globalIdInitialisation
+																 	++ (produceCode_fortran programInfo tabs originalLines ptrAssignments_fseq)
 																	++ "\n"
 																	++ tabs ++ "! " ++ compilerName ++ ": Synthesised loop variables\n"
 																	++ produceCode_fortran programInfo (tabs) originalLines loopInitialiserCode 
@@ -883,12 +884,14 @@ synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l f
 												writtenArgs = listSubtract w r
 												generalArgs = listIntersection w r
 
-												allArgs = readArgs ++ writtenArgs ++ generalArgs
-												allArgsStr = case allArgs of
+												-- allArgs = listRemoveDuplications (r ++ w)
+												-- allArgs = readArgs ++ writtenArgs ++ generalArgs
+												allArgs = extractKernelArguments (OpenCLMap anno src r w l fortran)												
+												(readDecls, writtenDecls, generalDecls, ptrAssignments_fseq, allArgs_ptrAdaption) = adaptForReadScalarDecls allArgs (generateKernelDeclarations prog (OpenCLMap anno src r w l fortran))
+												allArgs_ptrAdaptionStr = case allArgs_ptrAdaption of
 															[] -> ""
 															args -> foldl (\accum item -> accum ++ "," ++ varNameStr item) (varNameStr (head args)) (tail args)
-												
-												(readDecls, writtenDecls, generalDecls) = adaptForScalarArgs (generateKernelDeclarations prog (OpenCLMap anno src r w l fortran))
+
 												-- (readDecls, writtenDecls, generalDecls) = generateKernelDeclarations prog (OpenCLMap anno src r w l fortran)
 
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl (tabs) item) "" (readDecls)
@@ -903,8 +906,47 @@ synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l f
 																		[] -> error "synthesiseOpenCLMap: loopInitialiserCode - empty list"
 																		_ -> foldl1 (\accum item -> appendFortran_recursive item accum) loopInitialisers
 
-adaptForScalarArgs :: ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno])
-adaptForScalarArgs (readDecls, writtenDecls, generalDecls) = (readDecls, writtenDecls, generalDecls)
+convertScalarToOneDimArray :: Decl Anno -> Decl Anno
+convertScalarToOneDimArray decl 	|	isScalar = addDimension decl zero one
+									|	otherwise = decl
+		where
+			isScalar = (getDeclRank decl == 0)
+			one = generateIntConstant 1
+			zero = generateIntConstant 0
+
+
+adaptForReadScalarDecls :: [VarName Anno] -> ([Decl Anno], [Decl Anno], [Decl Anno]) -> ([Decl Anno], [Decl Anno], [Decl Anno], Fortran Anno, [VarName Anno])
+adaptForReadScalarDecls allArgs (readDecls, writtenDecls, generalDecls)  = (finalReadDecls, writtenDecls, finalGeneralDecls, ptrAssignments_fseq, allArgs_ptrAdaption)
+		where
+			readScalars = map (removeIntentFromDecl) (filter (\x -> (getDeclRank x) == 0) readDecls)
+			generalScalars = map (removeIntentFromDecl) (filter (\x -> (getDeclRank x) == 0) generalDecls)
+			scalars = map (extractAssigneeFromDecl) (readScalars ++ generalScalars)
+
+			readDecls_noScalars = listSubtract readDecls readScalars
+			generalDecls_noScalars = listSubtract generalDecls generalScalars
+
+			readPtrs = map (declareScalarPointer_decl) readScalars
+			generalPtrs = map (declareScalarPointer_decl) generalScalars
+
+			ptrAssignments_list = map (\decl -> generatePtrScalarAssignment (extractAssigneeFromDecl decl)) (readScalars ++ generalScalars)
+			ptrAssignments_fseq = generateFSeq ptrAssignments_list
+
+			finalReadDecls = readDecls_noScalars ++ readScalars ++ readPtrs
+			finalGeneralDecls = generalDecls_noScalars ++ generalScalars ++ generalPtrs
+
+			allArgs_ptrAdaption = map (\var -> if elem var scalars then scalarPointerVarName var else var) allArgs
+
+generatePtrScalarAssignment :: VarName Anno -> Fortran Anno
+generatePtrScalarAssignment var = Assg nullAnno nullSrcSpan assignee assignment
+		where
+			ptrName = scalarPointerVarName var
+			assignee = generateVar var
+			assignment = generateArrayVar ptrName [generateIntConstant 1]
+
+generateFSeq :: [Fortran Anno] -> Fortran Anno
+generateFSeq [] = NullStmt nullAnno nullSrcSpan
+generateFSeq (statement:[]) = statement
+generateFSeq (statement:statements) = FSeq nullAnno nullSrcSpan statement (generateFSeq statements)
 
 --	Function handles the production of OpenCL reduction kernels. Clearly it is much more complicated the the 'synthesiseOpenCLMap' function because the final reduction
 --	kernel need be smarter than a map.
@@ -927,7 +969,7 @@ synthesiseOpenCLReduce :: String ->  [String] -> (Program Anno, String)-> Fortra
 synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r w l rv fortran)  =
 																			inTabs ++ "subroutine " ++ kernelName
 																			++ "(" 				
-																			++ allArgsStr
+																			++ allArgs_ptrAdaptionStr
 																			++ ")\n"
 																			++ usesString
 																			++ "\n"
@@ -1010,13 +1052,17 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 												globalIdInitialisation = "call " ++ outputExprFormatting (getGlobalID globalIdVar) ++ "\n"
 												groupSizeInitialisation_calculation = generateGlobalWorkItemsExpr l
 
-												allArgs = readVarNames ++ writtenVarNames ++ generalVarNames ++ global_reductionArrays
-												allArgsStr = case allArgs of
+												allArgs = extractKernelArguments (OpenCLReduce anno src r w l rv fortran)
+												-- allArgs = readVarNames ++ writtenVarNames ++ generalVarNames ++ global_reductionArrays
+												-- allArgsStr = case allArgs of
+												-- 			[] -> ""
+												-- 			args -> foldl (\accum item -> accum ++ "," ++ varNameStr item) (varNameStr (head args)) (tail args)
+												
+												(readDecls, writtenDecls, generalDecls, ptrAssignments, allArgs_ptrAdaption) = adaptForReadScalarDecls allArgs (generateKernelDeclarations prog (OpenCLReduce anno src r w l rv fortran))
+												allArgs_ptrAdaptionStr = case allArgs_ptrAdaption of
 															[] -> ""
 															args -> foldl (\accum item -> accum ++ "," ++ varNameStr item) (varNameStr (head args)) (tail args)
-												
-												(readDecls, writtenDecls, generalDecls) = generateKernelDeclarations prog (OpenCLReduce anno src r w l rv fortran)
-												
+
 												readDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (readDecls)
 												writtenDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (writtenDecls)
 												generalDeclStr = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" (generalDecls)
