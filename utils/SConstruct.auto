@@ -283,14 +283,14 @@ if csources:
 # fsources += ['module_bondv1_velFG_velnw_superkernel.f95', 'module_bondv1_velFG_velnw_superkernel_states.f95']
 
 # SMALL SET
-hostsources = ['./main_host.f95','./velnw_host.f95','./bondv1_host.f95','./velFG_host.f95','./module_bondv1_velfg_velnw_superkernel_init.f95']
-kernelSource = 'module_bondv1_velfg_velnw_superkernel.c'
-fsources = ['./adam.f95','./anime.f95','./aveflow.f95','./press.f95','./bondFG.f95','./boundp.f95','./boundsm.f95','./vel2.f95','./feedbf.f95','./feedbfm.f95','./les.f95','./grid.f95','./ifdata.f95','./init.f95','./set.f95','./timdata.f95','common_sn.f95','params_common_sn.f95','./timseris.f95']
+# hostsources = ['./main_host.f95','./velnw_host.f95','./bondv1_host.f95','./velFG_host.f95','./module_bondv1_velfg_velnw_superkernel_init.f95']
+# kernelSource = 'module_bondv1_velfg_velnw_superkernel.c'
+# fsources = ['./adam.f95','./anime.f95','./aveflow.f95','./press.f95','./bondFG.f95','./boundp.f95','./boundsm.f95','./vel2.f95','./feedbf.f95','./feedbfm.f95','./les.f95','./grid.f95','./ifdata.f95','./init.f95','./set.f95','./timdata.f95','common_sn.f95','params_common_sn.f95','./timseris.f95']
 
 # LARGE SET
-# hostsources = ['./main_host.f95','./adam_host.f95','./feedbf_host.f95','./les_host.f95','./press_host.f95','./vel2_host.f95','./velnw_host.f95','./bondv1_host.f95','./velFG_host.f95','./module_adam_bondv1_feedbf_les_press_vel2_velfg_velnw_superkernel_init.f95']
-# kernelSource = 'module_adam_bondv1_feedbf_les_press_vel2_velfg_velnw_superkernel.c'
-# fsources = ['./anime.f95','./aveflow.f95','./bondFG.f95','./boundp.f95','./boundsm.f95','./feedbfm.f95','./grid.f95','./ifdata.f95','./init.f95','./set.f95','./timdata.f95','common_sn.f95','params_common_sn.f95','./timseris.f95']
+hostsources = ['./main_host.f95','./adam_host.f95','./feedbf_host.f95','./les_host.f95','./press_host.f95','./vel2_host.f95','./velnw_host.f95','./bondv1_host.f95','./velFG_host.f95','./module_adam_bondv1_feedbf_les_press_v_superkernel_init.f95']
+kernelSource = 'module_adam_bondv1_feedbf_les_press_v_superkernel.c'
+fsources = ['./anime.f95','./aveflow.f95','./bondFG.f95','./boundp.f95','./boundsm.f95','./feedbfm.f95','./grid.f95','./ifdata.f95','./init.f95','./set.f95','./timdata.f95','common_sn.f95','params_common_sn.f95','./timseris.f95']
 
 
 if external_wind_profile:

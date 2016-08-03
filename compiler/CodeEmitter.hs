@@ -512,7 +512,7 @@ generateSizeStatements_decls tabs decls = (sizeDeclarations ++ scalarPointerDecl
 			vars_onlyArrays = map (\(var, rank) -> if rank == 0 then scalarPointerVarName var else var) varsWithRanks
 			
 			scalarDecls = filter (\x -> 0 == getDeclRank x) decls
-			scalarPointerDeclarations = map (declareScalarPointer_decl) scalarDecls
+			scalarPointerDeclarations = map (\x -> removeIntentFromDecl (declareScalarPointer_decl x)) scalarDecls
 
 
 generateSizeDecl :: VarName Anno -> Int -> Decl Anno
@@ -863,11 +863,8 @@ synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l f
 																					++ allArgs_ptrAdaptionStr ++ ")\n"
 																	++ usesString
 																	++ "\n"
-																	++ "! readDeclStr\n"
 																	++ readDeclStr
-																	++ "! writtenDeclStr\n"
 																	++ writtenDeclStr
-																	++ "! generalDeclStr\n"
 																	++ generalDeclStr
 																	++ tabs ++ globalIdDeclaration
 																	++ tabs ++ globalIdInitialisation
