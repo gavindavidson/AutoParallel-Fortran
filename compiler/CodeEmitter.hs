@@ -862,8 +862,11 @@ synthesiseOpenCLMap inTabs originalLines programInfo (OpenCLMap anno src r w l f
 																					++ allArgs_ptrAdaptionStr ++ ")\n"
 																	++ usesString
 																	++ "\n"
+																	++ "! readDeclStr\n"
 																	++ readDeclStr
+																	++ "! writtenDeclStr\n"
 																	++ writtenDeclStr
+																	++ "! generalDeclStr\n"
 																	++ generalDeclStr
 																	++ tabs ++ globalIdDeclaration
 																	++ tabs ++ globalIdInitialisation
@@ -930,8 +933,8 @@ adaptForReadScalarDecls allArgs (readDecls, writtenDecls, generalDecls)  = (fina
 			generalScalars = map (removeIntentFromDecl) (filter (\x -> (getDeclRank x) == 0) generalDecls)
 			scalars = map (extractAssigneeFromDecl) (readScalars ++ generalScalars)
 
-			readDecls_noScalars = listSubtract readDecls readScalars
-			generalDecls_noScalars = listSubtract generalDecls generalScalars
+			readDecls_noScalars = filter (\x -> (getDeclRank x) /= 0) readDecls -- listSubtract readDecls readScalars
+			generalDecls_noScalars = filter (\x -> (getDeclRank x) /= 0) generalDecls --listSubtract generalDecls generalScalars
 
 			readPtrs = map (declareScalarPointer_decl) readScalars
 			generalPtrs = map (declareScalarPointer_decl) generalScalars
@@ -939,7 +942,8 @@ adaptForReadScalarDecls allArgs (readDecls, writtenDecls, generalDecls)  = (fina
 			ptrAssignments_list = map (\decl -> generatePtrScalarAssignment (extractAssigneeFromDecl decl)) (readScalars ++ generalScalars)
 			ptrAssignments_fseq = generateFSeq ptrAssignments_list
 
-			finalReadDecls = readDecls_noScalars ++ readScalars ++ readPtrs
+			finalReadDecls = readDecls_noScalars ++ 
+								readScalars ++ readPtrs
 			finalGeneralDecls = generalDecls_noScalars ++ generalScalars ++ generalPtrs
 
 			allArgs_ptrAdaption = map (\var -> if elem var scalars then scalarPointerVarName var else var) allArgs
