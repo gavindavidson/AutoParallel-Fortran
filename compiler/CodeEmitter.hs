@@ -768,6 +768,14 @@ synthesiseDecl tabs _ = tabs ++ "[Unimplemented declaration syntax] \n"
 synthesiseDecls :: String -> [Decl Anno] -> String
 synthesiseDecls tabs decls = foldl (\accum item -> accum ++ synthesiseDecl tabs item) "" decls
 
+synthesiseDecl_Acc :: String -> Decl Anno -> String -> String
+synthesiseDecl_Acc tabs (Decl anno src lst typ) acc = tabs ++ (synthesiseType typ) ++ " :: " ++ (synthesiseDeclList lst) ++ " " ++ acc ++ "\n"
+synthesiseDecl_Acc tabs (DSeq _ decl1 decl2) acc = (synthesiseDecl_Acc tabs decl1 acc) ++ (synthesiseDecl_Acc tabs decl2 acc)
+synthesiseDecl_Acc tabs decl _ = synthesiseDecl tabs decl
+
+synthesiseDecls_Acc :: String -> [Decl Anno] -> String -> String
+synthesiseDecls_Acc tabs decls acc = foldl (\accum item -> accum ++ synthesiseDecl_Acc tabs item acc) "" decls
+
 synthesiseType :: Type Anno -> String
 synthesiseType (BaseType anno base attrList (expr1) (expr2)) = baseStr ++ kindStr ++ attrStr
 											where
@@ -1070,6 +1078,7 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 												local_reductionVars = map (generateLocalReductionVar) reductionVarNames
 												local_reductionVarsInitStr = foldl (\accum (var, expr) -> accum ++ tabs ++ "local_" ++ varNameStr var ++ " = " ++ outputExprFormatting expr ++ "\n") "" rv
 												local_reductionVarsDeclatation = map (\(red, local) -> stripDeclAttrs $ adaptOriginalDeclaration_varname red local prog) (zip reductionVarNames local_reductionVars)
+												-- local_reductionVarsDeclatationStr = synthesiseDecls_Acc tabs local_reductionVarsDeclatation localMemSpaceAcc
 												local_reductionVarsDeclatationStr = synthesiseDecls tabs local_reductionVarsDeclatation
 
 												localChunkSize_assg = generateAssgCode 
@@ -1098,7 +1107,8 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 
 												workGroup_reductionArrays = map (generateLocalReductionArray) reductionVarNames
 												workGroup_reductionArraysDecl = map (\x -> declareLocalReductionArray x (nthVar) prog) reductionVarNames
-												workGroup_reductionArraysDeclStr = synthesiseDecls tabs workGroup_reductionArraysDecl
+												workGroup_reductionArraysDeclStr = synthesiseDecls_Acc tabs workGroup_reductionArraysDecl localMemSpaceAcc
+												-- workGroup_reductionArraysDeclStr = synthesiseDecls tabs workGroup_reductionArraysDecl
 												workGroup_reductionArraysInitStr = foldl (generateReductionArrayAssignment tabs localIdFortranVar) "" (zip workGroup_reductionArrays local_reductionVars)
 												workGroup_reductionCode = generateWorkGroupReduction reductionVarNames reductionIterator fortran
 												workGroup_loop = generateLoop reductionIterator (generateIntConstant 1) nthVar workGroup_reductionCode
@@ -1108,6 +1118,8 @@ synthesiseOpenCLReduce inTabs originalLines programInfo (OpenCLReduce anno src r
 												-- global_reductionArraysDeclStr = synthesiseDecls tabs global_reductionArraysDecl
 												global_reductionArraysAssignmentStr = foldl (generateReductionArrayAssignment tabs groupIdFortranVar) "" (zip global_reductionArrays local_reductionVars)
 
+localMemSpaceAcc = " !$ACC MemSpace local"
+globalMemSpaceAcc = "!$ACC MemSpace global"
 localChunkSize = generateVar (VarName nullAnno "local_chunk_size")
 startPosition  = generateVar (VarName nullAnno "start_position")
 chunk_size = generateVar chunk_size_varname
