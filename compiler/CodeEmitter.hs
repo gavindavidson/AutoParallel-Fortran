@@ -494,7 +494,7 @@ synthesiseSizeStatements tabs vars ast = (sizeDeclarations ++ scalarPointerDecla
 
 			vars_onlyArrays = map (\(var, rank) -> if rank == 0 then scalarPointerVarName var else var) varsWithRanks
 			vars_onlyScalars = listSubtract allVars vars_onlyArrays
-			scalarPointerDeclarations = map (\x -> declareScalarPointer x ast) vars_onlyScalars
+			scalarPointerDeclarations = map (\x -> removeIntentFromDecl (declareScalarPointer x ast)) vars_onlyScalars
 
 generateSizeStatements_decls :: String -> [Decl Anno] -> ([Decl Anno], [Fortran Anno])
 generateSizeStatements_decls tabs decls = (sizeDeclarations ++ scalarPointerDeclarations, shapeStatements)
