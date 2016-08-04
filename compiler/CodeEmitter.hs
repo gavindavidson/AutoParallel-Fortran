@@ -315,7 +315,7 @@ removeDeclWithVarName decls var = filter (\x -> (extractAssigneeFromDecl x) /= v
 
 synthesiseKernelCaseAlternative :: String -> String -> String -> [VarName Anno] -> String
 synthesiseKernelCaseAlternative tabs state kernelName [] = error "synthesiseKernelCaseAlternative"
-synthesiseKernelCaseAlternative tabs state kernelName args =  tabs ++ "case (" ++ state ++ ")\n" ++ tabs ++ outputTab ++ kernelName ++ "(" ++ argsString ++ ")" ++ "\n" 
+synthesiseKernelCaseAlternative tabs state kernelName args =  tabs ++ "case (" ++ state ++ ")\n" ++ tabs ++ outputTab ++ "call " ++ kernelName ++ "(" ++ argsString ++ ")" ++ "\n" 
 				where
 					argsString = foldl (\accum item -> accum ++ "," ++ (varNameStr item)) (varNameStr $ head args) (tail args)
 
