@@ -71,7 +71,7 @@ isolateAndParalleliseForLoops filename subTable accessAnalysis inp = case inp of
 --	for whether it's a 'reduce'. Finally, it checks whether the loop is a reduction with an outer iteration. If any of these structures
 -- 	are detected, the AST node is tranformed appropriately and placed back into the AST.
 paralleliseLoop :: String -> [VarName Anno] -> VarAccessAnalysis -> SubroutineTable -> Fortran Anno -> Fortran Anno
-paralleliseLoop filename loopVars accessAnalysis subTable loop = transformedAst		
+paralleliseLoop filename loopVars accessAnalysis subTable loop = appendAnnotation transformedAst "prexistingVars: " (show prexistingVars)	
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
@@ -141,7 +141,8 @@ paralleliseLoop_map filename loop loopVarNames nonTempVars prexistingVars depend
 										containedLoopIteratorVarNames = (map (\(a, _, _, _) -> a) (loopCondtions_query loop))
 
 										reads_map_varnames = foldl (++) [] (map extractVarNames reads_map)
-										readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (containedLoopIteratorVarNames ++ varNames_loopConditions)	)	-- List of arguments to kernel that are READ
+										readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (containedLoopIteratorVarNames)	)	-- List of arguments to kernel that are READ
+										-- readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (containedLoopIteratorVarNames ++ varNames_loopConditions)	)	-- List of arguments to kernel that are READ
 										
 										writes_map_varnames = foldl (++) [] (map extractVarNames writes_map)
 										writtenArgs = (listRemoveDuplications $ listSubtract writes_map_varnames containedLoopIteratorVarNames) 	-- List of arguments to kernel that are WRITTEN
@@ -184,7 +185,8 @@ paralleliseLoop_reduce filename loop loopVarNames nonTempVars prexistingVars dep
 										containedLoopIteratorVarNames = (map (\(a, _, _, _) -> a) (loopCondtions_query loop))
 
 										reads_map_varnames = foldl (++) [] (map extractVarNames reads_reduce)
-										readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (containedLoopIteratorVarNames ++ varNames_loopConditions)	)	-- List of arguments to kernel that are READ
+										readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (varNames_loopConditions)	)	-- List of arguments to kernel that are READ
+										-- readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (containedLoopIteratorVarNames ++ varNames_loopConditions)	)	-- List of arguments to kernel that are READ
 										
 										writes_map_varnames = foldl (++) [] (map extractVarNames writes_reduce)
 										writtenArgs = (listRemoveDuplications $ listSubtract writes_map_varnames containedLoopIteratorVarNames) 	-- List of arguments to kernel that are WRITTEN
@@ -255,7 +257,8 @@ paralleliseLoop_reduceWithOuterIteration filename iteratingLoop (Just(parallelLo
 			containedLoopIteratorVarNames = (map (\(a, _, _, _) -> a) (loopCondtions_query parallelLoop))
 
 			reads_map_varnames = foldl (++) [] (map extractVarNames reads_reduce)
-			readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (containedLoopIteratorVarNames ++ varNames_loopConditions ++ iteratingLoopVars)	)	-- List of arguments to kernel that are READ
+			readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (containedLoopIteratorVarNames ++ iteratingLoopVars)	)	-- List of arguments to kernel that are READ
+			-- readArgs = (listRemoveDuplications $ listSubtract reads_map_varnames (containedLoopIteratorVarNames ++ varNames_loopConditions ++ iteratingLoopVars)	)	-- List of arguments to kernel that are READ
 			
 			writes_map_varnames = foldl (++) [] (map extractVarNames writes_reduce)
 			writtenArgs = (listRemoveDuplications $ listSubtract writes_map_varnames containedLoopIteratorVarNames) 	-- List of arguments to kernel that are WRITTEN

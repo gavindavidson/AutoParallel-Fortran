@@ -67,13 +67,21 @@ analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAna
 				isNonTempAssignment = usesVarName_list nonTempVars expr1
 
 				readOperands = extractOperands expr2
-				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
+				readExprs = foldl (\accum item -> accum ++ (extractContainedVars item)) [] readOperands
+				-- readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 				prexistingReadExprs = filter (usesVarName_list prexistingVars) readExprs
 
 
-		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis 
+		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfo childrenAnalysis  -- foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis 
 			where
 				childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_map comment (loopVars ++ [var]) loopWrites nonTempVars prexistingVars accessAnalysis dependencies subTable)) codeSeg)
+				
+				e1Vars = extractAllVarNames e1
+				e2Vars = extractAllVarNames e2
+				e3Vars = extractAllVarNames e3
+
+				readVars = map (generateVar) (listRemoveDuplications (e1Vars ++ e2Vars ++ e3Vars))
+				analysisInfo = (nullAnno, [], readVars, [])
 		Call _ srcspan callExpr arglist -> callAnalysis
 			where
 				--	If the called subroutine exists in a file that was supplied to the compiler, analyse it. If the subroutine is parallelisable,
@@ -118,9 +126,16 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars prexistingV
 				elseAnalysis = case maybeElse of
 								Just else_fortran -> analyseLoop_reduce comment (condExprs) loopVars loopWrites nonTempVars prexistingVars dependencies accessAnalysis else_fortran
 								Nothing -> analysisInfoBaseCase
-		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
+		For _ _ var e1 e2 e3 _ -> foldl combineAnalysisInfo analysisInfo childrenAnalysis -- foldl combineAnalysisInfo analysisInfoBaseCase childrenAnalysis
 			where
 				childrenAnalysis = (gmapQ (mkQ analysisInfoBaseCase (analyseLoop_reduce comment condExprs (loopVars ++ [var]) loopWrites nonTempVars prexistingVars dependencies accessAnalysis)) codeSeg)
+				e1Vars = extractAllVarNames e1
+				e2Vars = extractAllVarNames e2
+				e3Vars = extractAllVarNames e3
+
+				readVars = map (generateVar) (listRemoveDuplications (e1Vars ++ e2Vars ++ e3Vars))
+				analysisInfo = (nullAnno, [], readVars, [])
+
 		Assg _ srcspan expr1 expr2 -> 	combineAnalysisInfo
 											(errorMap3
 											,
@@ -134,7 +149,8 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars prexistingV
 			where
 				writtenExprs = extractOperands expr1
 				readOperands = listSubtract (extractOperands expr2) (expr1:(extractOperands expr1))
-				readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
+				readExprs = foldl (\accum item -> accum ++ (extractContainedVars item)) [] readOperands
+				-- readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 				prexistingReadExprs = filter (usesVarName_list prexistingVars) readExprs
 
 				dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) readExprs) == 1

@@ -35,7 +35,7 @@ combineNestedKernels codeSeg = case codeSeg of
 										newCodeSeg
 											where 
 												newCodeSeg = appendAnnotation (OpenCLMap (combinedAnnotations) src1 reads writes loopVs innerFortran) newAnnotation ""
-												reads = innerReads
+												reads = listRemoveDuplications (outerReads ++ innerReads)
 												writes = innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
 												newAnnotation = compilerName ++ ": Nested map at " ++ errorLocationFormatting src2 ++ " fused into surrounding map"
@@ -48,7 +48,7 @@ combineNestedKernels codeSeg = case codeSeg of
 										newCodeSeg
 											where 
 												newCodeSeg = appendAnnotation (OpenCLReduce (combinedAnnotations) src1 reads writes loopVs redVs innerFortran) newAnnotation ""
-												reads = innerReads
+												reads = listRemoveDuplications (outerReads ++ innerReads)
 												writes = innerWrites
 												loopVs = listRemoveDuplications $ outerLoopVs ++ innerLoopVs
 												redVs = innerRedVs

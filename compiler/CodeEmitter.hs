@@ -204,7 +204,7 @@ synthesiseInitModule moduleName superKernelName programs allKernelArgsMap kernel
 
 synthesiseSuperKernelModule :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
 synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kernelModuleHeader
-																			++ useStatements
+																			-- ++ useStatements
 																			++ contains
 																			++ "\n"
 																			++ (foldl (++) "" kernelCode) 
@@ -213,13 +213,13 @@ synthesiseSuperKernelModule moduleName superKernelName programs kernels =  (kern
 															allKernelArgsMap)
 				where
 					kernelCode = map (fst) kernels
-					
+
 					kernelModuleHeader = "module " ++ moduleName ++ "\n\n"
-					useStatements = "use " ++ initModuleName moduleName ++ "\n"
+					-- useStatements = "use " ++ initModuleName moduleName ++ "\n"
 					contains = "\n" ++ tabInc ++ "contains\n\n"
 					kernelModuleFooter = "end module " ++ moduleName
 
-					(superKernelCode, allKernelArgsMap) = synthesiseSuperKernel outputTab superKernelName programs kernels
+					(superKernelCode, allKernelArgsMap) = synthesiseSuperKernel moduleName outputTab superKernelName programs kernels
 
 generateStateName :: String -> String
 generateStateName kernelName = "ST_" ++ (map (toUpper) kernelName)
@@ -228,9 +228,9 @@ synthesiseStateDefinitions :: [(String, String)] -> Int -> String
 synthesiseStateDefinitions [] currentVal =  ""
 synthesiseStateDefinitions ((kernel, state):xs) currentVal =  "integer, parameter :: " ++ state ++ " = " ++ show currentVal ++ " !  " ++ kernel ++ "\n" ++ (synthesiseStateDefinitions xs (currentVal+1))
 
-synthesiseSuperKernel :: String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
-synthesiseSuperKernel tabs name programs [] = ("", DMap.empty)
-synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else (superKernel, allKernelArgsMap)
+synthesiseSuperKernel :: String -> String -> String -> [(Program Anno, String)] -> [(String, String)] -> (String, KernelArgsIndexMap)
+synthesiseSuperKernel moduleName tabs name programs [] = ("", DMap.empty)
+synthesiseSuperKernel moduleName tabs name programs kernels = if allKernelArgs == [] then error "synthesiseSuperKernel" else (superKernel, allKernelArgsMap)
 													-- error ("kernelDeclarations: " ++ (show kernelDeclarations)
 													-- 	++ "\n\nreadDecls: " ++ (show readDecls)
 													-- 	++ "\n\nwrittenDecls: " ++ (show writtenDecls)
@@ -239,6 +239,10 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 				where
 					programAsts = map (fst) programs
 					kernelAstLists = map (extractKernels) programAsts
+
+					extractedUses = foldl (\accum prog -> listConcatUnique accum (everything (++) (mkQ [] getUses) prog)) [] programAsts
+					useStatements = "use " ++ initModuleName moduleName ++ "\n" 
+										++ (foldl (\accum item -> synthesiseUse ([], "") "" [] item) "" extractedUses)
 
 					kernelNames = map (snd) kernels
 					stateNames = map (generateStateName) kernelNames
@@ -270,7 +274,7 @@ synthesiseSuperKernel tabs name programs kernels = if allKernelArgs == [] then e
 					caseAlternatives = foldl (\accum (state, name, args) -> accum ++ synthesiseKernelCaseAlternative (tabs ++ outputTab) state name args) "" (zip3 stateNames kernelNames kernelArgs)
 					selectCase = outputTab ++ "select case(" ++ (varNameStr stateVarName) ++ ")\n" ++ caseAlternatives ++ outputTab ++ "end select\n"
 
-					superKernel = superKernel_header ++ declarationsStr ++ "\n" ++ stateVarDeclStr ++ statePointerDeclStr ++ stateDefinitions ++ stateAssignment ++ superKernel_body ++ superKernel_footer
+					superKernel = superKernel_header ++ useStatements ++ declarationsStr ++ "\n" ++ stateVarDeclStr ++ statePointerDeclStr ++ stateDefinitions ++ stateAssignment ++ superKernel_body ++ superKernel_footer
 				
 collectDecls :: [Decl Anno] -> Decl Anno -> [Decl Anno]
 collectDecls previousDecls currentDecl = mergeDeclWithPrevious_recurse previousDecls currentDecl
@@ -667,6 +671,10 @@ produceCode_fortran prog tabs originalLines codeSeg = case codeSeg of
 						_ -> 	case anyChildGenerated codeSeg || isGenerated codeSeg of
 									True -> foldl (++) tabs (gmapQ (mkQ "" (produceCode_fortran prog "" originalLines)) codeSeg)
 									False -> extractOriginalCode tabs originalLines (srcSpan codeSeg)
+-- data Uses p  = Use p (String, Renames) (Uses p) p
+
+synthesiseUse :: (Program Anno, String) -> String -> [String] -> Uses Anno -> String
+synthesiseUse prog tabs originalLines (Use _ (moduleName, _) _ _) = tabs ++ "use " ++ moduleName ++ "\n"
 
 synthesiseCall :: (Program Anno, String) -> String -> [String] -> Fortran Anno -> String
 synthesiseCall prog tabs originalLines (Call anno src expr args)	|	partialGenerated = prefix ++ tabs ++ "call " ++ (outputExprFormatting expr) ++ (synthesiseArgList args) ++ suffix ++ "\n"
