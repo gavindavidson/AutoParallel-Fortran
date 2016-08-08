@@ -50,7 +50,7 @@ outputExprFormatting :: Expr Anno -> String
 outputExprFormatting (Var _ _ list) = foldl (++) "" (map (\(varname, exprList) -> ((\(VarName _ str) -> str) varname) ++ 
 															(if exprList /= [] then "(" ++ (foldl (\accum item -> (if accum /= "" then accum ++ "," else "") 
 																++ item) "" (map (outputExprFormatting) exprList)) ++ ")" else "")) list)
-outputExprFormatting (Con _ _ str) = str
+outputExprFormatting (Con _ _ str) = if takeLast 2 str == ".0" then take ((length str) - 2) str else str
 outputExprFormatting (Bin _ _ op expr1 expr2) = "(" ++ outputExprFormatting expr1 ++ " " ++ op_str ++ " " ++ outputExprFormatting expr2 ++ ")"
 							where
 								op_str = case op of
@@ -75,8 +75,10 @@ outputExprFormatting (Unary _ _ unOp expr) = "(" ++ op_str ++ outputExprFormatti
 								op_str = case unOp of
 									UMinus p -> "-"
 									Not p -> ".NOT."
-
 outputExprFormatting codeSeg = show codeSeg
+
+takeLast :: Int -> [a] -> [a]
+takeLast n lst = reverse (take n (reverse lst))
 
 orElem :: Eq a => a -> [[a]] -> Bool
 orElem item [] = False

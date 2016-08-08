@@ -143,6 +143,7 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars prexistingV
 												[expr1] else [],
 											prexistingReadExprs,
 											if isNonTempAssignment then [expr1] else [])
+											
 											(if not potentialReductionVar then
 												expr1Analysis
 												else analysisInfoBaseCase)

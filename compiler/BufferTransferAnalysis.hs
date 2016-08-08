@@ -420,8 +420,14 @@ eliminateBufferPairsKernel_recurse varAccessAnalysis firstKernel kernels ignored
 			(resursiveCall_firstKernel, resursiveCall_kernels) = eliminateBufferPairsKernel_recurse varAccessAnalysis newFirstKernel (tail kernels) ((srcSpan secondKernel):ignoredSpans)
 
 eliminateBufferPairsKernel :: VarAccessAnalysis -> [SrcSpan] -> Fortran Anno -> Fortran Anno -> (Fortran Anno, Fortran Anno)
-eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel = (newFirstKernel, newSecondKernel)
+eliminateBufferPairsKernel varAccessAnalysis ignoredSpans firstKernel secondKernel = -- error debugMessage 
+																					 (newFirstKernel, newSecondKernel)
 		where
+			debugMessage = "FirstKernel:\n" ++ (show firstKernel) ++ "\n\n SecondKernel:\n" ++ (show secondKernel)
+							++ "\n\n readsBetween:\n" ++ (show readsBetween) ++ "\n\n writesBetween:\n" ++ (show writesBetween)
+							++ "\n\n firstBufferReads:\n" ++ (show firstBufferReads) ++ "\n\n newFirstBufferReads:\n" ++ (show newFirstBufferReads)
+							++ "\n\n secondBufferWrites:\n" ++ (show secondBufferWrites) ++ "\n\n newSecondBufferWrites:\n" ++ (show newSecondBufferWrites)	
+
 			firstKernel_src = srcSpan firstKernel
 			secondKernel_src = srcSpan secondKernel
 

@@ -43,29 +43,19 @@ import CodeEmitter 				(emit)
 main = do
 
 	putStr "\nConcerns/To do:"
-	-- putStr ("\n" 	++ outputTab ++ "- Consider called subroutines when parallelising.")
-	-- putStr ("\n" 	++ outputTab ++ "- Initialisation location must consider loops, not just accesses before\n" 
-	-- 				++ outputTab ++ "position")
 	putStr ("\n" 	++ outputTab ++ "- Improve naming conventions")
-	-- putStr ("\n" 	++ outputTab ++ "- SELECT CASE statements are no longer supported? Seems a rollback has\n" 
-	-- 				++ outputTab ++ "happened sometime")
-	putStr ("\n" 	++ outputTab ++ "- Document high level steps including function names")
 	putStr ("\n" 	++ outputTab ++ "- Convert clusters of buffer reads/writes to subroutine calls")
-	putStr ("\n" 	++ outputTab ++ "- Make sure installation instructions are correct")
-	-- putStr ("\n" 	++ outputTab ++ "- kernels are not yet being initialised with source code")
-	-- putStr ("\n" 	++ outputTab ++ "- State pointer and buffer are not declared in host files")
-	-- putStr ("\n" 	++ outputTab ++ "- Optimise reads so that only variables that are read later in the program\n" 
-	-- 				++ outputTab ++ "are read back from buffers.")
-	-- putStr ("\n" 	++ outputTab ++ "- Individual reads, not a subroutine")
-	-- putStr ("\n" 	++ outputTab ++ "- Implement \"fixed form\" check after 70 characters if flag in arguments\n"
-	-- 				++ outputTab ++ "(Input can now be fixed form, output functionality almost there)")
-	-- putStr ("\n" 	++ outputTab ++ "- Do not parallelise calls in loops, rather examine their variable use")
-	-- putStr ("\n" 	++ outputTab ++ "- Translate buffer numbers between subroutines. As in, the same buffer being\n"
-	-- 				++ outputTab ++ "represented by many variable names across subroutines")
 	putStr ("\n" 	++ outputTab ++ "- Consider the possibility of a call to a host subroutine happening after a\n"
 					++ outputTab ++ "call to an OpenCL kernel inside a small loop. The vars that are written by the\n"
 					++ outputTab ++ "host must therefore be rewritten to buffers at the start of the loop")
-	-- putStr ("\n" ++ outputTab ++ "Think we're okay atm..")
+	putStr ("\n" 	++ outputTab ++ "- Problem with reducing into array elements. For example, in press when p(i,j,k)\n"
+					++ outputTab ++ "is a reduction variable in the sor loop. Problem seems to be worse when loop is\n"
+					++ outputTab ++ "detected as an iterative reduction rather than a normal reduction (this loop is\n"
+					++ outputTab ++ "a normal reduction when the calls to boundp1 and boundp2 are commented out). The\n"
+					++ outputTab ++ "issue may stem from the fact that no initial value for the array element may be\n"
+					++ outputTab ++ "produced. It is this problem that means that p is not read back to the host\n
+					++ outputTab ++ "for calls to boundp1 and boundp2\n
+					)
 	putStr "\n\n"
 
 	-- < STEP 1 >
@@ -107,9 +97,6 @@ main = do
 	let (parallelisedSubroutines, parAnnotations) = foldl (paralleliseProgUnit_foldl parsedSubroutines) (DMap.empty, []) subroutineNames 				-- < STEP 4 >	
 	let (combinedKernelSubroutines, combAnnotations) = foldl (combineKernelProgUnit_foldl loopFusionBound) (parallelisedSubroutines, []) subroutineNames-- < STEP 5 >
 	let annotationListings = map (combineAnnotationListings_map parAnnotations) combAnnotations 														-- < STEP 6 >
-
-	putStr ("\nparallelisedSubroutines:\n\n" ++ (show parallelisedSubroutines))
-	-- putStr ("\ncombinedKernelSubroutines:\n\n" ++ (show combinedKernelSubroutines))
 
 	--	< STEP 7a >
 	let argTranslations = extractArgumentTranslationSubroutines combinedKernelSubroutines parsedMain
