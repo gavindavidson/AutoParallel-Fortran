@@ -108,6 +108,7 @@ main = do
 	let (combinedKernelSubroutines, combAnnotations) = foldl (combineKernelProgUnit_foldl loopFusionBound) (parallelisedSubroutines, []) subroutineNames-- < STEP 5 >
 	let annotationListings = map (combineAnnotationListings_map parAnnotations) combAnnotations 														-- < STEP 6 >
 
+	putStr ("\nparallelisedSubroutines:\n\n" ++ (show parallelisedSubroutines))
 	-- putStr ("\ncombinedKernelSubroutines:\n\n" ++ (show combinedKernelSubroutines))
 
 	--	< STEP 7a >

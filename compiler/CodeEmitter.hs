@@ -38,7 +38,7 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 
 				let originalFilenames = map (\x -> getModuleName (snd x)) programs_verboseArgs
 				-- let superkernelName = map (toLower) ((foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames) ++ "_superkernel")
-				let superkernelName = (take 30 (map (toLower) ((foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames))) ++ "_superkernel")
+				let superkernelName = synthesiseSuperKernelName originalFilenames
 				let moduleName = "module_" ++ superkernelName
 				let moduleFilename = specified ++ "/" ++ moduleName ++ ".f95"
 				let newMainFilename = specified ++ "/" ++ (hostModuleName (getModuleName mainFilename)) ++ ".f95"
@@ -59,6 +59,20 @@ emit specified cppDFlags fixedForm programs_verboseArgs programs_optimisedBuffer
 				-- writeFile initTearDownFilename (if fixedForm then fixedFormFormat initAndTearDownCode else initAndTearDownCode)
 				mapM (\(code, filename) -> writeFile filename (if fixedForm then fixedFormFormat code else code)) host_programs
 
+synthesiseSuperKernelName :: [String] -> String
+synthesiseSuperKernelName originalFilenames = base ++ suffix
+		where
+			maxLen = 30
+			base = take maxLen (map (toLower) ((foldl1 (\accum item -> accum ++ "_" ++ item) originalFilenames)))
+			suffix = if (length base == maxLen) 
+				then 
+					(case (last base) of
+									'_' -> "etc_superkernel"
+									_ -> "_etc_superkernel")
+				else 
+					(case (last base) of
+									'_' -> "superkernel"
+									_ -> "_superkernel")
 fixedFormFormat :: String -> String
 fixedFormFormat inputStr = foldl (\accum item -> accum ++ "\n" ++ (fixedFormFormat_line item)) "" allLines
 		where

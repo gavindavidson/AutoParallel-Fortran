@@ -67,7 +67,7 @@ analyseLoop_map comment loopVars loopWrites nonTempVars prexistingVars accessAna
 				isNonTempAssignment = usesVarName_list nonTempVars expr1
 
 				readOperands = extractOperands expr2
-				readExprs = foldl (\accum item -> accum ++ (extractContainedVars item)) [] readOperands
+				readExprs = foldl (\accum item -> accum ++ (extractContainedVars item) ++ [item]) [] readOperands
 				-- readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 				prexistingReadExprs = filter (usesVarName_list prexistingVars) readExprs
 
@@ -150,10 +150,10 @@ analyseLoop_reduce comment condExprs loopVars loopWrites nonTempVars prexistingV
 				writtenExprs = extractOperands expr1
 				readOperands = listSubtract (extractOperands expr2) (expr1:(extractOperands expr1))
 				readExprs = foldl (\accum item -> accum ++ (extractContainedVars item)) [] readOperands
-				-- readExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
+				topLevelReadExprs = foldl (\accum item -> if isFunctionCall accessAnalysis item then accum ++ (extractContainedVars item) else accum ++ [item]) [] readOperands
 				prexistingReadExprs = filter (usesVarName_list prexistingVars) readExprs
 
-				dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) readExprs) == 1
+				dependsOnSelfOnce = length (filter (\item -> applyGeneratedSrcSpans item == applyGeneratedSrcSpans expr1) topLevelReadExprs) == 1
 
 				isNonTempAssignment = usesVarName_list nonTempVars expr1
 				

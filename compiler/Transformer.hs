@@ -71,7 +71,7 @@ isolateAndParalleliseForLoops filename subTable accessAnalysis inp = case inp of
 --	for whether it's a 'reduce'. Finally, it checks whether the loop is a reduction with an outer iteration. If any of these structures
 -- 	are detected, the AST node is tranformed appropriately and placed back into the AST.
 paralleliseLoop :: String -> [VarName Anno] -> VarAccessAnalysis -> SubroutineTable -> Fortran Anno -> Fortran Anno
-paralleliseLoop filename loopVars accessAnalysis subTable loop = appendAnnotation transformedAst "prexistingVars: " (show prexistingVars)	
+paralleliseLoop filename loopVars accessAnalysis subTable loop = transformedAst
 								where
 									newLoopVars = case getLoopVar loop of
 										Just a -> loopVars ++ [a]
