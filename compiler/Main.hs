@@ -53,8 +53,8 @@ main = do
 					++ outputTab ++ "detected as an iterative reduction rather than a normal reduction (this loop is\n"
 					++ outputTab ++ "a normal reduction when the calls to boundp1 and boundp2 are commented out). The\n"
 					++ outputTab ++ "issue may stem from the fact that no initial value for the array element may be\n"
-					++ outputTab ++ "produced. It is this problem that means that p is not read back to the host\n
-					++ outputTab ++ "for calls to boundp1 and boundp2\n
+					++ outputTab ++ "produced. It is this problem that means that p is not read back to the host\n"
+					++ outputTab ++ "for calls to boundp1 and boundp2\n"
 					)
 	putStr "\n\n"
 

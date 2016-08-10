@@ -494,6 +494,15 @@ extractFor codeSeg = case codeSeg of
 extractLineNumber :: SrcSpan -> Int
 extractLineNumber ((SrcLoc _ line _), _) = line
 
+generateESeq :: [VarName Anno] -> Expr Anno
+generateESeq (var:[]) = generateVar var
+generateESeq (var:vars) = ESeq nullAnno nullSrcSpan (generateESeq vars) (generateVar var)
+
+generateFSeq :: [Fortran Anno] -> Fortran Anno
+generateFSeq [] = NullStmt nullAnno nullSrcSpan
+generateFSeq (statement:[]) = statement
+generateFSeq (statement:statements) = FSeq nullAnno nullSrcSpan statement (generateFSeq statements)
+
 generateSrcSpanMerge :: SrcSpan -> SrcSpan -> SrcSpan
 generateSrcSpanMerge src1 src2 = (src1_s, src2_e)
 					where
@@ -712,6 +721,9 @@ trimFront inp = filter (\x -> x /= ' ' && x /= '\t') inp
 --	Value used as a global spacing measure. Used for output formatting.
 outputTab :: String
 outputTab = "  "
+
+tabInc :: String
+tabInc = "    "
 
 compilerName :: String
 compilerName = "ParallelFortran"
