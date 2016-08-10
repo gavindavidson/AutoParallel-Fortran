@@ -4,8 +4,9 @@ where
 
 --	Code in this file handles the final emission of code. The function 'emit' is called against an AST that has been transformed and has had kernels fused.
 --	Trys to make as much use as it can of code that is the same as it was in the original source file. Otherwise, it uses mostly simple functions to generate
---	code segments. Things get more complex when generating reduction kernels as a number of changes to the original source are needed to take full advantage
---	of parallel hardware.
+--	code segments. 
+
+--	Most of the heavily lifting is now performed by FortranSynthesiser.hs and FortranGenerator.hs, using functions found in CodeEmitterUtils.hs
 
 import Control.Monad
 import Data.Generics 					(Data, Typeable, mkQ, mkT, gmapQ, gmapT, everything, everywhere)
